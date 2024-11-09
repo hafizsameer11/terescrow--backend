@@ -20,20 +20,21 @@ const loginController = async (
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return next(
-        ApiError.badRequest('Please enter valid credentials', errors.array())
+      throw ApiError.badRequest(
+        'Please enter valid credentials',
+        errors.array()
       );
     }
     const { email, password }: { email: string; password: string } = req.body;
     const isUser = await Primsa.user.findUnique({ where: { email } });
     if (!isUser) {
-      return next(ApiError.badRequest('This email is not registerd'));
+      throw ApiError.badRequest('This email is not registerd');
     }
     const isMatch = await comparePassword(password, isUser.password);
     if (!isMatch) {
-      return next(ApiError.badRequest('Your password is not correct'));
+      throw ApiError.badRequest('Your password is not correct');
     }
-    const token = generateToken(isUser.id, isUser.username);
+    const token = generateToken(isUser.id, isUser.username, isUser.role);
     res.cookie('token', token, {
       httpOnly: true,
       secure: true,
@@ -45,9 +46,10 @@ const loginController = async (
   } catch (error) {
     console.log(error);
     if (error instanceof ApiError) {
-      return next(error);
+      next(error);
+      return;
     }
-    return next(ApiError.internal('Internal Server Error'));
+    next(ApiError.internal('Internal Server Error'));
   }
 };
 
@@ -59,8 +61,9 @@ const registerController = async (
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return next(
-        ApiError.badRequest('Please enter valid credentials', errors.array())
+      throw ApiError.badRequest(
+        'Please enter valid credentials',
+        errors.array()
       );
     }
     const {
@@ -81,7 +84,7 @@ const registerController = async (
       },
     });
     if (isUser) {
-      return next(ApiError.badRequest('This email is already registerd'));
+      throw ApiError.badRequest('This email is already registerd');
     }
 
     const newUser = await Primsa.user.create({
@@ -99,15 +102,16 @@ const registerController = async (
     });
 
     if (!newUser) {
-      return next(ApiError.internal('User creation Failed'));
+      throw ApiError.internal('User creation Failed');
     }
 
     return new ApiResponse(200, newUser, 'User created successfully').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
-      return next(error);
+      next(error);
+      return;
     }
-    return next(ApiError.internal('Internal Server Error'));
+    next(ApiError.internal('Internal Server Error'));
   }
 };
 
@@ -120,7 +124,7 @@ const logoutController = async (
     res.clearCookie('token');
     return new ApiResponse(200, null, 'User logged out successfully').send(res);
   } catch (error) {
-    return next(error);
+    next(error);
   }
 };
 

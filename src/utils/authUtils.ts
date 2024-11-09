@@ -5,10 +5,10 @@ import ApiError from './ApiError';
 dotenv.config();
 
 // Token generation
-const generateToken = (userId: number, username: string) => {
+const generateToken = (userId: number, username: string, role: string) => {
   // Create a JWT token with user information
   const token = jwt.sign(
-    { _id: userId },
+    { id: userId, username, role },
     process.env.ACCESS_TOKEN_SECRET as string,
     {
       expiresIn: process.env.ACCESS_TOKEN_EXPIRY as string,
@@ -18,10 +18,14 @@ const generateToken = (userId: number, username: string) => {
 };
 
 // Token verification
-const verifyToken = (token: string) => {
+const verifyToken = async (token: string) => {
   try {
     const decoded = jwt.verify(token, process.env.TOKEN_KEY as string);
-    return decoded as { id: number; username: string };
+    return decoded as {
+      id: number;
+      username: string;
+      role: 'ADMIN' | 'CUSTOMER' | 'AGENT';
+    };
   } catch (error) {
     console.log(error);
     throw ApiError.unauthorized('Invalid access token');

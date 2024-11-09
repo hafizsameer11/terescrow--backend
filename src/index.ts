@@ -1,8 +1,8 @@
-import express, { Application, Request, Response, urlencoded } from 'express';
+import express, { Request, Response, urlencoded } from 'express';
+import { app, httpServer } from './socketConfig';
 import cors from 'cors';
 import cookie from 'cookie-parser';
 import authRouter from './routes/auth.router';
-const app: Application = express();
 const port: number = 3000;
 
 //middlewares
@@ -23,6 +23,6 @@ app.get('/', (req: Request, res: Response) => {
   res.send('Hello World!');
 });
 
-app.listen(port, () => {
+httpServer.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });

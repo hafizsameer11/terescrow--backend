@@ -20,7 +20,7 @@ enum UerRoles {
   AGENT
 }
 
-enum MessageStatus {
+enum ChatStatus {
   PENDING
   PROCESSED
 }
@@ -33,12 +33,12 @@ enum Gender {
 
 model User {
   id              Int       @id @default(autoincrement())
-  username        String    @db.VarChar(255)
+  username        String    @unique @db.VarChar(255)
   email           String    @unique @db.VarChar(255)
   firstname       String    @db.VarChar(255)
   lastname        String    @db.VarChar(255)
   country         String    @db.VarChar(255)
-  phoneNumber     String    @db.VarChar(20)
+  phoneNumber     String    @unique @db.VarChar(20)
   password        String    @db.VarChar(255)
   gender          Gender    @default(MALE)
   role            UerRoles  @default(CUSTOMER)
@@ -79,7 +79,8 @@ model Chat {
   customer        User          @relation(fields: [customerId], references: [id])
   subDepartment   SubDepartment @relation(fields: [subDepartmentId], references: [id])
   subDepartmentId Int
-  status          MessageStatus @default(PENDING)
+  status          ChatStatus    @default(PENDING)
+  messages        Message[]
 }
 
 model Message {
@@ -88,5 +89,7 @@ model Message {
   receiverId Int
   sender     User   @relation("SentMessages", fields: [senderId], references: [id])
   receiver   User   @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  chatId     Int    @unique
+  chat       Chat   @relation(fields: [chatId], references: [id])
   message    String @db.VarChar(255)
 }
