@@ -34,6 +34,10 @@ class ApiError extends Error {
   static forbidden(message: string, data?: any) {
     return new ApiError(HttpStatusCodes.FORBIDDEN, message, data);
   }
+
+  static notFound(message: string, data?: any) {
+    return new ApiError(HttpStatusCodes.NOT_FOUND, message, data);
+  }
 }
 
 export default ApiError;

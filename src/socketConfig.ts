@@ -36,13 +36,14 @@ io.on('connection', async (socket) => {
   if (!token) {
     return socket.disconnect();
   }
+  let UserRole: 'ADMIN' | 'AGENT' | 'CUSTOMER' | undefined;
   try {
     const decoded = await verifyToken(token);
     if (!decoded) {
       return socket.disconnect();
     }
     const { username, role } = decoded;
-
+    UserRole = role;
     if (role == 'ADMIN') {
       getAgentDepartment(username)
         .then((res) => {
@@ -71,7 +72,7 @@ io.on('connection', async (socket) => {
         }
 
         const isAgentAvailable = onlineAgents.find(
-          (agent) => agent.department === department
+          (agent) => agent.department == department
         );
 
         if (isAgentAvailable) {
@@ -91,10 +92,13 @@ io.on('connection', async (socket) => {
               });
 
               io.to(isAgentAvailable.socketId).emit(
-                'customerAssigned',
+                `customerAssigned_${department}`,
                 username
               );
-              io.to(socket.id).emit('agentAssigned', isAgentAvailable.username);
+              io.to(socket.id).emit(
+                `agentAssigned_${department}`,
+                isAgentAvailable.username
+              );
             } else {
               onlineCustomers.push({
                 username,
@@ -184,8 +188,27 @@ io.on('connection', async (socket) => {
     return socket.disconnect();
   }
   socket.on('disconnect', (reason) => {
+    if (UserRole == 'ADMIN') {
+      onlineAgents = onlineAgents.filter(
+        (agent) => agent.socketId !== socket.id
+      );
+    } else if (UserRole == 'CUSTOMER') {
+      onlineCustomers = onlineCustomers.filter(
+        (customer) => customer.socketId !== socket.id
+      );
+    }
     console.log('User disconnected: ', reason);
   });
 });
 
-export { io, httpServer, app };
+const getSocketId = (username: string) => {
+  const customer = onlineCustomers.find(
+    (customer) => customer.username == username
+  );
+  const agent = onlineAgents.find((agent) => agent.username == username);
+  if (customer) return customer.socketId;
+  if (agent) return agent.socketId;
+  return '';
+};
+
+export { io, httpServer, app, getSocketId };

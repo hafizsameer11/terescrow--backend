@@ -91,13 +91,13 @@ const registerController = async (
       data: {
         firstname: firstName,
         lastname: lastName,
-        email: email,
-        phoneNumber: phoneNumber,
-        password: password,
-        username: username,
-        gender: gender,
-        country: country,
-        role: role,
+        email,
+        phoneNumber,
+        password,
+        username,
+        gender,
+        country,
+        role,
       },
     });
 
