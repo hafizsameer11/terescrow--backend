@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import bcryptjs from 'bcryptjs';
 import dotenv from 'dotenv';
 import ApiError from './ApiError';
+import nodemailer from 'nodemailer';
 dotenv.config();
 
 // Token generation
@@ -45,4 +46,46 @@ const comparePassword = async (password: string, hashedPassword: string) => {
   return match;
 };
 
-export { generateToken, verifyToken, hashPassword, comparePassword };
+// Generate a random OTP
+function generateOTP(length = 4): string {
+  return Math.floor(
+    Math.pow(10, length - 1) + Math.random() * 9 * Math.pow(10, length - 1)
+  ).toString();
+}
+
+const sendVerificationEmail = async (
+  userEmail: string,
+  otp: string
+): Promise<void> => {
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.GMAIL_USER, // Your Gmail email address
+      pass: process.env.GMAIL_PASS, // Your Gmail app password
+    },
+  });
+
+  const mailOptions = {
+    from: process.env.GMAIL_USER,
+    to: userEmail,
+    subject: 'Your Verification Code',
+    text: `Your OTP for verification is: ${otp}`,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log('OTP sent successfully!');
+  } catch (error) {
+    console.error('Error sending OTP:', error);
+    throw ApiError.internal('Failed to send OTP');
+  }
+};
+
+export {
+  generateToken,
+  verifyToken,
+  hashPassword,
+  comparePassword,
+  sendVerificationEmail,
+  generateOTP,
+};

@@ -2,10 +2,15 @@ import { Request, Response, NextFunction } from 'express';
 import ApiError from '../utils/ApiError';
 import ApiResponse from '../utils/ApiResponse';
 import { validationResult } from 'express-validator';
-import { PrismaClient } from '@prisma/client';
-import { comparePassword, generateToken } from '../utils/authUtils';
+import { PrismaClient, User } from '@prisma/client';
+import {
+  comparePassword,
+  generateOTP,
+  generateToken,
+  sendVerificationEmail,
+} from '../utils/authUtils';
 
-const Primsa = new PrismaClient();
+const prisma = new PrismaClient();
 
 // import { User, UserRole } from '../models/User';
 // import { DriverStatus, Driver } from '../models/Driver';
@@ -26,7 +31,7 @@ const loginController = async (
       );
     }
     const { email, password }: { email: string; password: string } = req.body;
-    const isUser = await Primsa.user.findUnique({ where: { email } });
+    const isUser = await prisma.user.findUnique({ where: { email } });
     if (!isUser) {
       throw ApiError.badRequest('This email is not registerd');
     }
@@ -76,9 +81,9 @@ const registerController = async (
       gender,
       country,
       role,
-    }: User = req.body;
+    }: UserRequest = req.body;
 
-    const isUser = await Primsa.user.findUnique({
+    const isUser = await prisma.user.findUnique({
       where: {
         email,
       },
@@ -87,7 +92,7 @@ const registerController = async (
       throw ApiError.badRequest('This email is already registerd');
     }
 
-    const newUser = await Primsa.user.create({
+    const newUser = await prisma.user.create({
       data: {
         firstname: firstName,
         lastname: lastName,
@@ -105,6 +110,31 @@ const registerController = async (
       throw ApiError.internal('User creation Failed');
     }
 
+    const otp = generateOTP(4);
+
+    const userOTP = await prisma.userOTP.create({
+      data: {
+        userId: newUser.id,
+        otp,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes from now
+      },
+    });
+
+    if (!userOTP) {
+      await prisma.user.delete({
+        where: {
+          username: newUser.username,
+        },
+      });
+      throw ApiError.internal('User OTP creation Failed');
+    }
+    await sendVerificationEmail(email, otp);
+    const token = generateToken(newUser.id, newUser.username, newUser.role);
+    res.cookie('token', token, {
+      secure: true,
+      httpOnly: true,
+      sameSite: 'lax',
+    });
     return new ApiResponse(200, newUser, 'User created successfully').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
@@ -128,11 +158,111 @@ const logoutController = async (
   }
 };
 
-export { loginController, registerController, logoutController };
+const verifyUserController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const user: User = req.body._user;
+    const otp: string = req.body.otp;
+
+    const userOTP = await prisma.userOTP.findUnique({
+      where: {
+        userId: user.id,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!userOTP) {
+      throw ApiError.badRequest('User not found');
+    }
+    if (userOTP.otp !== otp) {
+      await prisma.userOTP.update({
+        where: {
+          userId: user.id,
+        },
+        data: {
+          attempts: { increment: 1 },
+        },
+      });
+      throw ApiError.badRequest('Invalid OTP');
+    }
+    const updateUser = prisma.user.upsert({
+      where: {
+        id: user.id,
+      },
+      update: {
+        isVerified: true,
+      },
+      create: {
+        ...user,
+      },
+    });
+
+    if (!updateUser) {
+      throw ApiError.internal('User verification Failed!');
+    }
+    return new ApiResponse(200, updateUser, 'User Verified Successfully.');
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error!'));
+  }
+};
+
+const resendOtpController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const user: User = req.body._user;
+
+    // Generate new OTP
+    const newOtp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // OTP expires in 10 minutes
+
+    // Update or create OTP in UserOTP table
+    await prisma.userOTP.upsert({
+      where: { userId: user.id },
+      update: {
+        otp: newOtp,
+        expiresAt,
+        attempts: 0, // Reset the attempt count on OTP resend
+      },
+      create: {
+        userId: user.id,
+        otp: newOtp,
+        expiresAt,
+        attempts: 0,
+      },
+    });
+
+    // Send the OTP to user's email
+    await sendVerificationEmail(user.email, newOtp);
+
+    return new ApiResponse(200, null, 'OTP has been resent to your email.');
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error!'));
+  }
+};
+
+export {
+  loginController,
+  registerController,
+  logoutController,
+  verifyUserController,
+  resendOtpController,
+};
 
 //interfaces
 
-interface User {
+interface UserRequest {
   firstName: string;
   lastName: string;
   email: string;
