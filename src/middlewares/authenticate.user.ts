@@ -23,7 +23,7 @@ const authenticateUser = async (
     if (!decoded) {
       throw ApiError.unauthorized('You are not logged in');
     }
-
+    // console.log(decoded);
     const isUser = await prisma.user.findUnique({
       where: {
         id: decoded.id,
@@ -34,7 +34,7 @@ const authenticateUser = async (
       throw ApiError.unauthorized('You are not logged in');
     }
 
-    req.body._id = isUser.id;
+    req.body._user = isUser;
     next();
   } catch (error) {
     if (error instanceof ApiError) {

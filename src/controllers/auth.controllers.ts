@@ -7,15 +7,11 @@ import {
   comparePassword,
   generateOTP,
   generateToken,
+  hashPassword,
   sendVerificationEmail,
 } from '../utils/authUtils';
 
 const prisma = new PrismaClient();
-
-// import { User, UserRole } from '../models/User';
-// import { DriverStatus, Driver } from '../models/Driver';
-// import { comparePassword, generateToken } from '../utils/authUtils';
-// import { Types } from 'mongoose';
 
 const loginController = async (
   req: Request,
@@ -45,9 +41,13 @@ const loginController = async (
       secure: true,
       sameSite: 'lax',
     });
-    return new ApiResponse(200, isUser, 'User logged in successfully').send(
-      res
-    );
+
+    return new ApiResponse(
+      200,
+      isUser,
+      'User logged in successfully',
+      token
+    ).send(res);
   } catch (error) {
     console.log(error);
     if (error instanceof ApiError) {
@@ -83,14 +83,17 @@ const registerController = async (
       role,
     }: UserRequest = req.body;
 
-    const isUser = await prisma.user.findUnique({
+    const isUser = await prisma.user.findFirst({
       where: {
-        email,
+        OR: [{ email }, { username }, { phoneNumber }],
       },
     });
+
     if (isUser) {
-      throw ApiError.badRequest('This email is already registerd');
+      throw ApiError.badRequest('This user is already registerd');
     }
+
+    const hashedPassword = await hashPassword(password);
 
     const newUser = await prisma.user.create({
       data: {
@@ -98,7 +101,7 @@ const registerController = async (
         lastname: lastName,
         email,
         phoneNumber,
-        password,
+        password: hashedPassword,
         username,
         gender,
         country,
@@ -135,8 +138,14 @@ const registerController = async (
       httpOnly: true,
       sameSite: 'lax',
     });
-    return new ApiResponse(200, newUser, 'User created successfully').send(res);
+    return new ApiResponse(
+      200,
+      newUser,
+      'User created successfully',
+      token
+    ).send(res);
   } catch (error) {
+    console.log(error);
     if (error instanceof ApiError) {
       next(error);
       return;
@@ -164,15 +173,19 @@ const verifyUserController = async (
   next: NextFunction
 ) => {
   try {
+    // console.log('reached');
     const user: User = req.body._user;
     const otp: string = req.body.otp;
 
+    // console.log(user, otp);
     const userOTP = await prisma.userOTP.findUnique({
       where: {
         userId: user.id,
         expiresAt: { gt: new Date() },
       },
     });
+
+    // console.log(userOTP);
 
     if (!userOTP) {
       throw ApiError.badRequest('User not found');
@@ -188,7 +201,7 @@ const verifyUserController = async (
       });
       throw ApiError.badRequest('Invalid OTP');
     }
-    const updateUser = prisma.user.upsert({
+    const updateUser = await prisma.user.upsert({
       where: {
         id: user.id,
       },
@@ -199,11 +212,12 @@ const verifyUserController = async (
         ...user,
       },
     });
-
+    console.log(updateUser.isVerified);
     if (!updateUser) {
       throw ApiError.internal('User verification Failed!');
     }
-    return new ApiResponse(200, updateUser, 'User Verified Successfully.');
+    console.log('fulfilled');
+    return new ApiResponse(201, null, 'User Verified Successfully.').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);

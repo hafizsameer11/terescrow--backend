@@ -21,7 +21,10 @@ const generateToken = (userId: number, username: string, role: string) => {
 // Token verification
 const verifyToken = async (token: string) => {
   try {
-    const decoded = jwt.verify(token, process.env.TOKEN_KEY as string);
+    const decoded = jwt.verify(
+      token,
+      process.env.ACCESS_TOKEN_SECRET as string
+    );
     return decoded as {
       id: number;
       username: string;

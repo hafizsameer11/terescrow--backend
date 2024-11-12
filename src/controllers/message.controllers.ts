@@ -14,10 +14,6 @@ interface MessageRequest {
   subDepartmentId: number;
 }
 
-interface ChatRequest extends ParsedUrlQuery {
-  receiverUsername: User['username'];
-  chatId: string;
-}
 const sendMessageController = async (
   req: Request,
   res: Response,

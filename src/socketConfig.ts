@@ -44,7 +44,7 @@ io.on('connection', async (socket) => {
     }
     const { username, role } = decoded;
     UserRole = role;
-    if (role == 'ADMIN') {
+    if (role == 'AGENT') {
       getAgentDepartment(username)
         .then((res) => {
           if (res) {
