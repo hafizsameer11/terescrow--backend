@@ -66,38 +66,94 @@ model Agent {
   agent     Chat[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  assignedDepartments AssignedDepartment[]
 }
 
 model Department {
-  id             Int             @id @default(autoincrement())
-  name           String          @db.VarChar(255)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  subdepartments SubDepartment[]
+  id                  Int                  @id @default(autoincrement())
+  title               String               @db.VarChar(255)
+  description         String
+  icon                String
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  categories          CatDepart[]
+  assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
 }
 
-model SubDepartment {
+model Category {
+  id            Int         @id @default(autoincrement())
+  title         String      @db.VarChar(255)
+  subTitle      String?
+  image         String?
+  departments   CatDepart[]
+  chat          Chat[]
+  subCategories CatSubcat[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model Country {
+  id    Int    @id @default(autoincrement())
+  title String
+}
+
+model CatDepart {
   id           Int        @id @default(autoincrement())
-  name         String     @db.VarChar(255)
-  department   Department @relation(fields: [departmentId], references: [id])
+  categoryId   Int
+  category     Category   @relation(fields: [categoryId], references: [id])
   departmentId Int
-  chat         Chat[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  department   Department @relation(fields: [departmentId], references: [id])
+}
+
+model AssignedDepartment {
+  id           Int @id @default(autoincrement())
+  agentId      Int
+  departmentId Int
+
+  agent      Agent      @relation(fields: [agentId], references: [id])
+  department Department @relation(fields: [departmentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([agentId, departmentId]) // Composite unique constraint to prevent duplicate assignments
+}
+
+model Subcategory {
+  id        Int         @id @default(autoincrement())
+  title     String      @db.VarChar(255)
+  price     Decimal
+  catSubcat CatSubcat[]
+  // chat         Chat[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model CatSubcat {
+  id            Int         @id @default(autoincrement())
+  categoryId    Int
+  category      Category    @relation(fields: [categoryId], references: [id])
+  subCategoryId Int
+  subCategory   Subcategory @relation(fields: [subCategoryId], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([categoryId, subCategoryId])
 }
 
 model Chat {
-  id              Int           @id @default(autoincrement())
-  agentId         Int
-  agent           Agent         @relation(fields: [agentId], references: [id])
-  customerId      Int
-  customer        User          @relation(fields: [customerId], references: [id])
-  subDepartment   SubDepartment @relation(fields: [subDepartmentId], references: [id])
-  subDepartmentId Int
-  status          ChatStatus    @default(PENDING)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  messages        Message[]
+  id         Int        @id @default(autoincrement())
+  agentId    Int
+  agent      Agent      @relation(fields: [agentId], references: [id])
+  customerId Int
+  customer   User       @relation(fields: [customerId], references: [id])
+  category   Category   @relation(fields: [categoryId], references: [id])
+  categoryId Int
+  status     ChatStatus @default(PENDING)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  messages   Message[]
 }
 
 model Message {

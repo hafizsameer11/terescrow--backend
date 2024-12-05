@@ -5,6 +5,7 @@ import cookie from 'cookie-parser';
 import authRouter from './routes/auth.router';
 import messageRouter from './routes/message.router';
 import ApiError from './utils/ApiError';
+import customerRouter from './routes/customer.router';
 
 const port = process.env.PORT || 8000;
 //middlewares
@@ -22,6 +23,7 @@ app.use(cookie());
 //routes
 app.use('/api/auth', authRouter);
 app.use('/api', messageRouter);
+app.use('/api/customer', customerRouter);
 app.get('/', (req: Request, res: Response) => {
   res.send('Hello World!');
 });
