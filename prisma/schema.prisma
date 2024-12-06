@@ -11,7 +11,7 @@ datasource db {
 }
 
 // enums
-enum UerRoles {
+enum UserRoles {
   ADMIN
   CUSTOMER
   AGENT
@@ -38,7 +38,7 @@ model User {
   phoneNumber     String    @unique @db.VarChar(20)
   password        String    @db.VarChar(255)
   gender          Gender    @default(MALE)
-  role            UerRoles  @default(CUSTOMER)
+  role            UserRoles @default(CUSTOMER)
   isVerified      Boolean   @default(false)
   otps            UserOTP[]
   agent           Agent?
@@ -78,6 +78,7 @@ model Department {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   categories          CatDepart[]
+  chats               Chat[]
   assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
 }
 
@@ -143,17 +144,19 @@ model CatSubcat {
 }
 
 model Chat {
-  id         Int        @id @default(autoincrement())
-  agentId    Int
-  agent      Agent      @relation(fields: [agentId], references: [id])
-  customerId Int
-  customer   User       @relation(fields: [customerId], references: [id])
-  category   Category   @relation(fields: [categoryId], references: [id])
-  categoryId Int
-  status     ChatStatus @default(PENDING)
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-  messages   Message[]
+  id           Int        @id @default(autoincrement())
+  agentId      Int
+  agent        Agent      @relation(fields: [agentId], references: [id])
+  customer     User       @relation(fields: [customerId], references: [id])
+  customerId   Int
+  category     Category   @relation(fields: [categoryId], references: [id])
+  categoryId   Int
+  departmentId Int
+  department   Department @relation(fields: [departmentId], references: [id])
+  status       ChatStatus @default(PENDING)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  messages     Message[]
 }
 
 model Message {

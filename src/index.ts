@@ -3,7 +3,7 @@ import { app, httpServer } from './socketConfig';
 import cors from 'cors';
 import cookie from 'cookie-parser';
 import authRouter from './routes/auth.router';
-import messageRouter from './routes/message.router';
+// import messageRouter from './routes/message.router';
 import ApiError from './utils/ApiError';
 import customerRouter from './routes/customer.router';
 
@@ -22,7 +22,7 @@ app.use(cookie());
 
 //routes
 app.use('/api/auth', authRouter);
-app.use('/api', messageRouter);
+// app.use('/api', messageRouter);
 app.use('/api/customer', customerRouter);
 app.get('/', (req: Request, res: Response) => {
   res.send('Hello World!');

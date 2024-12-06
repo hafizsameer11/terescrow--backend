@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import ApiError from '../utils/ApiError';
 import ApiResponse from '../utils/ApiResponse';
 import { validationResult } from 'express-validator';
-import { PrismaClient, User } from '@prisma/client';
+import { PrismaClient, User, UserRoles } from '@prisma/client';
 import {
   comparePassword,
   generateOTP,
@@ -27,7 +27,9 @@ const loginController = async (
       );
     }
     const { email, password }: { email: string; password: string } = req.body;
-    const isUser = await prisma.user.findUnique({ where: { email } });
+    const isUser = await prisma.user.findUnique({
+      where: { email },
+    });
     if (!isUser) {
       throw ApiError.badRequest('This email is not registerd');
     }
@@ -58,7 +60,7 @@ const loginController = async (
   }
 };
 
-const registerController = async (
+const registerCustomerController = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -80,7 +82,6 @@ const registerController = async (
       username,
       gender,
       country,
-      role,
     }: UserRequest = req.body;
 
     const isUser = await prisma.user.findFirst({
@@ -105,7 +106,7 @@ const registerController = async (
         username,
         gender,
         country,
-        role,
+        role: UserRoles.CUSTOMER,
       },
     });
 
@@ -140,7 +141,7 @@ const registerController = async (
     });
     return new ApiResponse(
       200,
-      newUser,
+      undefined,
       'User created successfully',
       token
     ).send(res);
@@ -268,7 +269,7 @@ const resendOtpController = async (
 
 export {
   loginController,
-  registerController,
+  registerCustomerController,
   logoutController,
   verifyUserController,
   resendOtpController,

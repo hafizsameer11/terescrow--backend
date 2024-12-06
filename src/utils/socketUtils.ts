@@ -1,53 +1,72 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, UserRoles } from '@prisma/client';
 import ApiError from './ApiError';
 const primsa = new PrismaClient();
 
-const getAgentDepartment = async (username: string) => {
+const getAgentDepartmentAndAgentId = async (
+  userId: number
+): Promise<{
+  agentId: number;
+  assignedDepartments: { id: number }[];
+} | null> => {
   try {
     const isAgent = await primsa.user.findUnique({
       where: {
-        username,
+        id: userId,
+      },
+      select: {
+        agent: {
+          select: {
+            id: true,
+            assignedDepartments: {
+              select: { id: true },
+            },
+          },
+        },
       },
     });
-    if (!isAgent) return '';
-    return isAgent.role;
+    if (!isAgent || !isAgent.agent) return null;
+    return {
+      agentId: isAgent.agent.id,
+      assignedDepartments: isAgent.agent.assignedDepartments,
+    };
   } catch (error) {
     console.log(error);
-    return '';
+    return null;
     // throw ApiError.badRequest('Internal server error');
   }
 };
 
 const createNewChat = async (
-  agentUsername: string,
-  customerUsername: string,
-  subDepartmentId: number
+  agentId: number,
+  customerId: number,
+  departmentId: number,
+  categoryId: number
 ) => {
   try {
-    const agent = await primsa.user.findUnique({
+    const agent = await primsa.agent.findUnique({
       where: {
-        username: agentUsername,
-        role: 'AGENT',
+        id: agentId,
       },
-      include: {
-        agent: true,
+      select: {
+        id: true,
       },
     });
     const customer = await primsa.user.findUnique({
       where: {
-        username: customerUsername,
-        role: 'CUSTOMER',
+        id: customerId,
+        role: UserRoles.CUSTOMER,
       },
     });
-    if (!agent?.agent || !customer) {
+    if (!agent || !customer) {
       return false;
     }
 
     const chat = await primsa.chat.create({
       data: {
-        agentId: agent.agent.id,
+        agentId: agent.id,
         customerId: customer.id,
-        subDepartmentId,
+        categoryId,
+        departmentId,
       },
     });
     return true;
@@ -57,24 +76,28 @@ const createNewChat = async (
   }
 };
 
-const getDepartmentFromSubDepartment = async (subDepartmentId: number) => {
-  try {
-    const subDepartment = await primsa.subDepartment.findUnique({
-      where: {
-        id: subDepartmentId,
-      },
-      include: {
-        department: true,
-      },
-    });
-    if (!subDepartment) {
-      throw ApiError.internal('Internal server error');
-    }
-    return subDepartment.department.name;
-  } catch (error) {
-    console.log(error);
-    ApiError.internal('Internal server error');
-  }
-};
+// const getDepartmentFromCategory = async (categoryId: number) => {
+//   try {
+//     const category = await primsa.category.findUnique({
+//       where: {
+//         id: categoryId,
+//       },
+//       include: {
+//         departments: true,
+//       },
+//     });
+//     if (!category) {
+//       throw ApiError.internal('Internal server error');
+//     }
+//     return category.department.name;
+//   } catch (error) {
+//     console.log(error);
+//     ApiError.internal('Internal server error');
+//   }
+// };
 
-export { getAgentDepartment, createNewChat, getDepartmentFromSubDepartment };
+export {
+  getAgentDepartmentAndAgentId,
+  createNewChat,
+  // getDepartmentFromCategory,
+};
