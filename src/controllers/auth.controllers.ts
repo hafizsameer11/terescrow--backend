@@ -2,13 +2,14 @@ import { Request, Response, NextFunction } from 'express';
 import ApiError from '../utils/ApiError';
 import ApiResponse from '../utils/ApiResponse';
 import { validationResult } from 'express-validator';
-import { PrismaClient, User, UserRoles } from '@prisma/client';
+import { Gender, OtpType, PrismaClient, User, UserRoles } from '@prisma/client';
 import {
   comparePassword,
   generateOTP,
   generateToken,
   hashPassword,
   sendVerificationEmail,
+  verifyToken,
 } from '../utils/authUtils';
 
 const prisma = new PrismaClient();
@@ -34,6 +35,7 @@ const loginController = async (
       throw ApiError.badRequest('This email is not registerd');
     }
     const isMatch = await comparePassword(password, isUser.password);
+
     if (!isMatch) {
       throw ApiError.badRequest('Your password is not correct');
     }
@@ -44,9 +46,16 @@ const loginController = async (
       sameSite: 'lax',
     });
 
+    const resData = {
+      id: isUser.id,
+      username: isUser.username,
+      email: isUser.email,
+      role: isUser.role,
+    };
+
     return new ApiResponse(
       200,
-      isUser,
+      resData,
       'User logged in successfully',
       token
     ).send(res);
@@ -120,7 +129,8 @@ const registerCustomerController = async (
       data: {
         userId: newUser.id,
         otp,
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes from now
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        type: OtpType.email_verification,
       },
     });
 
@@ -182,15 +192,33 @@ const verifyUserController = async (
     const userOTP = await prisma.userOTP.findUnique({
       where: {
         userId: user.id,
-        expiresAt: { gt: new Date() },
       },
     });
 
     // console.log(userOTP);
 
     if (!userOTP) {
-      throw ApiError.badRequest('User not found');
+      return next(ApiError.badRequest('User not found'));
     }
+
+    if (userOTP.expiresAt < new Date()) {
+      await prisma.userOTP.delete({
+        where: {
+          userId: user.id,
+        },
+      });
+      return next(ApiError.badRequest('Your otp has been expired'));
+    }
+
+    if (userOTP.attempts >= 5) {
+      await prisma.userOTP.delete({
+        where: {
+          userId: user.id,
+        },
+      });
+      return next(ApiError.badRequest('Your otp has been expired'));
+    }
+
     if (userOTP.otp !== otp) {
       await prisma.userOTP.update({
         where: {
@@ -213,12 +241,90 @@ const verifyUserController = async (
         ...user,
       },
     });
-    console.log(updateUser.isVerified);
+    // console.log(updateUser.isVerified);
     if (!updateUser) {
-      throw ApiError.internal('User verification Failed!');
+      return next(ApiError.internal('User verification Failed!'));
     }
-    console.log('fulfilled');
+
+    await prisma.userOTP.delete({
+      where: {
+        userId: user.id,
+      },
+    });
+    // console.log('fulfilled');
     return new ApiResponse(201, null, 'User Verified Successfully.').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error!'));
+  }
+};
+
+const verifyForgotPasswordOtp = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    // console.log('reached');
+    const { email, otp } = req.body as { email: string; otp: string };
+    const user = await prisma.user.findUnique({
+      where: {
+        email,
+      },
+    });
+    if (!user) {
+      return next(ApiError.badRequest('User not found'));
+    }
+
+    const isUserOtp = await prisma.userOTP.findUnique({
+      where: {
+        userId: user.id,
+      },
+    });
+
+    if (!isUserOtp) {
+      return next(ApiError.badRequest('Otp not generated for this user'));
+    }
+
+    if (isUserOtp.expiresAt < new Date()) {
+      await prisma.userOTP.delete({
+        where: {
+          userId: user.id,
+        },
+      });
+      return next(ApiError.badRequest('Your otp has been expired'));
+    }
+
+    if (isUserOtp.attempts >= 5) {
+      await prisma.userOTP.delete({
+        where: {
+          userId: user.id,
+        },
+      });
+      return next(ApiError.badRequest('Your otp has been expired'));
+    }
+
+    if (isUserOtp.otp !== otp) {
+      await prisma.userOTP.update({
+        where: {
+          userId: user.id,
+        },
+        data: {
+          attempts: { increment: 1 },
+        },
+      });
+      return next(ApiError.badRequest('Invalid OTP'));
+    }
+
+    await prisma.userOTP.delete({
+      where: {
+        userId: user.id,
+      },
+    });
+    // console.log('fulfilled');
+    return new ApiResponse(200, null, 'Otp verified successfully.').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -233,32 +339,143 @@ const resendOtpController = async (
   next: NextFunction
 ) => {
   try {
-    const user: User = req.body._user;
+    const { token, email } = req.body as { email: string; token: string };
+
+    if (!token || !email) {
+      return next(ApiError.badRequest('Invalid request credentials'));
+    }
+
+    let user: User;
+    const newOtp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // OTP expires in 10 minutes
+    let decodedToken: any;
+    if (token) {
+      const decoded = await verifyToken(token);
+      const isUser = await prisma.user.findUnique({
+        where: {
+          id: decoded.id,
+        },
+      });
+
+      if (!isUser) {
+        return next(ApiError.badRequest('User not found'));
+      }
+      decodedToken = decoded;
+      await prisma.userOTP.upsert({
+        where: { userId: isUser.id },
+        update: {
+          otp: newOtp,
+          expiresAt,
+          attempts: 0, // Reset the attempt count on OTP resend
+        },
+        create: {
+          userId: isUser.id,
+          otp: newOtp,
+          type: OtpType.email_verification,
+          expiresAt,
+          attempts: 0,
+        },
+      });
+    }
+    if (email) {
+      const isUser = await prisma.user.findUnique({
+        where: {
+          email,
+        },
+      });
+      if (!isUser) {
+        return next(ApiError.badRequest('User not found'));
+      }
+      await prisma.userOTP.upsert({
+        where: { userId: isUser.id },
+        update: {
+          otp: newOtp,
+          expiresAt,
+          attempts: 0, // Reset the attempt count on OTP resend
+        },
+        create: {
+          userId: isUser.id,
+          otp: newOtp,
+          type: OtpType.password_verification,
+          expiresAt,
+          attempts: 0,
+        },
+      });
+    }
 
     // Generate new OTP
-    const newOtp = generateOTP();
+    // const newOtp = generateOTP();
+
+    // Update or create OTP in UserOTP table
+
+    // Send the OTP to user's email
+    await sendVerificationEmail(decodedToken.email, newOtp);
+
+    return new ApiResponse(
+      200,
+      null,
+      'OTP has been resent to your email.'
+    ).send(res);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error!'));
+  }
+};
+
+const sendPasswordOtpController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { email } = req.body as { email: string };
+
+    if (!email) {
+      return next(ApiError.badRequest('Invalid request credentials'));
+    }
+
+    const isUser = await prisma.user.findUnique({
+      where: {
+        email,
+      },
+    });
+
+    if (!isUser) {
+      return next(ApiError.badRequest('User not found'));
+    }
+
+    const otp = generateOTP();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // OTP expires in 10 minutes
 
     // Update or create OTP in UserOTP table
-    await prisma.userOTP.upsert({
-      where: { userId: user.id },
+    const newOtp = await prisma.userOTP.upsert({
+      where: { userId: isUser.id },
       update: {
-        otp: newOtp,
+        otp: otp,
         expiresAt,
         attempts: 0, // Reset the attempt count on OTP resend
+        type: OtpType.password_verification,
       },
       create: {
-        userId: user.id,
-        otp: newOtp,
+        type: OtpType.password_verification,
+        userId: isUser.id,
+        otp: otp,
         expiresAt,
         attempts: 0,
       },
     });
 
-    // Send the OTP to user's email
-    await sendVerificationEmail(user.email, newOtp);
+    if (newOtp) {
+      await sendVerificationEmail(isUser.email, otp);
+    }
 
-    return new ApiResponse(200, null, 'OTP has been resent to your email.');
+    return new ApiResponse(
+      200,
+      { email: isUser.email },
+      'OTP has been resent to your email.'
+    ).send(res);
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -273,6 +490,8 @@ export {
   logoutController,
   verifyUserController,
   resendOtpController,
+  verifyForgotPasswordOtp,
+  sendPasswordOtpController,
 };
 
 //interfaces
@@ -284,7 +503,7 @@ interface UserRequest {
   phoneNumber: string;
   password: string;
   username: string;
-  gender: 'MALE' | 'FEMALE' | 'OTHER'; // Assuming an enum-like structure for gender
+  gender: Gender; // Assuming an enum-like structure for gender
   country: string;
   role: 'ADMIN' | 'AGENT' | 'CUSTOMER';
 }

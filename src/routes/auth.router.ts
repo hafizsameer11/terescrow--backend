@@ -4,6 +4,8 @@ import {
   logoutController,
   registerCustomerController,
   resendOtpController,
+  sendPasswordOtpController,
+  verifyForgotPasswordOtp,
   verifyUserController,
 } from '../controllers/auth.controllers';
 import authenticateUser from '../middlewares/authenticate.user';
@@ -13,7 +15,9 @@ const authRouter = express.Router();
 authRouter.post('/login', loginController);
 authRouter.post('/customer/register', registerCustomerController);
 authRouter.post('/logout', logoutController);
-authRouter.post('/verify-otp', authenticateUser, verifyUserController);
-authRouter.post('/resend-otp', authenticateUser, resendOtpController);
+authRouter.post('/verify-email-otp', authenticateUser, verifyUserController);
+authRouter.post('/verify-forgot-password-otp', verifyForgotPasswordOtp);
+authRouter.post('/resend-otp', resendOtpController);
+authRouter.post('/forgot-password', sendPasswordOtpController);
 
 export default authRouter;
