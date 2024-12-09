@@ -7,8 +7,8 @@ import {
   sendPasswordOtpController,
   verifyForgotPasswordOtp,
   verifyUserController,
-} from '../controllers/auth.controllers';
-import authenticateUser from '../middlewares/authenticate.user';
+} from '../../controllers/customer/auth.controllers';
+import authenticateUser from '../../middlewares/authenticate.user';
 // import authController from '../controllers/auth.controller';
 const authRouter = express.Router();
 

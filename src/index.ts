@@ -2,10 +2,12 @@ import express, { NextFunction, Request, Response, urlencoded } from 'express';
 import { app, httpServer } from './socketConfig';
 import cors from 'cors';
 import cookie from 'cookie-parser';
-import authRouter from './routes/auth.router';
+import authRouter from './routes/cutomer/auth.router';
 // import messageRouter from './routes/message.router';
 import ApiError from './utils/ApiError';
-import customerRouter from './routes/customer.router';
+import customerRouter from './routes/cutomer/chat.router';
+import publicRouter from './routes/public.router';
+import agentChatRouter from './routes/agent/chat.router';
 
 const port = process.env.PORT || 8000;
 
@@ -24,6 +26,8 @@ app.use(cookie());
 //routes
 app.use('/api/auth', authRouter);
 app.use('/api/customer', customerRouter);
+app.use('/api/agent', agentChatRouter);
+app.use('api/public', publicRouter);
 app.get('/', (req: Request, res: Response) => {
   res.send('Hello World!');
 });

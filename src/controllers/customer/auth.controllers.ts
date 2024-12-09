@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import ApiError from '../utils/ApiError';
-import ApiResponse from '../utils/ApiResponse';
+import ApiError from '../../utils/ApiError';
+import ApiResponse from '../../utils/ApiResponse';
 import { validationResult } from 'express-validator';
 import { Gender, OtpType, PrismaClient, User, UserRoles } from '@prisma/client';
 import {
@@ -10,7 +10,7 @@ import {
   hashPassword,
   sendVerificationEmail,
   verifyToken,
-} from '../utils/authUtils';
+} from '../../utils/authUtils';
 
 const prisma = new PrismaClient();
 
@@ -34,8 +34,8 @@ const loginController = async (
     if (!isUser) {
       throw ApiError.badRequest('This email is not registerd');
     }
+    // console.log(password);
     const isMatch = await comparePassword(password, isUser.password);
-
     if (!isMatch) {
       throw ApiError.badRequest('Your password is not correct');
     }
@@ -115,7 +115,7 @@ const registerCustomerController = async (
         username,
         gender,
         country,
-        role: UserRoles.CUSTOMER,
+        role: UserRoles.customer,
       },
     });
 
@@ -184,14 +184,12 @@ const verifyUserController = async (
   next: NextFunction
 ) => {
   try {
-    // console.log('reached');
     const user: User = req.body._user;
     const otp: string = req.body.otp;
-
-    // console.log(user, otp);
     const userOTP = await prisma.userOTP.findUnique({
       where: {
         userId: user.id,
+        type: OtpType.email_verification,
       },
     });
 

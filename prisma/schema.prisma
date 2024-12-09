@@ -12,14 +12,15 @@ datasource db {
 
 // enums
 enum UserRoles {
-  ADMIN
-  CUSTOMER
-  AGENT
+  admin
+  agent
+  customer
 }
 
 enum ChatStatus {
-  PENDING
-  PROCESSED
+  pending
+  successful
+  declined
 }
 
 enum Gender {
@@ -33,25 +34,39 @@ enum OtpType {
   password_verification
 }
 
+enum ChatType {
+  customer_to_agent
+  team_chat
+  group_chat
+}
+
+enum MediaType {
+  image
+  document
+  video
+}
+
 model User {
-  id              Int       @id @default(autoincrement())
-  username        String    @unique @db.VarChar(255)
-  email           String    @unique @db.VarChar(255)
-  firstname       String    @db.VarChar(255)
-  lastname        String    @db.VarChar(255)
-  country         String    @db.VarChar(255)
-  phoneNumber     String    @unique @db.VarChar(20)
-  password        String    @db.VarChar(255)
+  id              Int               @id @default(autoincrement())
+  username        String            @unique @db.VarChar(255)
+  email           String            @unique @db.VarChar(255)
+  firstname       String            @db.VarChar(255)
+  lastname        String            @db.VarChar(255)
+  country         String            @db.VarChar(255)
+  phoneNumber     String            @unique @db.VarChar(20)
+  profilePicture  String?
+  password        String            @db.VarChar(255)
   gender          Gender
-  role            UserRoles @default(CUSTOMER)
-  isVerified      Boolean   @default(false)
+  role            UserRoles
+  isVerified      Boolean           @default(false)
   otps            UserOTP[]
   agent           Agent?
-  sentMessages    Message[] @relation("SentMessages")
-  receivedMessges Message[] @relation("ReceivedMessages")
-  chat            Chat[]
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  sentMessages    Message[]         @relation("SentMessages")
+  receivedMessges Message[]         @relation("ReceivedMessages")
+  participations  ChatParticipant[]
+  groups          ChatGroup[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 }
 
 model UserOTP {
@@ -66,14 +81,12 @@ model UserOTP {
 }
 
 model Agent {
-  id        Int      @id @default(autoincrement())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    Int      @unique
-  agent     Chat[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
+  id                  Int                  @id @default(autoincrement())
+  user                User                 @relation(fields: [userId], references: [id])
+  userId              Int                  @unique
   assignedDepartments AssignedDepartment[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 }
 
 model Department {
@@ -84,20 +97,20 @@ model Department {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   categories          CatDepart[]
-  chats               Chat[]
+  chatsDetails        ChatDetails[]
   assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
 }
 
 model Category {
-  id            Int         @id @default(autoincrement())
-  title         String      @db.VarChar(255)
+  id            Int           @id @default(autoincrement())
+  title         String        @db.VarChar(255)
   subTitle      String?
   image         String?
   departments   CatDepart[]
-  chat          Chat[]
+  chatsDetails  ChatDetails[]
   subCategories CatSubcat[]
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 }
 
 model Country {
@@ -150,30 +163,90 @@ model CatSubcat {
 }
 
 model Chat {
-  id           Int        @id @default(autoincrement())
-  agentId      Int
-  agent        Agent      @relation(fields: [agentId], references: [id])
-  customer     User       @relation(fields: [customerId], references: [id])
-  customerId   Int
-  category     Category   @relation(fields: [categoryId], references: [id])
-  categoryId   Int
-  departmentId Int
-  department   Department @relation(fields: [departmentId], references: [id])
-  status       ChatStatus @default(PENDING)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id           Int               @id @default(autoincrement())
+  participants ChatParticipant[]
+  chatType     ChatType
+  chatDetails  ChatDetails?
+  chatGroup    ChatGroup?
   messages     Message[]
 }
 
+model ChatParticipant {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  chatId    Int
+  chat      Chat     @relation(fields: [chatId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ChatDetails {
+  id           Int        @id @default(autoincrement())
+  chatId       Int        @unique
+  chat         Chat       @relation(fields: [chatId], references: [id])
+  departmentId Int
+  department   Department @relation(fields: [departmentId], references: [id])
+  categoryId   Int
+  category     Category   @relation(fields: [categoryId], references: [id])
+  status       ChatStatus
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model ChatGroup {
+  id           Int     @id @default(autoincrement())
+  groupName    String
+  groupProfile String?
+  chatId       Int     @unique
+  chat         Chat    @relation(fields: [chatId], references: [id])
+  adminId      Int     @unique
+  admin        User    @relation(fields: [adminId], references: [id])
+}
+
+// model GroupChat {
+//   id          Int           @id @default(autoincrement())
+//   agentId     Int
+//   agent       Agent         @relation(fields: [agentId], references: [id])
+//   adminId     Int
+//   admin       User          @relation(fields: [adminId], references: [id])
+//   messages    Message[]     @relation("GroupMessages", references: [id])
+//   createdAt   DateTime      @default(now())
+//   updatedAt   DateTime      @updatedAt
+//   GroupMember GroupMember[]
+// }
+
+// model GroupMember {
+//   id        Int       @id @default(autoincrement())
+//   groupId   Int
+//   group     GroupChat @relation(fields: [groupId], references: [id])
+//   agentId   Int
+//   agent     Agent     @relation(fields: [agentId], references: [id])
+//   createdAt DateTime  @default(now())
+//   updatedAt DateTime  @updatedAt
+// }
+
 model Message {
-  id         Int      @id @default(autoincrement())
-  senderId   Int
-  receiverId Int
-  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
-  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
-  chatId     Int
-  chat       Chat     @relation(fields: [chatId], references: [id])
-  message    String   @db.VarChar(255)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id          Int          @id @default(autoincrement())
+  senderId    Int
+  receiverId  Int
+  sender      User         @relation("SentMessages", fields: [senderId], references: [id])
+  receiver    User         @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  attachments Attachment[]
+  chatId      Int
+  chat        Chat         @relation(fields: [chatId], references: [id])
+  message     String       @db.VarChar(255)
+  isRead      Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Attachment {
+  id         Int       @id @default(autoincrement())
+  messageId  Int
+  message    Message   @relation(fields: [messageId], references: [id])
+  media_type MediaType
+  media_url  String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }
