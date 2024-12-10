@@ -3,6 +3,7 @@ import bcryptjs from 'bcryptjs';
 import dotenv from 'dotenv';
 import ApiError from './ApiError';
 import nodemailer from 'nodemailer';
+import { UserRoles } from '@prisma/client';
 dotenv.config();
 
 // Token generation
@@ -28,7 +29,7 @@ const verifyToken = async (token: string) => {
     return decoded as {
       id: number;
       username: string;
-      role: 'ADMIN' | 'CUSTOMER' | 'AGENT';
+      role: UserRoles;
     };
   } catch (error) {
     console.log(error);

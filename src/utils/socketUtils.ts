@@ -1,4 +1,4 @@
-import { PrismaClient, UserRoles } from '@prisma/client';
+import { ChatStatus, ChatType, PrismaClient, UserRoles } from '@prisma/client';
 import ApiError from './ApiError';
 const primsa = new PrismaClient();
 
@@ -36,40 +36,72 @@ const getAgentDepartmentAndAgentId = async (
   }
 };
 
-const createNewChat = async (
+const createCustomerToAgentChat = async (
   agentId: number,
   customerId: number,
   departmentId: number,
   categoryId: number
 ) => {
   try {
-    const agent = await primsa.agent.findUnique({
-      where: {
-        id: agentId,
-      },
-      select: {
-        id: true,
-      },
-    });
-    const customer = await primsa.user.findUnique({
-      where: {
-        id: customerId,
-        role: UserRoles.CUSTOMER,
-      },
-    });
-    if (!agent || !customer) {
+    if (!agentId || !customerId || !departmentId || !categoryId) {
       return false;
     }
 
-    const chat = await primsa.chat.create({
+    const newChat = await primsa.chat.create({
       data: {
-        agentId: agent.id,
-        customerId: customer.id,
-        categoryId,
-        departmentId,
+        chatType: ChatType.customer_to_agent,
+        participants: {
+          createMany: {
+            data: [{ userId: agentId }, { userId: customerId }],
+          },
+        },
+        chatDetails: {
+          create: {
+            departmentId,
+            categoryId,
+            status: ChatStatus.pending,
+          },
+        },
       },
     });
-    return true;
+    if (newChat) {
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.log(error);
+    return false;
+  }
+};
+
+const checkPendingChat = async (
+  agentId: number,
+  customerId: number,
+  departmentId: number,
+  categoryId: number
+) => {
+  try {
+    const chat = await primsa.chat.findFirst({
+      where: {
+        AND: [
+          { participants: { some: { userId: agentId } } },
+          { participants: { some: { userId: customerId } } },
+          {
+            chatDetails: {
+              AND: [
+                { departmentId: departmentId },
+                { categoryId: categoryId },
+                { status: ChatStatus.pending },
+              ],
+            },
+          },
+        ],
+      },
+    });
+    if (chat) {
+      return true;
+    }
+    return false;
   } catch (error) {
     console.log(error);
     return false;
@@ -98,6 +130,7 @@ const createNewChat = async (
 
 export {
   getAgentDepartmentAndAgentId,
-  createNewChat,
+  createCustomerToAgentChat,
+  checkPendingChat,
   // getDepartmentFromCategory,
 };
