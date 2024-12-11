@@ -96,6 +96,7 @@ model Department {
   icon                String
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
+  transaction         Transaction[]
   categories          CatDepart[]
   chatsDetails        ChatDetails[]
   assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
@@ -109,6 +110,8 @@ model Category {
   departments   CatDepart[]
   chatsDetails  ChatDetails[]
   subCategories CatSubcat[]
+    transaction         Transaction[]
+
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 }
@@ -116,6 +119,9 @@ model Category {
 model Country {
   id    Int    @id @default(autoincrement())
   title String
+  transaction         Transaction[]
+
+
 }
 
 model CatDepart {
@@ -146,6 +152,7 @@ model Subcategory {
   price     Decimal
   catSubcat CatSubcat[]
   // chat         Chat[]
+  transaction         Transaction[]
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 }
@@ -249,4 +256,17 @@ model Attachment {
   media_url  String
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+}
+model Transaction{
+  id         Int   @id @default(autoincrement())
+  departmentId Int 
+  categoryId Int 
+  subCategoryId Int
+  counrtyId Int
+  
+  department  Department @relation(fields: [departmentId],references: [id])
+  category    Category  @relation(fields: [categoryId], references: [id])
+  subCategory Subcategory @relation(fields: [subCategoryId], references: [id])
+  country Country @relation(fields: [counrtyId], references: [id])
+
 }
