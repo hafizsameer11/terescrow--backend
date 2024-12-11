@@ -25,7 +25,9 @@ const sendMessageController = async (
       _user: sender,
     } = req.body as { message: string; chatId: string; _user: User };
 
-    if (sender.role !== UserRoles.agent) {
+    console.log(message, chatId, sender);
+
+    if (sender.role !== UserRoles.customer) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
@@ -39,7 +41,7 @@ const sendMessageController = async (
           {
             participants: {
               some: {
-                userId: sender.id,
+                userId: +sender.id,
               },
             },
           },
@@ -89,8 +91,8 @@ const sendMessageController = async (
     const recieverSocketId = getAgentSocketId(chat.participants[0].userId);
     if (recieverSocketId) {
       io.to(recieverSocketId).emit('message', {
-        from: sender.username,
-        message,
+        from: sender.id,
+        message: newMessage,
       });
       console.log('emitted');
     }
@@ -230,10 +232,11 @@ const getAllChatsController = async (
     }
 
     const responseData = chats.map((chat) => {
+      const message = chat.messages?.[0]?.message || null;
       return {
         id: chat.id,
         sender: chat.participants[0].user,
-        message: chat.messages[0].message,
+        message,
         createdAt: chat.messages[0].createdAt,
       };
     });

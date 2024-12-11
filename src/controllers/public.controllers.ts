@@ -1,9 +1,72 @@
-import { UserRoles, PrismaClient, User, UserOTP } from '@prisma/client';
+import {
+  UserRoles,
+  PrismaClient,
+  User,
+  UserOTP,
+  DepartmentStatus,
+} from '@prisma/client';
 import { Request, Response, NextFunction } from 'express';
 import ApiError from '../utils/ApiError';
 import ApiResponse from '../utils/ApiResponse';
+import { comparePassword, generateToken } from '../utils/authUtils';
+import { validationResult } from 'express-validator';
 
 const prisma = new PrismaClient();
+
+export const loginController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      throw ApiError.badRequest(
+        'Please enter valid credentials',
+        errors.array()
+      );
+    }
+    const { email, password }: { email: string; password: string } = req.body;
+    const isUser = await prisma.user.findUnique({
+      where: { email },
+    });
+    if (!isUser) {
+      throw ApiError.badRequest('This email is not registerd');
+    }
+    // console.log(password);
+    const isMatch = await comparePassword(password, isUser.password);
+    if (!isMatch) {
+      throw ApiError.badRequest('Your password is not correct');
+    }
+    const token = generateToken(isUser.id, isUser.username, isUser.role);
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+    });
+
+    const resData = {
+      id: isUser.id,
+      username: isUser.username,
+      email: isUser.email,
+      role: isUser.role,
+    };
+
+    return new ApiResponse(
+      200,
+      resData,
+      'User logged in successfully',
+      token
+    ).send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+};
 
 export const getAllDepartmentsController = async (
   req: Request,

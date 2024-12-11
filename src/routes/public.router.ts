@@ -5,9 +5,12 @@ import {
   getCategoriesFromDepartment,
   getCountriesController,
   getSubCategoriesFromCatDepart,
+  loginController,
 } from '../controllers/public.controllers';
 
 const publicRouter = express.Router();
+
+publicRouter.post('/login', loginController);
 
 publicRouter.get('/departments', authenticateUser, getAllDepartmentsController);
 

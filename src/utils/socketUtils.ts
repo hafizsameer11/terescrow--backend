@@ -1,5 +1,5 @@
 import { ChatStatus, ChatType, PrismaClient, UserRoles } from '@prisma/client';
-import ApiError from './ApiError';
+
 const primsa = new PrismaClient();
 
 const getAgentDepartmentAndAgentId = async (
@@ -24,6 +24,12 @@ const getAgentDepartmentAndAgentId = async (
         },
       },
     });
+
+    // console.log(
+    //   isAgent?.agent?.assignedDepartments.forEach((dep) =>
+    //     console.log('dep: ', dep.id)
+    //   )
+    // );
     if (!isAgent || !isAgent.agent) return null;
     return {
       agentId: isAgent.agent.id,
@@ -41,10 +47,10 @@ const createCustomerToAgentChat = async (
   customerId: number,
   departmentId: number,
   categoryId: number
-) => {
+): Promise<string | null> => {
   try {
     if (!agentId || !customerId || !departmentId || !categoryId) {
-      return false;
+      return null;
     }
 
     const newChat = await primsa.chat.create({
@@ -65,12 +71,12 @@ const createCustomerToAgentChat = async (
       },
     });
     if (newChat) {
-      return true;
+      return newChat.id.toString();
     }
-    return false;
+    return null;
   } catch (error) {
     console.log(error);
-    return false;
+    return null;
   }
 };
 
@@ -79,7 +85,7 @@ const checkPendingChat = async (
   customerId: number,
   departmentId: number,
   categoryId: number
-) => {
+): Promise<string | null> => {
   try {
     const chat = await primsa.chat.findFirst({
       where: {
@@ -99,34 +105,14 @@ const checkPendingChat = async (
       },
     });
     if (chat) {
-      return true;
+      return chat.id.toString();
     }
-    return false;
+    return null;
   } catch (error) {
     console.log(error);
-    return false;
+    return null;
   }
 };
-
-// const getDepartmentFromCategory = async (categoryId: number) => {
-//   try {
-//     const category = await primsa.category.findUnique({
-//       where: {
-//         id: categoryId,
-//       },
-//       include: {
-//         departments: true,
-//       },
-//     });
-//     if (!category) {
-//       throw ApiError.internal('Internal server error');
-//     }
-//     return category.department.name;
-//   } catch (error) {
-//     console.log(error);
-//     ApiError.internal('Internal server error');
-//   }
-// };
 
 export {
   getAgentDepartmentAndAgentId,

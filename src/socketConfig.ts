@@ -48,6 +48,7 @@ io.on('connection', async (socket) => {
   const token = socket.handshake.query.token as string;
   const departmentId = Number(socket.handshake.query.departmentId);
   const categoryId = Number(socket.handshake.query.categoryId);
+  const subCategoryId = Number(socket.handshake.query.subCategoryId);
   if (!token) {
     return socket.disconnect();
   }
@@ -71,11 +72,54 @@ io.on('connection', async (socket) => {
       getAgentDepartmentAndAgentId(userId)
         .then((res) => {
           if (res) {
+            // console.log('new agent:', res.assignedDepartments);
             onlineAgents.push({
               agentId: userId,
               socketId: socket.id,
               assignedDepartments: res.assignedDepartments,
             });
+            console.log(
+              'AgentConnected: ',
+              onlineAgents[0].assignedDepartments
+            );
+
+            //assign agent if customer is available
+            if (onlineCustomers.length > 0) {
+              onlineCustomers.map((customer, index) => {
+                let assignment = false;
+                if (
+                  !assignment &&
+                  !customer.isAgentAssigned &&
+                  res.assignedDepartments.includes({
+                    id: customer.departmentId,
+                  })
+                ) {
+                  createCustomerToAgentChat(
+                    res.agentId,
+                    customer.userId,
+                    customer.departmentId,
+                    customer.categoryId
+                  ).then((chatRes) => {
+                    if (chatRes) {
+                      io.to(customer.socketId).emit(`agentAssigned`, userId);
+                      io.to(socket.id).emit(
+                        `customerAssigned`,
+                        customer.userId
+                      );
+                      assignment = true;
+                      console.log('AgentAssigned to customer');
+                      return {
+                        ...customer,
+                        isAgentAssigned: true,
+                      };
+                    } else {
+                      return customer;
+                    }
+                  });
+                }
+                return customer;
+              });
+            }
           } else {
             return socket.disconnect();
           }
@@ -87,10 +131,32 @@ io.on('connection', async (socket) => {
     }
     if (role == 'customer') {
       if (!departmentId || !categoryId) return socket.disconnect();
-      const isAgentAvailable = onlineAgents.find(
-        (agent) =>
-          agent.assignedDepartments.indexOf({ id: departmentId }) !== -1
+      console.log(
+        onlineAgents.forEach((agent) =>
+          console.log(
+            agent.assignedDepartments.forEach((dep) =>
+              console.log('agent dep: ', dep.id)
+            )
+          )
+        )
       );
+      console.log('customerDepartment: ', departmentId);
+      let isAgentAvailable: any = null;
+
+      onlineAgents.forEach((agent) => {
+        agent.assignedDepartments.forEach((dep) => {
+          if (dep.id == departmentId) {
+            isAgentAvailable = agent;
+          }
+        });
+      });
+      // const isAgentAvailable = onlineAgents.find(
+      //   (agent) =>
+      //     agent.assignedDepartments.indexOf({ id: departmentId }) !==
+      //     -1
+      // );
+
+      console.log('Agent is available: ', isAgentAvailable);
 
       if (isAgentAvailable) {
         const isChatAlreadyPending = await checkPendingChat(
@@ -98,7 +164,7 @@ io.on('connection', async (socket) => {
           userId,
           departmentId,
           categoryId
-        );
+        ); // return chatId as string or null if not exists
         if (isChatAlreadyPending) {
           onlineCustomers.push({
             userId,
@@ -107,14 +173,19 @@ io.on('connection', async (socket) => {
             categoryId,
             isAgentAssigned: true,
           });
-          io.to(isAgentAvailable.socketId).emit(`customerOnline`, userId);
+          console.log('Your agent is online', onlineCustomers);
+          io.to(socket.id).emit(`agentOnline`, isChatAlreadyPending);
+          io.to(isAgentAvailable.socketId).emit(
+            `customerOnline`,
+            isChatAlreadyPending
+          ); // passed chat id
         } else {
           const res = await createCustomerToAgentChat(
             isAgentAvailable.agentId,
             userId,
             departmentId,
             categoryId
-          );
+          ); // return chatId as string or null if not created
           if (res) {
             onlineCustomers.push({
               userId,
@@ -123,14 +194,9 @@ io.on('connection', async (socket) => {
               categoryId: categoryId,
               isAgentAssigned: true,
             });
-            io.to(isAgentAvailable.socketId).emit(
-              `customerAssigned_${departmentId}`,
-              userId
-            );
-            io.to(socket.id).emit(
-              `agentAssigned_${departmentId}`,
-              isAgentAvailable.agentId
-            );
+            io.to(isAgentAvailable.socketId).emit(`customerAssigned`, userId);
+            io.to(socket.id).emit(`agentAssigned`, res);
+            console.log('agent assigned to customer', onlineCustomers);
           } else {
             onlineCustomers.push({
               userId,
@@ -149,6 +215,8 @@ io.on('connection', async (socket) => {
           categoryId,
           isAgentAssigned: false,
         });
+
+        console.log('Custmer connect without assignment', onlineCustomers);
       }
     }
   } catch (error) {
