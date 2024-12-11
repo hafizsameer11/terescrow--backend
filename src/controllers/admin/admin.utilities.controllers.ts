@@ -387,7 +387,7 @@ export const getDepartment = async (req: Request, res: Response, next: NextFunct
       where: { id: parseInt(id, 10) },
       include: {
         _count: {
-          select: { assignedDepartments: true }, // Include the count of assignedDepartments
+          select: { assignedDepartments: true },
         },
       },
     });
@@ -411,7 +411,51 @@ export const getDepartment = async (req: Request, res: Response, next: NextFunct
     next(ApiError.internal('Internal Server Error'));
   }
 };
-///
+export const deleteDepartment = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const department = await prisma.department.delete({
+      where: { id: parseInt(id) },
+    });
+    if (!department) {
+      return next(ApiError.notFound('Department not found'));
+    }
+    return new ApiResponse(200, department, 'Department deleted successfully').send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+}
+///get all departments
+// export const getDepartments = async (req: Request, res: Response, next: NextFunction) => {
+//   try {
+// }
+export const getAlldepartments = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const departments = await prisma.department.findMany({
+      include: {
+        _count: {
+          select: { assignedDepartments: true },
+        },
+      }
+    });
+    if (!departments) {
+      return next(ApiError.notFound('Departments not found'));
+    }
+    return new ApiResponse(200, departments, 'Departments fetched successfully').send(res);
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+};
 interface AgentRequest {
   firstName: string;
   lastName: string;
