@@ -13,7 +13,6 @@ CREATE TABLE `ChatGroup` (
 -- AlterTable
 ALTER TABLE `User` ADD COLUMN `profilePicture` VARCHAR(191) NULL AFTER `country`;
 
-
 -- AddForeignKey
 ALTER TABLE `ChatGroup` ADD CONSTRAINT `ChatGroup_chatId_fkey` FOREIGN KEY (`chatId`) REFERENCES `Chat`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 

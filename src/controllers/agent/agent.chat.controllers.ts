@@ -11,7 +11,6 @@ import {
 } from '@prisma/client';
 import { getCustomerSocketId } from '../../socketConfig';
 import { io } from '../../socketConfig';
-import { send } from 'process';
 
 const prisma = new PrismaClient();
 
@@ -91,8 +90,8 @@ export const sendToCustomerController = async (
     const recieverSocketId = getCustomerSocketId(newMessage.receiverId);
     if (recieverSocketId) {
       io.to(recieverSocketId).emit('message', {
-        from: sender.username,
-        message,
+        from: sender.id,
+        message: newMessage,
       });
       console.log('emitted');
     }
@@ -179,6 +178,7 @@ export const getAllChatsWithCustomerController = async (
 ) => {
   try {
     const { _user } = req.body as { _user: User };
+    // console.log(_user);
 
     if (!_user) {
       return ApiError.unauthorized('You are not authorized');
@@ -200,6 +200,11 @@ export const getAllChatsWithCustomerController = async (
       select: {
         id: true,
         chatType: true,
+        chatDetails: {
+          select: {
+            status: true,
+          },
+        },
         participants: {
           where: {
             userId: {
@@ -213,6 +218,7 @@ export const getAllChatsWithCustomerController = async (
                 username: true,
                 firstname: true,
                 lastname: true,
+                profilePicture: true,
               },
             },
           },
@@ -226,20 +232,31 @@ export const getAllChatsWithCustomerController = async (
       },
     });
 
+    console.log(chats);
+
     if (!chats) {
       return next(ApiError.notFound('Chats not found'));
     }
 
+    // console.log(chats);
     const resData = chats.map((chat) => {
+      const recentMessage = chat.messages?.[0]?.message || null;
+      const recentMessageTimestamp = chat.messages?.[0]?.createdAt || null;
+      const customer = chat.participants?.[0]?.user || null;
+      const chatStatus = chat.chatDetails?.status || null;
+
       return {
         id: chat.id,
-        receiver: chat.participants[0].user,
-        recentMessage: chat.messages[0].message,
+        customer, // Ensure customer is not undefined
+        recentMessage, // Handle missing messages gracefully
+        recentMessageTimestamp,
+        chatStatus,
       };
     });
 
     return new ApiResponse(200, resData, 'Chats found').send(res);
   } catch (error) {
+    console.log('jumped here');
     if (error instanceof ApiError) {
       return next(error);
     }
@@ -350,12 +367,37 @@ export const getChatDetailsController = async (
             },
           },
         },
+        chatDetails: true,
+        chatGroup: true,
         messages: true,
       },
     });
 
     if (!chat) {
       return next(ApiError.notFound('Chat not found'));
+    }
+    const {
+      messages,
+      participants,
+      chatDetails,
+      chatGroup,
+      id,
+      chatType,
+      createdAt,
+      updatedAt,
+    } = chat;
+
+    if (chat.chatType == ChatType.customer_to_agent && chat.chatDetails) {
+      const resData = {
+        id,
+        customer: chat.participants[0].user,
+        messages,
+        chatDetails,
+        chatType,
+        createdAt,
+        updatedAt,
+      };
+      return new ApiResponse(200, resData, 'Chat found').send(res);
     }
 
     return new ApiResponse(200, chat, 'Chat found').send(res);

@@ -46,6 +46,11 @@ enum MediaType {
   video
 }
 
+enum DepartmentStatus {
+  active
+  inactive
+}
+
 model User {
   id              Int               @id @default(autoincrement())
   username        String            @unique @db.VarChar(255)
@@ -94,11 +99,12 @@ model Department {
   title               String               @db.VarChar(255)
   description         String
   icon                String
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  status              DepartmentStatus     @default(active)
   categories          CatDepart[]
   chatsDetails        ChatDetails[]
   assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 }
 
 model Category {
@@ -169,6 +175,8 @@ model Chat {
   chatDetails  ChatDetails?
   chatGroup    ChatGroup?
   messages     Message[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 }
 
 model ChatParticipant {

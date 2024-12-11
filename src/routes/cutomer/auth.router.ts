@@ -1,6 +1,5 @@
 import express from 'express';
 import {
-  loginController,
   logoutController,
   registerCustomerController,
   resendOtpController,
@@ -12,7 +11,6 @@ import authenticateUser from '../../middlewares/authenticate.user';
 // import authController from '../controllers/auth.controller';
 const authRouter = express.Router();
 
-authRouter.post('/login', loginController);
 authRouter.post('/customer/register', registerCustomerController);
 authRouter.post('/logout', logoutController);
 authRouter.post('/verify-email-otp', authenticateUser, verifyUserController);
