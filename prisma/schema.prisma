@@ -194,6 +194,9 @@ model Chat {
   Rate         Rate[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
+  // chatdeclinedId Int
+  chatdeclined Chatdeclined[]
+  // chatdeclinedId Int
 }
 
 model ChatParticipant {
@@ -349,4 +352,11 @@ model InAppNotification {
   description String
   userId      Int
   user        User   @relation(fields: [userId], references: [id])
+}
+
+model Chatdeclined {
+  id      Int     @id @default(autoincrement())
+  message String?
+  chatId  Int
+  chat    Chat    @relation(fields: [chatId], references: [id])
 }

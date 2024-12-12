@@ -131,6 +131,7 @@ export const createAgent = async (req: Request, res: Response, next: NextFunctio
     }: AgentRequest = req.body;
 
     // Check if user already exists
+    const profilePicture = req.file ? req.file.filename : '';
     const isUser = await prisma.user.findFirst({
       where: {
         OR: [{ email }, { username }, { phoneNumber }],
@@ -152,6 +153,7 @@ export const createAgent = async (req: Request, res: Response, next: NextFunctio
         gender,
         country,
         role: UserRoles.agent,
+        profilePicture
       },
     });
 
@@ -324,7 +326,6 @@ export const deleteAgemt = async (req: Request, res: Response, next: NextFunctio
   }
 }
 
-// department creation routes
 export const createDepartment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { title, description, status } = req.body;
@@ -351,7 +352,6 @@ export const createDepartment = async (req: Request, res: Response, next: NextFu
     next(ApiError.internal('Internal Server Error'));
   }
 }
-//department edit route
 export const editDepartment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
@@ -379,7 +379,6 @@ export const editDepartment = async (req: Request, res: Response, next: NextFunc
     next(ApiError.internal('Internal Server Error'));
   }
 }
-//get single department with agents assigned to it and their count
 export const getDepartment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
@@ -430,10 +429,7 @@ export const deleteDepartment = async (req: Request, res: Response, next: NextFu
     next(ApiError.internal('Internal Server Error'));
   }
 }
-///get all departments
-// export const getDepartments = async (req: Request, res: Response, next: NextFunction) => {
-//   try {
-// }
+
 export const getAlldepartments = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const departments = await prisma.department.findMany({
@@ -456,6 +452,95 @@ export const getAlldepartments = async (req: Request, res: Response, next: NextF
     next(ApiError.internal('Internal Server Error'));
   }
 };
+
+export const createCategory = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { title, departmentIds = [],subtitle='' } = req.body;
+    const image = req.file?.filename || '';
+    const category = await prisma.category.create({
+      data: {
+        title,
+        subTitle:subtitle,
+        image
+      }
+    })
+    if (!category) {
+      return next(ApiError.internal('Internal Server Error'));
+    }
+    if (departmentIds.length > 0) {
+      let assignedCount = 0;
+      await Promise.all(
+        departmentIds.map(async (departmentId: number) => {
+          const result = await prisma.catDepart.create({
+            data: {
+              categoryId: category.id,
+              departmentId: departmentId
+            }
+          })
+          if (result) {
+            assignedCount++;
+          }
+        })
+      )
+      if (assignedCount !== departmentIds.length) {
+        return next(ApiError.internal('Internal Server Error'));
+      }
+    }
+    return new ApiResponse(200, category, 'Category created successfully').send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+}
+//subcategory routes
+export const createSubCategory = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { title, price, catIds = [] } = req.body;
+    const subCategory = await prisma.subcategory.create({
+      data: {
+        title,
+        price,
+      }
+    });
+
+
+    if (!subCategory) {
+      return next(ApiError.internal('Internal Server Error'));
+    }
+    if (catIds.length > 0) {
+      let assignedCount = 0;
+      await Promise.all(
+        catIds.map(async (catid: number) => {
+          const result = await prisma.catSubcat.create({
+            data: {
+              categoryId: catid,
+              subCategoryId: subCategory.id
+            },
+          });
+
+          if (result) {
+            assignedCount++;
+          }
+        })
+      );
+
+      if (assignedCount !== catIds.length) {
+        return next(ApiError.internal('Department assignment failed'));
+      }
+    }
+    return new ApiResponse(200, subCategory, 'SubCategory created successfully').send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+  }
+}
 interface AgentRequest {
   firstName: string;
   lastName: string;

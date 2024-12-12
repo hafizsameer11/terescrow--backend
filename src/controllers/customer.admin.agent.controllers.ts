@@ -9,7 +9,7 @@ import upload from '../middlewares/multer.middleware';
 
 const prisma = new PrismaClient();
 //create transaction route
-export const createTransaction = async (req: Request, res: Response, next: NextFunction) => {
+export const createTransactionCard = async (req: Request, res: Response, next: NextFunction) => {
     try {
         // Extract agentId from auth middleware
         const { id: agentId } = req.body._user;
@@ -21,6 +21,62 @@ export const createTransaction = async (req: Request, res: Response, next: NextF
             customerId,
             cardType,
             cardNumber,
+            amount,
+            exchangeRate,
+            amountNaira,
+            status,
+        } = req.body;
+        if (
+            !departmentId ||
+            !categoryId ||
+            !subCategoryId ||
+            !countryId ||
+            !amount || !customerId
+        ) {
+            return next(ApiError.badRequest('Missing required fields'));
+        }
+        const transaction = await prisma.transaction.create({
+            data: {
+                departmentId: parseInt(departmentId, 10),
+                categoryId: parseInt(categoryId, 10),
+                subCategoryId: parseInt(subCategoryId, 10),
+                countryId: parseInt(countryId, 10),
+                cardType: cardType || null,
+                cardNumber: cardNumber || null,
+                amount: parseFloat(amount),
+                exchangeRate: exchangeRate ? parseFloat(exchangeRate) : null,
+                amountNaira: amountNaira ? parseFloat(amountNaira) : null,
+                agentId, // From the authenticated user
+                cryptoAmount: null,
+                fromAddress:  null,
+                toAddress:  null,
+                status: status || 'pending',
+                customerId: parseInt(customerId, 10)
+            },
+        });
+        if (!transaction) {
+            return next(ApiError.badRequest('Transaction not created'));
+        }
+        return new ApiResponse(201, transaction, 'Transaction created successfully').send(res);
+    } catch (error) {
+        console.error(error);
+        if (error instanceof ApiError) {
+            next(error);
+            return;
+        }
+        next(ApiError.internal('Internal Server Error'));
+    }
+};
+export const createTransactionCrypto = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        // Extract agentId from auth middleware
+        const { id: agentId } = req.body._user;
+        const {
+            departmentId,
+            categoryId,
+            subCategoryId,
+            countryId,
+            customerId,
             amount,
             exchangeRate,
             amountNaira,
@@ -48,16 +104,16 @@ export const createTransaction = async (req: Request, res: Response, next: NextF
                 categoryId: parseInt(categoryId, 10),
                 subCategoryId: parseInt(subCategoryId, 10),
                 countryId: parseInt(countryId, 10),
-                cardType: cardType || null,
-                cardNumber: cardNumber || null,
+                cardType:  null,
+                cardNumber:  null,
                 amount: parseFloat(amount),
                 exchangeRate: exchangeRate ? parseFloat(exchangeRate) : null,
                 amountNaira: amountNaira ? parseFloat(amountNaira) : null,
-                agentId, // From the authenticated user
+                agentId,
                 cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
                 fromAddress: fromAddress || null,
                 toAddress: toAddress || null,
-                status: status || 'PENDING', // Default status if not provided
+                status: status || 'pending', // Default status if not provided
                 customerId: parseInt(customerId, 10)
             },
         });
