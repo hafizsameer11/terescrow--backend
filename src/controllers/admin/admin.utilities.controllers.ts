@@ -72,17 +72,18 @@ export const getAgentsByDepartment = async (
     if (admin?.role !== UserRoles.admin) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
-    const { departmentId } = req.body as { departmentId: string };
+    const departmentId = req.params.id;
     const agents = await prisma.agent.findMany({
       where: {
         assignedDepartments: {
           some: {
-            id: parseInt(departmentId),
-          },
+            departmentId: parseInt(departmentId)
+          }
         },
       },
       select: {
         id: true,
+        AgentStatus: true,
         user: {
           select: {
             id: true,
@@ -90,6 +91,7 @@ export const getAgentsByDepartment = async (
             firstname: true,
             lastname: true,
             profilePicture: true,
+            email: true
           },
         },
       },
@@ -108,6 +110,7 @@ export const getAgentsByDepartment = async (
     next(ApiError.internal('Failed to fetch agents'));
   }
 };
+
 export const createAgent = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const errors = validationResult(req);
@@ -437,12 +440,26 @@ export const getAlldepartments = async (req: Request, res: Response, next: NextF
         _count: {
           select: { assignedDepartments: true },
         },
-      }
+      },
     });
+
     if (!departments) {
       return next(ApiError.notFound('Departments not found'));
     }
-    return new ApiResponse(200, departments, 'Departments fetched successfully').send(res);
+
+    // Transform the data structure
+    const transformedDepartments = departments.map(department => ({
+      id: department.id,
+      title: department.title,
+      description: department.description,
+      icon: department.icon,
+      createdAt: department.createdAt,
+      updatedAt: department.updatedAt,
+      status: department.status,
+      noOfAgents: department._count.assignedDepartments, // Flatten the `_count` field
+    }));
+
+    return new ApiResponse(200, transformedDepartments, 'Departments fetched successfully').send(res);
   } catch (error) {
     console.error(error);
     if (error instanceof ApiError) {
@@ -453,14 +470,15 @@ export const getAlldepartments = async (req: Request, res: Response, next: NextF
   }
 };
 
+
 export const createCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { title, departmentIds = [],subtitle='' } = req.body;
+    const { title, departmentIds = [], subtitle = '' } = req.body;
     const image = req.file?.filename || '';
     const category = await prisma.category.create({
       data: {
         title,
-        subTitle:subtitle,
+        subTitle: subtitle,
         image
       }
     })
@@ -495,6 +513,9 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
     }
     next(ApiError.internal('Internal Server Error'));
   }
+}
+export const editCategory = async (req: Request, res: Response, next: NextFunction) => {
+
 }
 //subcategory routes
 export const createSubCategory = async (req: Request, res: Response, next: NextFunction) => {

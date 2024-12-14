@@ -1,18 +1,32 @@
 import { Request, Response, NextFunction } from 'express';
 import ApiResponse from '../utils/ApiResponse';
 import ApiError from '../utils/ApiError';
-import { Gender, PrismaClient, User, UserRoles } from '@prisma/client';
+import { Gender, PrismaClient, TransactionStatus, User, UserRoles } from '@prisma/client';
 import { DepartmentStatus, AssignedDepartment } from '@prisma/client';
 import { hashPassword } from '../utils/authUtils';
 import { validationResult } from 'express-validator';
 import upload from '../middlewares/multer.middleware';
 
 const prisma = new PrismaClient();
-//create transaction route
 export const createTransactionCard = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        // Extract agentId from auth middleware
-        const { id: agentId } = req.body._user;
+        const user = req.body._user
+        // return new ApiResponse(201, user, 'Transaction created successfully').send(res);
+        if (!user || (user.role !== UserRoles.agent && user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+
+        const userId = user.id;
+        const agent = await prisma.agent.findUnique({
+            where: {
+                userId: userId
+            },
+            select: {
+                id: true
+            }
+        });
+        const transactionId = 'T' + Math.floor(Math.random() * 1000000000);
+        const agentId = agent?.id ?? userId;
         const {
             departmentId,
             categoryId,
@@ -24,7 +38,7 @@ export const createTransactionCard = async (req: Request, res: Response, next: N
             amount,
             exchangeRate,
             amountNaira,
-            status,
+            status
         } = req.body;
         if (
             !departmentId ||
@@ -46,12 +60,13 @@ export const createTransactionCard = async (req: Request, res: Response, next: N
                 amount: parseFloat(amount),
                 exchangeRate: exchangeRate ? parseFloat(exchangeRate) : null,
                 amountNaira: amountNaira ? parseFloat(amountNaira) : null,
-                agentId, // From the authenticated user
+                agentId,
                 cryptoAmount: null,
-                fromAddress:  null,
-                toAddress:  null,
-                status: status || 'pending',
-                customerId: parseInt(customerId, 10)
+                fromAddress: null,
+                toAddress: null,
+                status: TransactionStatus.pending,
+                customerId: parseInt(customerId, 10),
+                transactionId: transactionId
             },
         });
         if (!transaction) {
@@ -69,8 +84,20 @@ export const createTransactionCard = async (req: Request, res: Response, next: N
 };
 export const createTransactionCrypto = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        // Extract agentId from auth middleware
-        const { id: agentId } = req.body._user;
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.agent && user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const userId = user.id;
+        const agent = await prisma.agent.findUnique({
+            where: {
+                userId: userId
+            },
+            select: {
+                id: true
+            }
+        });
+        const agentId = agent?.id ?? userId;
         const {
             departmentId,
             categoryId,
@@ -85,8 +112,6 @@ export const createTransactionCrypto = async (req: Request, res: Response, next:
             toAddress,
             status,
         } = req.body;
-
-        // Validate required fields
         if (
             !departmentId ||
             !categoryId ||
@@ -96,16 +121,14 @@ export const createTransactionCrypto = async (req: Request, res: Response, next:
         ) {
             return next(ApiError.badRequest('Missing required fields'));
         }
-
-        // Create a new transaction
         const transaction = await prisma.transaction.create({
             data: {
                 departmentId: parseInt(departmentId, 10),
                 categoryId: parseInt(categoryId, 10),
                 subCategoryId: parseInt(subCategoryId, 10),
                 countryId: parseInt(countryId, 10),
-                cardType:  null,
-                cardNumber:  null,
+                cardType: null,
+                cardNumber: null,
                 amount: parseFloat(amount),
                 exchangeRate: exchangeRate ? parseFloat(exchangeRate) : null,
                 amountNaira: amountNaira ? parseFloat(amountNaira) : null,
@@ -130,11 +153,23 @@ export const createTransactionCrypto = async (req: Request, res: Response, next:
         next(ApiError.internal('Internal Server Error'));
     }
 };
-
 export const getTransactionsForAgent = async (req: Request, res: Response, next: NextFunction) => {
     try {
         // Extract agentId from auth middleware
-        const { id: agentId } = req.body._user;
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.agent && user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const userId = user.id;
+        const agent = await prisma.agent.findUnique({
+            where: {
+                userId: userId
+            },
+            select: {
+                id: true
+            }
+        });
+        const agentId = agent?.id ?? userId;
 
         // Fetch transactions for the agent
         const transactions = await prisma.transaction.findMany({
@@ -173,13 +208,12 @@ export const getTransactionsForAgent = async (req: Request, res: Response, next:
         next(ApiError.internal('Internal Server Error'));
     }
 }
-export const getTrsanactionforUser = async (req: Request, res: Response, next: NextFunction) => {
+export const getTrsanactionforAuthUser = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        // Extract agentId from auth middleware
-        // const { id: agentId } = req.body._user;c
-        const { id: customerId } = req.body._user
-
-        // Fetch transactions for the agent
+        const { id: customerId } = req.body._user.id
+        if (!customerId) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
         const transactions = await prisma.transaction.findMany({
             where: {
                 customerId,
@@ -193,7 +227,6 @@ export const getTrsanactionforUser = async (req: Request, res: Response, next: N
                 }
             }
         });
-        // res.json(transactions);
         return new ApiResponse(200, transactions, 'Transactions fetched successfully').send(res);
 
     } catch (error) {
@@ -204,37 +237,36 @@ export const getTrsanactionforUser = async (req: Request, res: Response, next: N
         }
         next(ApiError.internal('Internal Server Error'));
     }
-    //get 10 latest transactions
-    // const latestTransactions = transactions.slice(-10);
 }
+
 export const getTransactions = async (req: Request, res: Response, next: NextFunction) => {
     try {
         // Extract query params for pagination, default to latest 10 transactions
         const page = parseInt(req.query.page as string) || 1;
         const limit = parseInt(req.query.limit as string) || 10;
         const latestOnly = !req.query.page && !req.query.limit;
-
-        // Calculate the offset for pagination
         const skip = latestOnly ? 0 : (page - 1) * limit;
         const take = latestOnly ? 10 : limit;
 
         // Fetch transactions
         const transactions = await prisma.transaction.findMany({
-            skip,    // Skip records for pagination
-            take,    // Limit records returned
+            skip,
+            take,
             orderBy: {
-                createdAt: 'desc',  // Sort by creation date
+                createdAt: 'desc',
             },
             include: {
+                department: true,
+                category: true,
                 agent: {
                     select: {
                         user: {
                             select: {
                                 id: true,
-                                username: true,
-                            },
-                        },
-                    },
+                                username: true
+                            }
+                        }
+                    }
                 },
                 customer: {
                     select: {
@@ -242,10 +274,9 @@ export const getTransactions = async (req: Request, res: Response, next: NextFun
                         username: true,
                     },
                 },
-            },
+            }
         });
 
-        // Count total records for pagination
         const totalRecords = await prisma.transaction.count();
 
         // Build response based on mode
@@ -269,3 +300,4 @@ export const getTransactions = async (req: Request, res: Response, next: NextFun
         next(ApiError.internal('Internal Server Error'));
     }
 };
+

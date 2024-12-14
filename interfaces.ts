@@ -40,3 +40,25 @@ interface AgentTransactionResponse {
     status: string;
     data: Transaction[]
 }
+
+
+interface Department {
+    id: number;
+    title: string;
+    description: string;
+    icon: string;
+    createdAt: string; // Use `Date` if you parse it as a JavaScript Date object
+    updatedAt: string; // Use `Date` if you parse it as a JavaScript Date object
+    status: string;
+    noOfAgents: number;
+  }
+  
+  interface ApiResponse<T> {
+    status: string;
+    message: string;
+    data: T;
+  }
+  
+  // Specific response type for departments
+  type DepartmentsResponse = ApiResponse<Department[]>;
+  
