@@ -157,6 +157,7 @@ const getChatDetailsController = async (
       },
     });
 
+    console.log(chat?.messages);
     if (!chat) {
       return next(ApiError.badRequest('Chat not found'));
     }
@@ -197,6 +198,11 @@ const getAllChatsController = async (
       },
       select: {
         id: true,
+        chatDetails: {
+          select: {
+            status: true,
+          },
+        },
         participants: {
           where: {
             userId: {
@@ -210,6 +216,16 @@ const getAllChatsController = async (
                 firstname: true,
                 lastname: true,
                 username: true,
+                profilePicture: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            messages: {
+              where: {
+                isRead: false,
               },
             },
           },
@@ -228,12 +244,18 @@ const getAllChatsController = async (
     }
 
     const responseData = chats.map((chat) => {
-      const message = chat.messages?.[0]?.message || null;
+      const recentMessage = chat.messages?.[0]?.message || null;
+      const recentMessageTimestamp = chat.messages?.[0]?.createdAt || null;
+      const agent = chat.participants?.[0]?.user || null;
+      const chatStatus = chat.chatDetails?.status || null;
+      const messagesCount = chat._count?.messages || 0;
       return {
         id: chat.id,
-        sender: chat.participants[0].user,
-        message,
-        createdAt: chat.messages[0].createdAt,
+        agent, // Ensure customer is not undefined
+        recentMessage, // Handle missing messages gracefully
+        recentMessageTimestamp,
+        chatStatus,
+        messagesCount,
       };
     });
 
@@ -248,6 +270,37 @@ const getAllChatsController = async (
     }
     return next(ApiError.internal('Server Error Occured!'));
   }
+};
+
+const readAllMessagesControllers = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { _user, chatId }: { _user: User; chatId: number } = req.body;
+
+    if (!_user || !chatId) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+
+    const messages = await prisma.message.updateMany({
+      where: {
+        chatId,
+      },
+      data: {
+        isRead: true,
+      },
+    });
+
+    if (!messages) {
+      return next(ApiError.notFound('No messages were found'));
+    }
+
+    return new ApiResponse(201, undefined, 'Messages read successfully').send(
+      res
+    );
+  } catch (error) {}
 };
 
 export {

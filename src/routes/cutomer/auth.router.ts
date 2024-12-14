@@ -17,5 +17,8 @@ authRouter.post('/verify-email-otp', authenticateUser, verifyUserController);
 authRouter.post('/verify-forgot-password-otp', verifyForgotPasswordOtp);
 authRouter.post('/resend-otp', resendOtpController);
 authRouter.post('/forgot-password', sendPasswordOtpController);
+authRouter.post('/edit-profile', authenticateUser);
+authRouter.post('/set-new-password', authenticateUser);
+//editprofile
 
 export default authRouter;

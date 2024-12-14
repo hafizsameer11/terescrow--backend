@@ -2,7 +2,6 @@ import express from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
 import {
   getAllChatsWithCustomerController,
-  getAllChatsWithTeamController,
   sendToCustomerController,
   sendToTeamController,
   getChatDetailsController,
@@ -30,11 +29,7 @@ agentChatRouter.get(
   authenticateUser,
   getAllChatsWithCustomerController
 );
-agentChatRouter.get(
-  '/get-all-chats-with-team',
-  authenticateUser,
-  getAllChatsWithTeamController
-);
+
 agentChatRouter.get(
   '/get-chat/:chatId',
   authenticateUser,

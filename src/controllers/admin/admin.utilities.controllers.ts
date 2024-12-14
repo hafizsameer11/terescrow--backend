@@ -1,8 +1,18 @@
 import { Request, Response, NextFunction } from 'express';
 import ApiResponse from '../../utils/ApiResponse';
 import ApiError from '../../utils/ApiError';
-import { PrismaClient, User, UserRoles } from '@prisma/client';
+import {
+  ChatType,
+  Gender,
+  PrismaClient,
+  User,
+  UserRoles,
+} from '@prisma/client';
 import { DepartmentStatus } from '@prisma/client';
+import { hashPassword } from '../../utils/authUtils';
+import { validationResult } from 'express-validator';
+import { assign } from 'nodemailer/lib/shared';
+import { create } from 'domain';
 
 const prisma = new PrismaClient();
 
@@ -195,3 +205,162 @@ export const getAllTransactions = async (
     next(ApiError.internal('Internal Server Error'));
   }
 };
+
+export const createAgentController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      throw ApiError.badRequest(
+        'Please enter valid credentials',
+        errors.array()
+      );
+    }
+
+    const {
+      firstName,
+      lastName,
+      email,
+      phoneNumber,
+      password,
+      username,
+      gender,
+      country,
+      departmentIds = [], // Default to empty array if not provided
+    }: AgentRequest = req.body;
+
+    // Check if user already exists
+    const profilePicture = req.file ? req.file.filename : '';
+    const isUser = await prisma.user.findFirst({
+      where: {
+        OR: [{ email }, { username }, { phoneNumber }],
+      },
+    });
+
+    if (isUser) {
+      throw ApiError.badRequest('This user is already registered');
+    }
+    const hashedPassword = await hashPassword(password);
+    const newUser = await prisma.user.create({
+      data: {
+        firstname: firstName,
+        lastname: lastName,
+        email,
+        phoneNumber,
+        password: hashedPassword,
+        username,
+        gender,
+        country,
+        role: UserRoles.agent,
+        profilePicture,
+      },
+    });
+
+    if (!newUser) {
+      return next(ApiError.internal('User creation failed'));
+    }
+
+    const newAgent = await prisma.agent.create({
+      data: {
+        userId: newUser.id,
+        assignedDepartments: {
+          createMany: {
+            data: departmentIds.map((id) => ({
+              departmentId: id,
+            })),
+          },
+        },
+      },
+    });
+
+    if (!newAgent) {
+      return next(ApiError.internal('Agent creation failed'));
+    }
+    if (departmentIds.length > 0) {
+      const assigned = await prisma.agent.update({
+        where: {
+          userId: newAgent.id,
+        },
+        data: {
+          assignedDepartments: {
+            createMany: {
+              data: departmentIds.map((id) => ({
+                departmentId: id,
+              })),
+            },
+          },
+        },
+      });
+      if (!assigned) {
+        return next(ApiError.internal('Department assignment failed'));
+      }
+    }
+
+    const allUsers = await prisma.user.findMany({
+      where: {
+        role: {
+          not: UserRoles.customer,
+        },
+      },
+    });
+
+    const createdChats = await Promise.all(
+      [...allUsers].map((user) =>
+        prisma.chat.create({
+          data: {
+            chatType: ChatType.team_chat,
+          },
+          select: {
+            id: true,
+            chatType: true,
+            createdAt: true, // Include other fields as needed
+          },
+        })
+      )
+    );
+
+    if (!createdChats) {
+      return next(ApiError.internal('Chat creation failed'));
+    }
+
+    for (const newChat of createdChats) {
+      await Promise.all(
+        allUsers.map(async (user) => {
+          await prisma.chatParticipant.create({
+            data: {
+              chatId: newChat.id,
+              userId: user.id,
+            },
+          });
+        })
+      );
+    }
+
+    return new ApiResponse(201, undefined, 'User created successfully').send(
+      res
+    );
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+};
+
+interface AgentRequest {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneNumber: string;
+  password: string;
+  username: string;
+  gender: Gender; // Assuming an enum-like structure for gender
+  country: string;
+  role: UserRoles;
+  departmentIds?: number[]; // Optional, can be empty or undefined
+}

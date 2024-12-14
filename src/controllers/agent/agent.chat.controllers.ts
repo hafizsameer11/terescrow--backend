@@ -266,6 +266,11 @@ export const getAllChatsWithCustomerController = async (
       select: {
         id: true,
         chatType: true,
+        _count: {
+          select: {
+            messages: true,
+          },
+        },
         chatDetails: {
           select: {
             status: true,
@@ -298,7 +303,7 @@ export const getAllChatsWithCustomerController = async (
       },
     });
 
-    console.log(chats);
+    // console.log(chats);
 
     if (!chats) {
       return next(ApiError.notFound('Chats not found'));
@@ -310,6 +315,7 @@ export const getAllChatsWithCustomerController = async (
       const recentMessageTimestamp = chat.messages?.[0]?.createdAt || null;
       const customer = chat.participants?.[0]?.user || null;
       const chatStatus = chat.chatDetails?.status || null;
+      const messagesCount = chat._count?.messages || 0;
 
       return {
         id: chat.id,
@@ -317,6 +323,7 @@ export const getAllChatsWithCustomerController = async (
         recentMessage, // Handle missing messages gracefully
         recentMessageTimestamp,
         chatStatus,
+        messagesCount,
       };
     });
 
@@ -363,6 +370,11 @@ export const getAllChatsWithTeamController = async (
       select: {
         id: true,
         chatType: true,
+        _count: {
+          select: {
+            messages: true,
+          },
+        },
         participants: {
           where: {
             userId: {
@@ -376,6 +388,7 @@ export const getAllChatsWithTeamController = async (
                 username: true,
                 firstname: true,
                 lastname: true,
+                profilePicture: true,
               },
             },
           },
