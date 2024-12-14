@@ -26,6 +26,6 @@ publicRouter.get(
   getSubCategoriesFromCatDepart
 );
 
-publicRouter.get('/countries', authenticateUser, getCountriesController);
+publicRouter.get('/countries', getCountriesController);
 
 export default publicRouter;

@@ -10,6 +10,7 @@ import customerRouter from './routes/cutomer/chat.router';
 import publicRouter from './routes/public.router';
 import agentChatRouter from './routes/agent/chat.router';
 import upload from './middlewares/multer.middleware';
+import agentOperationsRouter from './routes/agent/agent.operations.router';
 
 const port = process.env.PORT || 8000;
 
@@ -30,16 +31,17 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/auth', authRouter);
 app.use('/api/customer', customerRouter);
 app.use('/api/agent', agentChatRouter);
+app.use('/api/agent', agentOperationsRouter);
 app.use('/api/public', publicRouter);
-app.post('/api/file', upload.single('file'), (req: Request, res: Response) => {
-  if (req?.file) {
-    console.log('uploaded :', req.file);
-    return res.status(201).json({
-      message: 'File uploaded successfully',
-      fileUrl: `http://localhost:8000/uploads/${req.file.filename}`,
-    });
-  }
-});
+// app.post('/api/file', upload.single('file'), (req: Request, res: Response) => {
+//   if (req?.file) {
+//     console.log('uploaded :', req.file);
+//     return res.status(201).json({
+//       message: 'File uploaded successfully',
+//       fileUrl: `http://localhost:8000/uploads/${req.file.filename}`,
+//     });
+//   }
+// });
 
 //error handler
 app.use(

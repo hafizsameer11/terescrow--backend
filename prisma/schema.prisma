@@ -51,6 +51,12 @@ enum DepartmentStatus {
   inactive
 }
 
+enum TransactionStatus {
+  pending
+  failed
+  successful
+}
+
 model User {
   id              Int               @id @default(autoincrement())
   username        String            @unique @db.VarChar(255)
@@ -70,6 +76,8 @@ model User {
   receivedMessges Message[]         @relation("ReceivedMessages")
   participations  ChatParticipant[]
   groups          ChatGroup[]
+  notes           Notes[]
+  transactions    Transaction[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 }
@@ -89,6 +97,8 @@ model Agent {
   id                  Int                  @id @default(autoincrement())
   user                User                 @relation(fields: [userId], references: [id])
   userId              Int                  @unique
+  notes               Notes[]
+  transactions        Transaction[]
   assignedDepartments AssignedDepartment[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
@@ -103,6 +113,7 @@ model Department {
   categories          CatDepart[]
   chatsDetails        ChatDetails[]
   assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
+  transactions        Transaction[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 }
@@ -115,13 +126,17 @@ model Category {
   departments   CatDepart[]
   chatsDetails  ChatDetails[]
   subCategories CatSubcat[]
+  transactions  Transaction[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 }
 
 model Country {
-  id    Int    @id @default(autoincrement())
-  title String
+  id           Int           @id @default(autoincrement())
+  title        String
+  transactions Transaction[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 }
 
 model CatDepart {
@@ -147,13 +162,14 @@ model AssignedDepartment {
 }
 
 model Subcategory {
-  id        Int         @id @default(autoincrement())
-  title     String      @db.VarChar(255)
-  price     Decimal
-  catSubcat CatSubcat[]
-  // chat         Chat[]
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id           Int           @id @default(autoincrement())
+  title        String        @db.VarChar(255)
+  price        Decimal
+  catSubcat    CatSubcat[]
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model CatSubcat {
@@ -257,4 +273,43 @@ model Attachment {
   media_url  String
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+}
+
+model Transaction {
+  id            Int                @id @default(autoincrement())
+  departmentId  Int
+  categoryId    Int
+  subCategoryId Int
+  countryId     Int
+  cardType      String?
+  cardNumber    String?
+  amount        Float?
+  exchangeRate  Float?
+  amountNaira   Float?
+  agentId       Int
+  customerId    Int
+  customer      User               @relation(fields: [customerId], references: [id])
+  cryptoAmount  Float?
+  fromAddress   String?
+  toAddress     String?
+  status        TransactionStatus?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  agent         Agent              @relation(fields: [agentId], references: [id])
+  department    Department         @relation(fields: [departmentId], references: [id])
+  category      Category           @relation(fields: [categoryId], references: [id])
+  subCategory   Subcategory        @relation(fields: [subCategoryId], references: [id])
+  country       Country            @relation(fields: [countryId], references: [id])
+}
+
+model Notes {
+  id             Int      @id @default(autoincrement())
+  title          String?
+  agentId        Int
+  customerId     Int
+  isHighlighited Boolean?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  agent          Agent    @relation(fields: [agentId], references: [id])
+  customer       User     @relation(fields: [customerId], references: [id])
 }

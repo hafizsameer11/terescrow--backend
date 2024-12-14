@@ -2,7 +2,7 @@ import { ChatStatus, ChatType, PrismaClient, UserRoles } from '@prisma/client';
 
 const primsa = new PrismaClient();
 
-const getAgentDepartmentAndAgentId = async (
+const getAgentDepartments = async (
   userId: number
 ): Promise<{
   agentId: number;
@@ -81,7 +81,6 @@ const createCustomerToAgentChat = async (
 };
 
 const checkPendingChat = async (
-  agentId: number,
   customerId: number,
   departmentId: number,
   categoryId: number
@@ -90,7 +89,6 @@ const checkPendingChat = async (
     const chat = await primsa.chat.findFirst({
       where: {
         AND: [
-          { participants: { some: { userId: agentId } } },
           { participants: { some: { userId: customerId } } },
           {
             chatDetails: {
@@ -115,7 +113,7 @@ const checkPendingChat = async (
 };
 
 export {
-  getAgentDepartmentAndAgentId,
+  getAgentDepartments,
   createCustomerToAgentChat,
   checkPendingChat,
   // getDepartmentFromCategory,

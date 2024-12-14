@@ -47,6 +47,8 @@ export const loginController = async (
 
     const resData = {
       id: isUser.id,
+      firstname: isUser.firstname,
+      lastname: isUser.lastname,
       username: isUser.username,
       email: isUser.email,
       role: isUser.role,
@@ -175,12 +177,12 @@ export const getCountriesController = async (
   next: NextFunction
 ) => {
   try {
-    const user: User = req.body._user;
-    if (!user) {
-      return next(ApiError.unauthorized('You are not authorized'));
-    }
-
-    const countries = await prisma.country.findMany();
+    const countries = await prisma.country.findMany({
+      select: {
+        id: true,
+        title: true,
+      },
+    });
     if (!countries) {
       return next(ApiError.notFound('Countries not found'));
     }
@@ -191,5 +193,51 @@ export const getCountriesController = async (
       return next(error);
     }
     next(error);
+  }
+};
+
+export const getTransactionsForAgent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    // Extract agentId from auth middleware
+    const { id: agentId } = req.body._user;
+
+    // Fetch transactions for the agent
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        agentId,
+      },
+      select: {
+        agent: {
+          include: {
+            user: true,
+          },
+          select: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                firstname: true,
+                lastname: true,
+                email: true,
+                phoneNumber: true,
+                gender: true,
+                country: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
   }
 };

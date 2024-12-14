@@ -3,8 +3,10 @@ import bcryptjs from 'bcryptjs';
 import dotenv from 'dotenv';
 import ApiError from './ApiError';
 import nodemailer from 'nodemailer';
-import { UserRoles } from '@prisma/client';
+import { PrismaClient, UserRoles } from '@prisma/client';
 dotenv.config();
+
+const prisma = new PrismaClient();
 
 // Token generation
 const generateToken = (userId: number, username: string, role: string) => {
@@ -85,7 +87,27 @@ const sendVerificationEmail = async (
   }
 };
 
+const getAgentIdFromUserId = async (userId: number): Promise<number> => {
+  const agent = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+    select: {
+      agent: {
+        select: {
+          id: true,
+        },
+      },
+    },
+  });
+  if (!agent?.agent) {
+    throw ApiError.notFound('Agent not found');
+  }
+  return agent.agent.id;
+};
+
 export {
+  getAgentIdFromUserId,
   generateToken,
   verifyToken,
   hashPassword,

@@ -6,6 +6,7 @@ import {
   sendToCustomerController,
   sendToTeamController,
   getChatDetailsController,
+  changeChatStatusController,
 } from '../../controllers/agent/agent.chat.controllers';
 
 const agentChatRouter = express.Router();
@@ -15,7 +16,15 @@ agentChatRouter.post(
   authenticateUser,
   sendToCustomerController
 );
+
+agentChatRouter.post(
+  '/change-chat-status',
+  authenticateUser,
+  changeChatStatusController
+);
+
 agentChatRouter.post('/send-to-team', authenticateUser, sendToTeamController);
+
 agentChatRouter.get(
   '/get-all-chats-with-customer',
   authenticateUser,

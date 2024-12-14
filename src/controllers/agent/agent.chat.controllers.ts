@@ -30,7 +30,7 @@ export const sendToCustomerController = async (
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
-    if (!message.trim() || chatId) {
+    if (!message.trim() || !chatId) {
       return next(ApiError.badRequest('Invalid request credentials'));
     }
 
@@ -93,7 +93,7 @@ export const sendToCustomerController = async (
         from: sender.id,
         message: newMessage,
       });
-      console.log('emitted');
+      console.log('sent to customer');
     }
 
     return new ApiResponse(201, newMessage, 'Message sent successfully').send(
@@ -101,6 +101,72 @@ export const sendToCustomerController = async (
     );
   } catch (error) {
     console.log(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Server Error Occured!'));
+  }
+};
+
+export const changeChatStatusController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const agent: User = req.body._user;
+    if (agent.role !== UserRoles.agent) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+
+    const { chatId, setStatus } = req.body as {
+      chatId: string;
+      setStatus: ChatStatus;
+    };
+
+    if (!chatId || !setStatus || ChatStatus[setStatus] === undefined) {
+      return next(ApiError.badRequest('Invalid request credentials'));
+    }
+
+    const chat = await prisma.chat.findUnique({
+      where: {
+        id: Number(chatId),
+      },
+      select: {
+        chatDetails: {
+          select: {
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!chat) {
+      return next(ApiError.notFound('chat not found'));
+    }
+
+    if (chat.chatDetails?.status === setStatus) {
+      return next(ApiError.badRequest('chat status already set'));
+    }
+
+    await prisma.chat.update({
+      where: {
+        id: Number(chatId),
+      },
+      data: {
+        chatDetails: {
+          update: {
+            status: setStatus,
+          },
+        },
+      },
+    });
+    return new ApiResponse(
+      200,
+      undefined,
+      'Chat Status set to ' + ChatStatus[setStatus]
+    ).send(res);
+  } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
     }
@@ -356,6 +422,11 @@ export const getChatDetailsController = async (
       },
       include: {
         participants: {
+          where: {
+            userId: {
+              not: user.id,
+            },
+          },
           select: {
             user: {
               select: {
@@ -363,6 +434,7 @@ export const getChatDetailsController = async (
                 username: true,
                 firstname: true,
                 lastname: true,
+                profilePicture: true,
               },
             },
           },
@@ -387,10 +459,11 @@ export const getChatDetailsController = async (
       updatedAt,
     } = chat;
 
+    // console.log(participants);
     if (chat.chatType == ChatType.customer_to_agent && chat.chatDetails) {
       const resData = {
         id,
-        customer: chat.participants[0].user,
+        customer: participants[0].user,
         messages,
         chatDetails,
         chatType,

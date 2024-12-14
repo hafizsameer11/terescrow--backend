@@ -18,5 +18,3 @@ ALTER TABLE `ChatGroup` ADD CONSTRAINT `ChatGroup_chatId_fkey` FOREIGN KEY (`cha
 
 -- AddForeignKey
 ALTER TABLE `ChatGroup` ADD CONSTRAINT `ChatGroup_adminId_fkey` FOREIGN KEY (`adminId`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
-
-
