@@ -9,6 +9,7 @@ import {
   UserRoles,
 } from '@prisma/client';
 import { TransactionStatus } from '@prisma/client';
+import { getCustomerSocketId, io } from '../../socketConfig';
 
 const prisma = new PrismaClient();
 
@@ -106,6 +107,30 @@ export const createTransactionCard = async (
     });
     if (!transaction) {
       return next(ApiError.badRequest('Transaction not created'));
+    }
+
+    const updatedChat = await prisma.chat.update({
+      where: {
+        id: chatId,
+      },
+      data: {
+        chatDetails: {
+          update: {
+            status: ChatStatus.successful,
+          },
+        },
+      },
+    });
+
+    if (!updatedChat) {
+      return next(ApiError.badRequest('Chat not updated'));
+    }
+
+    const customerSocketId = getCustomerSocketId(currCustomerId!);
+    if (customerSocketId) {
+      io.to(customerSocketId).emit('chat-successful', {
+        chatId: +chatId,
+      });
     }
 
     return new ApiResponse(
@@ -225,6 +250,31 @@ export const createTransactionCrypto = async (
     if (!transaction) {
       return next(ApiError.badRequest('Failed to create transaction'));
     }
+
+    const updatedChat = await prisma.chat.update({
+      where: {
+        id: chatId,
+      },
+      data: {
+        chatDetails: {
+          update: {
+            status: ChatStatus.successful,
+          },
+        },
+      },
+    });
+
+    if (!updatedChat) {
+      return next(ApiError.badRequest('Chat not updated'));
+    }
+
+    const customerSocketId = getCustomerSocketId(currCustomerId!);
+    if (customerSocketId) {
+      io.to(customerSocketId).emit('chat-successful', {
+        chatId: +chatId,
+      });
+    }
+
     return new ApiResponse(
       201,
       undefined,

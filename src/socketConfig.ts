@@ -55,6 +55,11 @@ io.on('connection', async (socket) => {
     return socket.disconnect();
   }
   let userRole: UserRoles;
+  let currUser: {
+    id: number;
+    role: UserRoles;
+  };
+
   try {
     const decoded = await verifyToken(token);
     if (!decoded) {
@@ -63,6 +68,11 @@ io.on('connection', async (socket) => {
     const { id: userId, role } = decoded;
     userRole = role;
     if (!role) return socket.disconnect();
+
+    currUser = {
+      id: userId,
+      role,
+    };
 
     if (role == 'admin') {
       isAdminOnline = {
@@ -80,6 +90,7 @@ io.on('connection', async (socket) => {
 
     if (role == 'agent') {
       console.log('new agent connected');
+
       getAgentDepartments(userId)
         .then((res) => {
           if (res) {
@@ -96,6 +107,12 @@ io.on('connection', async (socket) => {
               userId: userId,
               socketId: socket.id,
               assignedDepartments: res.assignedDepartments,
+            });
+
+            socket.to(socket.id).emit('onlineUsers', {
+              customers: onlineCustomers,
+              agents: onlineAgents,
+              admin: isAdminOnline,
             });
 
             //assign agent if customer is available
@@ -149,6 +166,11 @@ io.on('connection', async (socket) => {
       onlineCustomers.push({
         userId: userId,
         socketId: socket.id,
+      });
+
+      socket.to(socket.id).emit('onlineUsers', {
+        agents: onlineAgents,
+        admin: isAdminOnline,
       });
       socket.broadcast.emit('newCustomerJoined', {
         userId: userId,
@@ -210,6 +232,7 @@ io.on('connection', async (socket) => {
     return socket.disconnect();
   }
   socket.on('disconnect', (reason) => {
+    socket.broadcast.emit('user-disconnected', currUser);
     if (userRole == UserRoles.agent) {
       onlineAgents = onlineAgents.filter(
         (agent) => agent.socketId !== socket.id

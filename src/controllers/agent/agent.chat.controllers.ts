@@ -182,7 +182,7 @@ export const sendToTeamController = async (
   try {
     const { _user, message, chatId } = req.body._user as TeamMessageReq;
 
-    if (!_user) {
+    if (!_user || _user.role === UserRoles.customer) {
       return ApiError.unauthorized('You are not authorized');
     }
 
