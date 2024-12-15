@@ -9,6 +9,12 @@ import { validationResult } from 'express-validator';
 import upload from '../../middlewares/multer.middleware';
 
 const prisma = new PrismaClient();
+
+
+/*
+Customer Controller
+
+*/
 export const getCustomerDetails = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
@@ -61,8 +67,56 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
         next(ApiError.internal('Failed to change department status'));
     }
 };
+export const editCustomer = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        const userId = req.params.id;
+        //get profile pictire
+        const profilePicture = req.file ? req.file.filename : '';
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const {
+            username,
+            email,
+            password,
+            phoneNumber,
+            gender,
+            firstname,
+            lastname,
+            country,
 
+        } = req.body;
+        const hashedPassword = await hashPassword(password)
+        const customer = await prisma.user.update({
+            where: {
+                id: parseInt(userId)
+            },
+            data: {
+                username: username,
+                email: email,
+                password: hashedPassword,
+                phoneNumber: phoneNumber,
+                gender: gender,
+                country: country,
+                firstname: firstname,
+                lastname: lastname,
+                profilePicture: profilePicture
+            }
 
+        });
+        if (!customer) {
+            return next(ApiError.notFound('Customer not found'));
+        }
+        return new ApiResponse(200, customer, 'Customer updated successfully').send(res);
+    } catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to change department status'));
+    }
+}
 export const getTransactionForCustomer = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
@@ -110,8 +164,10 @@ export const getTransactionForCustomer = async (req: Request, res: Response, nex
 
     }
 }
-//rates crud
-// export const createRate=
+
+
+/*Rate Controller
+ */
 export const createRate = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
@@ -198,5 +254,212 @@ export const getRates = async (req: Request, res: Response, next: NextFunction) 
             return next(error);
         }
         next(ApiError.internal('Failed to get rates for customer'));
+    }
+}
+
+/*AGent And Cusomter*/
+
+export const getAgents = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const agents = await prisma.agent.findMany({
+            select: {
+                id: true,
+                AgentStatus: true,
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        firstname: true,
+                        lastname: true,
+                        profilePicture: true,
+                        email: true,
+                        role: true,
+                        createdAt: true
+                    },
+                },
+            }
+        })
+        if (!agents) {
+            return next(ApiError.notFound('Agents not found'));
+        }
+        return new ApiResponse(200, agents, 'Agents fetched successfully').send(res);
+    } catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to get agents for customer'));
+    }
+}
+export const getAllUsers = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const users = await prisma.user.findMany({
+            where: {
+                NOT: {
+                    role: UserRoles.admin
+                }
+            },
+            include: {
+                agent: {
+                    select: {
+                        id: true,
+                        AgentStatus: true
+                    }
+                }
+            }
+        })
+        if (!users) {
+            return next(ApiError.notFound('Users not found'));
+        }
+        return new ApiResponse(200, users, 'Users fetched successfully').send(res);
+    }
+    catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to get all users'));
+    }
+}
+
+/*
+
+Banner Controller
+
+*/
+
+export const createBanner = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const image = req.file?.filename || '';
+
+        const banner = await prisma.banner.create({
+            data: {
+                image
+            }
+        })
+        if (!banner) {
+            return next(ApiError.badRequest('Failed to create banner'))
+        }
+        return new ApiResponse(201, banner, 'Banner created successfully').send(res);
+    }
+    catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to create banner'));
+    }
+}
+export const getBanners = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const banners = await prisma.banner.findMany()
+        //we will get image add the server url in start
+
+        if (!banners) {
+            return next(ApiError.notFound('Banners not found'));
+        }
+        const modifiedBanner = banners.map((banner) => {
+            return { ...banner, image: `${process.env.SERVER_URL}/uploads/${banner.image}` }
+        })
+        return new ApiResponse(200, modifiedBanner, 'Banners fetched successfully').send(res);
+    }
+    catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to get banners'));
+    }
+}
+export const updateBanner = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const image = req.file?.filename || '';
+        const banner = await prisma.banner.update({
+            where: {
+                id: parseInt(req.params.id)
+            },
+            data: {
+                image
+            }
+        })
+        if (!banner) {
+            return next(ApiError.badRequest('Failed to update banner'))
+        }
+        return new ApiResponse(201, banner, 'Banner updated successfully').send(res);
+    }
+    catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to update banner'));
+    }
+}
+export const getsingleBanner = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const banner = await prisma.banner.findUnique({
+            where: {
+                id: parseInt(req.params.id)
+            }
+        })
+        if (!banner) {
+            return next(ApiError.notFound('Banner not found'));
+        }
+        return new ApiResponse(200, banner, 'Banner fetched successfully').send(res);
+    }
+    catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to get banner'));
+    }
+}
+export const deleteBanner = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const banner = await prisma.banner.delete({
+            where: {
+                id: parseInt(req.params.id)
+            }
+        })
+        if (!banner) {
+            return next(ApiError.notFound('Banner not found'));
+        }
+        return new ApiResponse(200, banner, 'Banner deleted successfully').send(res);
+    }
+    catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to delete banner'));
     }
 }

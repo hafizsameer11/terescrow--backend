@@ -62,6 +62,11 @@ export const changeDepartmentStatus = async (
 };
 
 
+/*
+Agent COntroller
+
+*/
+
 export const getAgentsByDepartment = async (
   req: Request,
   res: Response,
@@ -210,18 +215,19 @@ export const createAgent = async (req: Request, res: Response, next: NextFunctio
 
 export const editAgent = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { agentId, firstName, lastName, email, phoneNumber, username, gender, country, departmentIds = [] } = req.body;
+    const { agentId } = req.params;
+    const { firstName, lastName, email, phoneNumber, username, gender, country, departmentIds = [], status } = req.body;
 
     //check weather agent exists or not
     const agent = await prisma.agent.findUnique({
-      where: { id: agentId },
+      where: { id: parseInt(agentId) },
     });
     if (!agent) {
       return next(ApiError.notFound('Agent not found'));
     }
 
     const updatedAgent = await prisma.agent.update({
-      where: { id: agentId },
+      where: { id: parseInt(agentId) },
       data: {
         user: {
           update: {
@@ -234,11 +240,14 @@ export const editAgent = async (req: Request, res: Response, next: NextFunction)
             country,
           },
         },
+        AgentStatus: {
+          set: status
+        },
       },
     });
 
     await prisma.assignedDepartment.deleteMany({
-      where: { agentId },
+      where: { agentId: parseInt(agentId) },
     });
 
     if (departmentIds.length > 0) {
@@ -329,6 +338,13 @@ export const deleteAgemt = async (req: Request, res: Response, next: NextFunctio
   }
 }
 
+/*
+
+
+department controller
+
+
+*/
 export const createDepartment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { title, description, status } = req.body;
@@ -471,11 +487,82 @@ export const getAlldepartments = async (req: Request, res: Response, next: NextF
 };
 
 
+/*
+Category Controller
+
+*/
+
 export const createCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { title, subtitle = '' } = req.body;
+
+    // Ensure `departmentIds` is parsed correctly
+    let departmentIds: number[] = [];
+
+    if (typeof req.body.departmentIds === 'string') {
+      departmentIds = JSON.parse(req.body.departmentIds);
+    } else if (Array.isArray(req.body.departmentIds)) {
+      departmentIds = req.body.departmentIds;
+    }
+
+    const image = req.file?.filename || '';
+
+    const category = await prisma.category.create({
+      data: {
+        title,
+        subTitle: subtitle,
+        image,
+      },
+    });
+
+    if (!category) {
+      return next(ApiError.internal('Internal Server Error'));
+    }
+
+    if (departmentIds.length > 0) {
+      let assignedCount = 0;
+
+      await Promise.all(
+        departmentIds.map(async (departmentId: number) => {
+          const result = await prisma.catDepart.create({
+            data: {
+              categoryId: category.id,
+              departmentId: departmentId,
+            },
+          });
+          if (result) {
+            assignedCount++;
+          }
+        })
+      );
+
+      if (assignedCount !== departmentIds.length) {
+        return next(ApiError.internal('Failed to assign departments'));
+      }
+    }
+
+    return new ApiResponse(200, category, 'Category created successfully').send(res);
+
+  } catch (error) {
+    console.error(error);
+
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+
+    next(ApiError.internal('Internal Server Error'));
+  }
+};
+
+export const editCategory = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
     const { title, departmentIds = [], subtitle = '' } = req.body;
     const image = req.file?.filename || '';
-    const category = await prisma.category.create({
+    const category = await prisma.category.update({
+      where: {
+        id: parseInt(id, 10)
+      },
       data: {
         title,
         subTitle: subtitle,
@@ -483,7 +570,7 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
       }
     })
     if (!category) {
-      return next(ApiError.internal('Internal Server Error'));
+      return next(ApiError.badRequest('Category not found'));
     }
     if (departmentIds.length > 0) {
       let assignedCount = 0;
@@ -504,7 +591,33 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
         return next(ApiError.internal('Internal Server Error'));
       }
     }
-    return new ApiResponse(200, category, 'Category created successfully').send(res);
+    return new ApiResponse(200, category, 'Category updated successfully').send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+
+  }
+}
+export const deleteCategory = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const category = await prisma.category.delete({
+      where: {
+        id: parseInt(id, 10)
+      }
+    })
+
+    const catDepart = await prisma.catDepart.deleteMany({
+      where: {
+        categoryId: category.id
+      }
+    });
+
+    return new ApiResponse(200, category, 'Category deleted successfully').send(res);
   } catch (error) {
     console.log(error);
     if (error instanceof ApiError) {
@@ -514,10 +627,109 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
     next(ApiError.internal('Internal Server Error'));
   }
 }
-export const editCategory = async (req: Request, res: Response, next: NextFunction) => {
+export const getallCategories = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const categories = await prisma.category.findMany({
+      include: {
+        departments: {
+          select: {
+            id: true,
+            departmentId: true,
+            department: {
+              select: {
+                title: true
+              }
+            }
+          }
+        }
+      }
+    });
 
-}
+    // Add image URL to each category
+    const modifiedCategories = categories.map((category) => ({
+      id: category.id,
+      title: category.title,
+      subTitle: category.subTitle,
+      image: category.image
+        ? `${req.protocol}://${req.get('host')}/uploads/${category.image}`
+        : null,
+      departments: category.departments.map((dept) => ({
+        id: dept.id,
+        departmentId: dept.departmentId,
+        title: dept.department.title,
+      })),
+    }));
+
+    return new ApiResponse(200, modifiedCategories, 'Categories fetched successfully').send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+};
+
+
+export const getSingleCategory = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+
+    // Fetch the category with related departments
+    const category = await prisma.category.findUnique({
+      where: {
+        id: parseInt(id, 10)
+      },
+      include: {
+        departments: {
+          select: {
+            department: {
+              select: {
+                id: true,
+                title: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Handle case when category is not found
+    if (!category) {
+      return next(ApiError.badRequest('Category not found'));
+    }
+
+    // Restructure the response for better format
+    const modifiedCategory = {
+      id: category.id,
+      title: category.title,
+      subTitle: category.subTitle,
+      image: category.image
+        ? `${req.protocol}://${req.get('host')}/uploads/${category.image}`
+        : null,
+      departments: category.departments.map((dept) => dept.department),
+    };
+
+    return new ApiResponse(200, modifiedCategory, 'Category fetched successfully').send(res);
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+};
+
 //subcategory routes
+
+
+
+/*
+Sub category Contrller
+
+*/
 export const createSubCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { title, price, catIds = [] } = req.body;
@@ -560,8 +772,55 @@ export const createSubCategory = async (req: Request, res: Response, next: NextF
       next(error);
       return;
     }
+    next(ApiError.internal('Internal Server Error'));
   }
 }
+export const getallSubCategories = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const subCategories = await prisma.subcategory.findMany({
+      include: {
+        catSubcat: {
+          select: {
+            category: {
+              select: {
+                id: true,
+                title: true
+              }
+            }
+          }
+        },
+      },
+    });
+    if (!subCategories) {
+      return new ApiResponse(201, [], 'No subCategories found').send(res);
+    }
+    const modifiedSubCategories = subCategories.map((subCategory) => {
+      return {
+        id: subCategory.id,
+        title: subCategory.title,
+        price: subCategory.price,
+        categories: subCategory.catSubcat.map((catSubcat) => {
+          return {
+            id: catSubcat.category.id,
+            title: catSubcat.category.title
+          }
+        }),
+      }
+    })
+    // })
+    return new ApiResponse(200, modifiedSubCategories, 'SubCategories retrieved successfully').send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+}
+
+
+
 interface AgentRequest {
   firstName: string;
   lastName: string;
