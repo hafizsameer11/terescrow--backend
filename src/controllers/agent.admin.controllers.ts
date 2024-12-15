@@ -136,7 +136,12 @@ export const getTeamChatDetailsController = async (
             },
           },
         },
-        chatDetails: true,
+        chatDetails: {
+          include: {
+            department: true,
+            category: true,
+          },
+        },
         chatGroup: true,
         messages: true,
       },
