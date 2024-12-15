@@ -13,6 +13,7 @@ import upload from './middlewares/multer.middleware';
 import agentOperationsRouter from './routes/agent/agent.operations.router';
 import adminAgentRouter from './routes/admin.agent.router';
 import adminAuthRouter from './routes/admin/auth.router';
+import { PrismaClient } from '@prisma/client';
 
 const port = process.env.PORT || 8000;
 
@@ -35,7 +36,7 @@ app.use('/api/customer', customerRouter);
 app.use('/api/agent', agentChatRouter);
 app.use('/api/agent', agentOperationsRouter);
 app.use('/api/public', publicRouter);
-app.use('/api/admin', adminAgentRouter);
+app.use('/api', adminAgentRouter);
 app.use('/api/admin', adminAuthRouter);
 // app.post('/api/file', upload.single('file'), (req: Request, res: Response) => {
 //   if (req?.file) {

@@ -35,7 +35,7 @@ const registerCustomerController = async (
       password,
       username,
       gender,
-      country,
+      countryId,
     }: UserRequest = req.body;
 
     const isUser = await prisma.user.findFirst({
@@ -45,9 +45,18 @@ const registerCustomerController = async (
     });
 
     if (isUser) {
-      throw ApiError.badRequest('This user is already registerd');
+      return next(ApiError.badRequest('This user is already registerd'));
     }
 
+    const country = await prisma.country.findUnique({
+      where: {
+        id: +countryId,
+      },
+    });
+
+    if (!country) {
+      return next(ApiError.notFound('Country not found'));
+    }
     const hashedPassword = await hashPassword(password);
 
     const newUser = await prisma.user.create({
@@ -59,7 +68,7 @@ const registerCustomerController = async (
         password: hashedPassword,
         username,
         gender,
-        country,
+        countryId: country.id,
         role: UserRoles.customer,
       },
     });
@@ -446,6 +455,6 @@ interface UserRequest {
   password: string;
   username: string;
   gender: Gender; // Assuming an enum-like structure for gender
-  country: string;
-  role: 'ADMIN' | 'AGENT' | 'CUSTOMER';
+  countryId: string;
+  role: UserRoles;
 }

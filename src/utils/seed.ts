@@ -24,6 +24,8 @@ async function createDepartments() {
   }
 }
 
+// createDepartments();
+
 async function createItems() {
   for (const item of cardData) {
     await prisma.category.create({
@@ -43,6 +45,10 @@ async function createItems() {
     });
   }
 }
+
+// createItems()
+//   .then(() => console.log('done'))
+//   .catch((err) => console.log(err));
 
 // const deleteItems = async () => {
 //   await prisma.category.deleteMany({
@@ -81,6 +87,8 @@ const createCatDeptForGCs = async () => {
     createCatSub(cat);
   });
 };
+// createCatDeptForGCs().then(() => console.log('created successfully'));
+// createCatDeptForCrypto()
 
 const createCatDeptForCrypto = async () => {
   const createCatSub = async (cat: any) => {
@@ -257,10 +265,34 @@ const createCountries = async () => {
     data: countries,
   });
 };
-createCountries()
-  .then(() => console.log('done'))
-  .catch((err) => console.log(err));
+
+const deleteAgent = async (userId: number) => {
+  const agent = await prisma.agent.findUnique({
+    where: {
+      userId,
+    },
+  });
+  if (agent) {
+    await prisma.assignedDepartment.deleteMany({
+      where: {
+        agentId: agent.id,
+      },
+    });
+  }
+  await prisma.agent.delete({
+    where: {
+      userId,
+    },
+  });
+};
+// createCountries()
+//   .then(() => console.log('done'))
+//   .catch((err) => console.log(err));
 
 // deleteChats()
 //   .then(() => console.log('done'))
 //   .catch((err) => console.log(err));
+
+deleteAgent(4)
+  .then(() => console.log('done'))
+  .catch((err) => console.log(err));

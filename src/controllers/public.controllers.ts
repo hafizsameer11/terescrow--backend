@@ -10,6 +10,7 @@ import ApiError from '../utils/ApiError';
 import ApiResponse from '../utils/ApiResponse';
 import { comparePassword, generateToken } from '../utils/authUtils';
 import { validationResult } from 'express-validator';
+import { profile } from 'console';
 
 const prisma = new PrismaClient();
 
@@ -27,16 +28,21 @@ export const loginController = async (
       );
     }
     const { email, password }: { email: string; password: string } = req.body;
+
+    if (!email || !password) {
+      return next(ApiError.badRequest('Please enter valid credentials'));
+    }
+
     const isUser = await prisma.user.findUnique({
       where: { email },
     });
     if (!isUser) {
-      throw ApiError.badRequest('This email is not registerd');
+      return next(ApiError.badRequest('This email is not registerd'));
     }
     // console.log(password);
     const isMatch = await comparePassword(password, isUser.password);
     if (!isMatch) {
-      throw ApiError.badRequest('Your password is not correct');
+      return next(ApiError.badRequest('Your password is not correct'));
     }
     const token = generateToken(isUser.id, isUser.username, isUser.role);
     res.cookie('token', token, {
@@ -50,6 +56,7 @@ export const loginController = async (
       firstname: isUser.firstname,
       lastname: isUser.lastname,
       username: isUser.username,
+      profilePicture: isUser.profilePicture,
       email: isUser.email,
       role: isUser.role,
     };
@@ -193,52 +200,6 @@ export const getCountriesController = async (
       return next(error);
     }
     next(error);
-  }
-};
-
-export const getTransactionsForAgent = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    // Extract agentId from auth middleware
-    const { id: agentId } = req.body._user;
-
-    // Fetch transactions for the agent
-    const transactions = await prisma.transaction.findMany({
-      where: {
-        agentId,
-      },
-      select: {
-        agent: {
-          include: {
-            user: true,
-          },
-          select: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                firstname: true,
-                lastname: true,
-                email: true,
-                phoneNumber: true,
-                gender: true,
-                country: true,
-              },
-            },
-          },
-        },
-      },
-    });
-  } catch (error) {
-    console.error(error);
-    if (error instanceof ApiError) {
-      next(error);
-      return;
-    }
-    next(ApiError.internal('Internal Server Error'));
   }
 };
 

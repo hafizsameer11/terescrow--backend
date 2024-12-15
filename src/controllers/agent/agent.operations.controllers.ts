@@ -26,8 +26,6 @@ export const createTransactionCard = async (
     }
 
     const {
-      departmentId,
-      categoryId,
       subCategoryId,
       countryId,
       chatId,
@@ -37,14 +35,7 @@ export const createTransactionCard = async (
       exchangeRate,
       amountNaira,
     } = req.body;
-    if (
-      !departmentId ||
-      !categoryId ||
-      !subCategoryId ||
-      !countryId ||
-      !amount ||
-      !chatId
-    ) {
+    if (!subCategoryId || !countryId || !amount || !chatId) {
       return next(ApiError.badRequest('Missing required fields'));
     }
 
@@ -78,24 +69,10 @@ export const createTransactionCard = async (
       return next(ApiError.notFound('Chat not found'));
     }
 
-    let currAgentId;
-    let currCustomerId;
-
-    for (const participant of currChat.participants) {
-      if (participant.user.agent) {
-        currAgentId = participant.user.agent.id;
-      } else {
-        currCustomerId = participant.user.id;
-      }
-    }
-
     const transaction = await prisma.transaction.create({
       data: {
-        departmentId: parseInt(departmentId, 10),
-        categoryId: parseInt(categoryId, 10),
+        chatId: parseInt(chatId, 10),
         subCategoryId: parseInt(subCategoryId, 10),
-        agentId: currAgentId!,
-        customerId: currCustomerId!,
         countryId: parseInt(countryId, 10),
         cardType: cardType || null,
         cardNumber: cardNumber || null,
@@ -126,6 +103,13 @@ export const createTransactionCard = async (
       return next(ApiError.badRequest('Chat not updated'));
     }
 
+    const currCustomer = currChat.participants.find(
+      (participant) => participant.user.id !== agent.id
+    );
+
+    const currCustomerId = currCustomer?.user?.id;
+
+    //dispatch event to customer
     const customerSocketId = getCustomerSocketId(currCustomerId!);
     if (customerSocketId) {
       io.to(customerSocketId).emit('chat-successful', {
@@ -218,33 +202,19 @@ export const createTransactionCrypto = async (
       return next(ApiError.notFound('Chat not found'));
     }
 
-    let currAgentId;
-    let currCustomerId;
-
-    for (const participant of currChat.participants) {
-      if (participant.user.agent) {
-        currAgentId = participant.user.agent.id;
-      } else {
-        currCustomerId = participant.user.id;
-      }
-    }
-
     // Create a new transaction
     const transaction = await prisma.transaction.create({
       data: {
-        departmentId: parseInt(departmentId, 10),
-        categoryId: parseInt(categoryId, 10),
+        chatId: parseInt(chatId, 10),
         subCategoryId: parseInt(subCategoryId, 10),
         countryId: parseInt(countryId, 10),
         amount: parseFloat(amount),
         exchangeRate: exchangeRate ? parseFloat(exchangeRate) : null,
         amountNaira: amountNaira ? parseFloat(amountNaira) : null,
-        agentId: currAgentId!,
         cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
         fromAddress: fromAddress || null,
         toAddress: toAddress || null,
         status: TransactionStatus.pending,
-        customerId: currCustomerId!,
       },
     });
     if (!transaction) {
@@ -267,6 +237,11 @@ export const createTransactionCrypto = async (
     if (!updatedChat) {
       return next(ApiError.badRequest('Chat not updated'));
     }
+
+    const currCustomer = currChat.participants.find(
+      (participant) => participant.user.id !== agent.id
+    );
+    const currCustomerId = currCustomer?.user.id;
 
     const customerSocketId = getCustomerSocketId(currCustomerId!);
     if (customerSocketId) {

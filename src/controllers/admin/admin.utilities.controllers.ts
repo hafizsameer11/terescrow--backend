@@ -13,6 +13,7 @@ import { hashPassword } from '../../utils/authUtils';
 import { validationResult } from 'express-validator';
 import { assign } from 'nodemailer/lib/shared';
 import { create } from 'domain';
+import { profile } from 'console';
 
 const prisma = new PrismaClient();
 
@@ -142,38 +143,33 @@ export const getAllTransactions = async (
       },
       select: {
         id: true,
-        department: {
+        status: true,
+        amount: true,
+        amountNaira: true,
+        chat: {
           select: {
-            id: true,
-            title: true,
-          },
-        },
-        category: {
-          select: {
-            id: true,
-            title: true,
-          },
-        },
-        agent: {
-          select: {
-            user: {
+            participants: {
+              where: {
+                user: {
+                  role: UserRoles.customer,
+                },
+              },
               select: {
-                id: true,
-                username: true,
-                firstname: true,
-                lastname: true,
+                user: {
+                  select: {
+                    id: true,
+                    username: true,
+                    firstname: true,
+                    lastname: true,
+                    profilePicture: true,
+                  },
+                },
               },
             },
           },
         },
-        customer: {
-          select: {
-            id: true,
-            username: true,
-            firstname: true,
-            lastname: true,
-          },
-        },
+        createdAt: true,
+        updatedAt: true,
       },
     });
 
@@ -228,7 +224,7 @@ export const createAgentController = async (
       password,
       username,
       gender,
-      country,
+      countryId,
       departmentIds = [], // Default to empty array if not provided
     }: AgentRequest = req.body;
 
@@ -241,8 +237,19 @@ export const createAgentController = async (
     });
 
     if (isUser) {
-      throw ApiError.badRequest('This user is already registered');
+      return next(ApiError.badRequest('This user is already registered'));
     }
+
+    const country = await prisma.country.findUnique({
+      where: {
+        id: +countryId,
+      },
+    });
+
+    if (!country) {
+      return next(ApiError.badRequest('Country not found'));
+    }
+
     const hashedPassword = await hashPassword(password);
     const newUser = await prisma.user.create({
       data: {
@@ -253,7 +260,7 @@ export const createAgentController = async (
         password: hashedPassword,
         username,
         gender,
-        country,
+        countryId: country.id,
         role: UserRoles.agent,
         profilePicture,
       },
@@ -279,31 +286,21 @@ export const createAgentController = async (
     if (!newAgent) {
       return next(ApiError.internal('Agent creation failed'));
     }
-    if (departmentIds.length > 0) {
-      const assigned = await prisma.agent.update({
-        where: {
-          userId: newAgent.id,
-        },
-        data: {
-          assignedDepartments: {
-            createMany: {
-              data: departmentIds.map((id) => ({
-                departmentId: id,
-              })),
-            },
-          },
-        },
-      });
-      if (!assigned) {
-        return next(ApiError.internal('Department assignment failed'));
-      }
-    }
 
     const allUsers = await prisma.user.findMany({
       where: {
-        role: {
-          not: UserRoles.customer,
-        },
+        AND: [
+          {
+            role: {
+              not: UserRoles.customer,
+            },
+          },
+          {
+            id: {
+              not: newUser.id,
+            },
+          },
+        ],
       },
     });
 
@@ -328,12 +325,18 @@ export const createAgentController = async (
 
     for (const newChat of createdChats) {
       await Promise.all(
-        allUsers.map(async (user) => {
-          await prisma.chatParticipant.create({
-            data: {
-              chatId: newChat.id,
-              userId: user.id,
-            },
+        [...allUsers].map(async (user) => {
+          await prisma.chatParticipant.createMany({
+            data: [
+              {
+                chatId: newChat.id,
+                userId: user.id,
+              },
+              {
+                chatId: newChat.id,
+                userId: newUser.id,
+              },
+            ],
           });
         })
       );
@@ -360,7 +363,7 @@ interface AgentRequest {
   password: string;
   username: string;
   gender: Gender; // Assuming an enum-like structure for gender
-  country: string;
+  countryId: string;
   role: UserRoles;
   departmentIds?: number[]; // Optional, can be empty or undefined
 }

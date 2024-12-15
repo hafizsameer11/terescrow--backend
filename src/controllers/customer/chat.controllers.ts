@@ -272,36 +272,6 @@ const getAllChatsController = async (
   }
 };
 
-const readAllMessagesControllers = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { _user, chatId }: { _user: User; chatId: number } = req.body;
-
-    if (!_user || !chatId) {
-      return next(ApiError.unauthorized('You are not authorized'));
-    }
-
-    const messages = await prisma.message.updateMany({
-      where: {
-        chatId,
-      },
-      data: {
-        isRead: true,
-      },
-    });
-
-    if (!messages) {
-      return next(ApiError.notFound('No messages were found'));
-    }
-
-    return new ApiResponse(201, undefined, 'Messages read successfully').send(
-      res
-    );
-  } catch (error) {}
-};
 
 export {
   getChatDetailsController,

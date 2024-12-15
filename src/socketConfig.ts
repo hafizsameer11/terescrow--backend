@@ -263,4 +263,20 @@ const getAgentSocketId = (agentId: number) => {
   return '';
 };
 
-export { io, httpServer, app, getCustomerSocketId, getAgentSocketId };
+const getAgentOrAdminSocketId = (userId: number) => {
+  const user = onlineAgents.find((agent) => agent.agentId == userId);
+  if (user) return user.socketId;
+  if (isAdminOnline) {
+    if (isAdminOnline.userId == userId) return isAdminOnline.socketId;
+  }
+  return '';
+};
+
+export {
+  io,
+  httpServer,
+  app,
+  getCustomerSocketId,
+  getAgentSocketId,
+  getAgentOrAdminSocketId,
+};

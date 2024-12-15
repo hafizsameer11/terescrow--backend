@@ -87,7 +87,7 @@ export const sendToCustomerController = async (
     // its to check whether the user is online or offline now
     //io.to is used to send message to a particular user
 
-    const recieverSocketId = getCustomerSocketId(newMessage.receiverId);
+    const recieverSocketId = getCustomerSocketId(newMessage.receiverId!);
     if (recieverSocketId) {
       io.to(recieverSocketId).emit('message', {
         from: sender.id,
@@ -174,69 +174,6 @@ export const changeChatStatusController = async (
   }
 };
 
-export const sendToTeamController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { _user, message, chatId } = req.body._user as TeamMessageReq;
-
-    if (!_user || _user.role === UserRoles.customer) {
-      return ApiError.unauthorized('You are not authorized');
-    }
-
-    const chat = await prisma.chat.findFirst({
-      where: {
-        AND: [
-          { id: +chatId },
-          {
-            OR: [
-              { chatType: ChatType.team_chat },
-              { chatType: ChatType.group_chat },
-            ],
-          },
-        ],
-      },
-      select: {
-        id: true,
-        participants: {
-          where: {
-            userId: {
-              not: _user.id,
-            },
-          },
-        },
-      },
-    });
-    if (!chat) {
-      return next(ApiError.notFound('this chat does not exist'));
-    }
-
-    const newMessage = await prisma.message.create({
-      data: {
-        chatId: chat.id,
-        senderId: _user.id,
-        receiverId: chat.participants[0].userId,
-        message,
-      },
-    });
-
-    if (!newMessage) {
-      return next(ApiError.internal('Message Sending Failed'));
-    }
-
-    return new ApiResponse(201, newMessage, 'Message sent successfully').send(
-      res
-    );
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    return next(ApiError.internal('Server Error Occured!'));
-  }
-};
-
 export const getAllChatsWithCustomerController = async (
   req: Request,
   res: Response,
@@ -301,6 +238,11 @@ export const getAllChatsWithCustomerController = async (
           },
         },
       },
+      orderBy: {
+        messages: {
+          _count: 'desc',
+        },
+      },
     });
 
     // console.log(chats);
@@ -311,7 +253,7 @@ export const getAllChatsWithCustomerController = async (
 
     // console.log(chats);
     const resData = chats.map((chat) => {
-      const recentMessage = chat.messages?.[0]?.message || null;
+      const recentMessage = chat.messages?.[0] || null;
       const recentMessageTimestamp = chat.messages?.[0]?.createdAt || null;
       const customer = chat.participants?.[0]?.user || null;
       const chatStatus = chat.chatDetails?.status || null;
@@ -337,86 +279,7 @@ export const getAllChatsWithCustomerController = async (
   }
 };
 
-export const getAllChatsWithTeamController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { _user } = req.body as { _user: User };
-
-    if (!_user) {
-      return ApiError.unauthorized('You are not authorized');
-    }
-
-    const chats = await prisma.chat.findMany({
-      where: {
-        AND: [
-          {
-            participants: {
-              some: {
-                userId: _user.id,
-              },
-            },
-          },
-          {
-            OR: [
-              { chatType: ChatType.team_chat },
-              { chatType: ChatType.group_chat },
-            ],
-          },
-        ],
-      },
-      select: {
-        id: true,
-        chatType: true,
-        _count: {
-          select: {
-            messages: true,
-          },
-        },
-        participants: {
-          where: {
-            userId: {
-              not: _user.id,
-            },
-          },
-          select: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                firstname: true,
-                lastname: true,
-                profilePicture: true,
-              },
-            },
-          },
-        },
-        chatGroup: {
-          select: {
-            groupName: true,
-            groupProfile: true,
-            adminId: true,
-          },
-        },
-      },
-    });
-
-    if (!chats) {
-      return next(ApiError.notFound('Chats not found'));
-    }
-
-    return new ApiResponse(200, chats, 'Chats found').send(res);
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    return next(ApiError.internal('Server Error Occured!'));
-  }
-};
-
-export const getChatDetailsController = async (
+export const getCustomerChatDetailsController = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -458,35 +321,29 @@ export const getChatDetailsController = async (
       },
     });
 
-    if (!chat) {
-      return next(ApiError.notFound('Chat not found'));
+    if (!chat || chat.chatType !== ChatType.customer_to_agent) {
+      return next(ApiError.notFound('Chat does not exist'));
     }
     const {
       messages,
       participants,
       chatDetails,
-      chatGroup,
       id,
       chatType,
       createdAt,
       updatedAt,
     } = chat;
 
-    // console.log(participants);
-    if (chat.chatType == ChatType.customer_to_agent && chat.chatDetails) {
-      const resData = {
-        id,
-        customer: participants[0].user,
-        messages,
-        chatDetails,
-        chatType,
-        createdAt,
-        updatedAt,
-      };
-      return new ApiResponse(200, resData, 'Chat found').send(res);
-    }
-
-    return new ApiResponse(200, chat, 'Chat found').send(res);
+    const resData = {
+      id,
+      customer: participants[0].user,
+      messages,
+      chatDetails,
+      chatType,
+      createdAt,
+      updatedAt,
+    };
+    return new ApiResponse(200, resData, 'Chat found').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -494,9 +351,3 @@ export const getChatDetailsController = async (
     return next(ApiError.internal('Server Error Occured!'));
   }
 };
-
-interface TeamMessageReq {
-  _user: User;
-  message: string;
-  chatId: number;
-}

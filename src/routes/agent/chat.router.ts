@@ -3,9 +3,8 @@ import authenticateUser from '../../middlewares/authenticate.user';
 import {
   getAllChatsWithCustomerController,
   sendToCustomerController,
-  sendToTeamController,
-  getChatDetailsController,
   changeChatStatusController,
+  getCustomerChatDetailsController,
 } from '../../controllers/agent/agent.chat.controllers';
 
 const agentChatRouter = express.Router();
@@ -22,8 +21,6 @@ agentChatRouter.post(
   changeChatStatusController
 );
 
-agentChatRouter.post('/send-to-team', authenticateUser, sendToTeamController);
-
 agentChatRouter.get(
   '/get-all-chats-with-customer',
   authenticateUser,
@@ -33,7 +30,7 @@ agentChatRouter.get(
 agentChatRouter.get(
   '/get-chat/:chatId',
   authenticateUser,
-  getChatDetailsController
+  getCustomerChatDetailsController
 );
 
 export default agentChatRouter;
