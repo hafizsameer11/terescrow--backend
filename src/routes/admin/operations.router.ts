@@ -5,9 +5,9 @@ import {
     getChatDetailsController,
     sendMessageController,
 } from '../../controllers/customer/chat.controllers';
-import { createAgent, createCategory, createDepartment, createSubCategory, deleteCategory, deleteDepartment, editAgent, editCategory, editDepartment, getAgent, getAgentsByDepartment, getallCategories, getAlldepartments, getallSubCategories, getDepartment, getSingleCategory } from '../../controllers/admin/admin.utilities.controllers';
+import { createAgent, createCategory, createDepartment, createSubCategory, deleteCategory, deleteDepartment, editAgent, editCategory, editDepartment, getAccountActivityofUser, getAgent, getAgentsByDepartment, getAllAgents, getallCategories, getAlldepartments, getallSubCategories, getDepartment, getSingleCategory } from '../../controllers/admin/admin.utilities.controllers';
 import upload from '../../middlewares/multer.middleware';
-import { createBanner, createRate, deleteBanner, editCustomer, getAgents, getAllCustomers, getAllUsers, getBanners, getCustomerDetails, getRates, getTransactionForCustomer, updateBanner } from '../../controllers/admin/admin.operation.controller';
+import { createBanner, createNotification, createRate, deleteBanner, deleteNotification, editCustomer, getAgents, getAllCustomers, getAllUsers, getBanners, getCustomerDetails, getNotifications, getRates, getTransactionForCustomer, updateBanner, updateNotification } from '../../controllers/admin/admin.operation.controller';
 
 const operationsRouter = express.Router();
 
@@ -19,8 +19,8 @@ department routes
 operationsRouter.post('/create-department', upload.single('icon'), createDepartment);
 operationsRouter.get('/get-department/:id', getDepartment);
 operationsRouter.get('/get-all-department/', getAlldepartments);
-operationsRouter.post('/update-department', upload.single('icon'), editDepartment);
-operationsRouter.delete('/delete-department/:id', deleteDepartment);
+operationsRouter.post('/update-department/:id', upload.single('icon'), editDepartment);
+operationsRouter.get('/delete-department/:id', deleteDepartment);
 /*
 
 Category routes
@@ -28,7 +28,7 @@ Category routes
 */
 operationsRouter.post('/create-category', upload.single('image'), createCategory);
 operationsRouter.post('/update-category', upload.single('image'), editCategory);
-operationsRouter.get('/delete-category', deleteCategory);
+operationsRouter.get('/delete-category/:id', deleteCategory);
 operationsRouter.get('/get-all-categories', getallCategories);
 operationsRouter.get('/get-single-category/:id', getSingleCategory);
 
@@ -40,7 +40,7 @@ customer and agent routes
 
 
 */
-operationsRouter.post('/update-customer/:id',upload.single('profilePicture'), authenticateUser, editCustomer);
+operationsRouter.post('/update-customer/:id', upload.single('profilePicture'), authenticateUser, editCustomer);
 operationsRouter.post('/create-agent', upload.single('profilepicture'), createAgent);
 operationsRouter.post('/update-agent/:id', editAgent);
 operationsRouter.get('/get-agent/:agentId', getAgent);
@@ -48,6 +48,7 @@ operationsRouter.get('/get-customer-details/:id', authenticateUser, getCustomerD
 operationsRouter.get('/get-all-customers', authenticateUser, getAllCustomers);
 operationsRouter.get('/get-customer-transactions/:id', authenticateUser, getTransactionForCustomer);
 operationsRouter.get('/get-agent-by-department/:id', authenticateUser, getAgentsByDepartment);
+operationsRouter.get('/get-all-agent', authenticateUser, getAllAgents);
 operationsRouter.get('/get-all-users', authenticateUser, getAllUsers);
 operationsRouter.get('/get-team-members', authenticateUser, getAgents);
 
@@ -62,4 +63,16 @@ operationsRouter.post('/create-banner', upload.single('image'), authenticateUser
 operationsRouter.get('/get-all-banners', authenticateUser, getBanners);
 operationsRouter.post('/update-banner', authenticateUser, upload.single('image'), updateBanner);
 operationsRouter.delete('/delete-banner/:id', authenticateUser, deleteBanner);
+
+operationsRouter.post('/create-notification', upload.single('image'), authenticateUser, createNotification);
+operationsRouter.post('/update-notification', authenticateUser, updateNotification);
+operationsRouter.delete('/delete-notification/:id', authenticateUser, deleteNotification);
+operationsRouter.get('/get-all-notifications', upload.single('image'), authenticateUser, getNotifications);
+
+/*
+
+Account Activity Routes
+
+*/
+operationsRouter.get('/get-user-activity/:id', authenticateUser, getAccountActivityofUser);
 export default operationsRouter;

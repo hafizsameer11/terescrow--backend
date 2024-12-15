@@ -68,6 +68,16 @@ enum AgentStatus {
   online
 }
 
+enum DepartmentType {
+  sell
+  buy
+}
+
+enum departmentNiche {
+  crypto
+  giftCard
+}
+
 model User {
   id                Int                 @id @default(autoincrement())
   username          String              @unique @db.VarChar(255)
@@ -133,20 +143,22 @@ model Department {
   categories          CatDepart[]
   chatsDetails        ChatDetails[]
   assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
+  Type                DepartmentType       @default(buy)
+  niche               departmentNiche      @default(crypto)
 }
 
 model Category {
-  id            Int           @id @default(autoincrement())
-  title         String        @db.VarChar(255)
+  id            Int              @id @default(autoincrement())
+  title         String           @db.VarChar(255)
   subTitle      String?
   image         String?
   departments   CatDepart[]
   chatsDetails  ChatDetails[]
   subCategories CatSubcat[]
   transaction   Transaction[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  status        DepartmentStatus @default(active)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 }
 
 model Country {
@@ -354,16 +366,16 @@ model Notification {
   message                String
   type                   UserRoles
   isSingle               Boolean
+  image                  String?
   userId                 Int?
   createdAt              DateTime                 @default(now())
-  notificationAttachment NotificationAttachment[]
+
 }
 
 model NotificationAttachment {
   id             Int          @id @default(autoincrement())
   mediUrl        String
   motificationId Int
-  notification   Notification @relation(fields: [motificationId], references: [id])
 }
 
 model InAppNotification {
@@ -401,8 +413,9 @@ model AccountActivity {
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id])
 }
-model Banner{
-id Int @id @default(autoincrement())
-image String
-createdAt DateTime @default(now())
+
+model Banner {
+  id        Int      @id @default(autoincrement())
+  image     String
+  createdAt DateTime @default(now())
 }

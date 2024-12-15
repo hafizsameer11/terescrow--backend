@@ -463,3 +463,121 @@ export const deleteBanner = async (req: Request, res: Response, next: NextFuncti
         next(ApiError.internal('Failed to delete banner'));
     }
 }
+
+/*
+
+Notification Crud
+
+*/
+
+export const createNotification = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        //get image from request
+        const image = req.file?.filename || '';
+        const notification = await prisma.notification.create({
+            data: {
+                isSingle: false,
+                message: req.body.message,
+                type: req.body.type,
+                title: req.body.title,
+                image:image
+            }
+        })
+        if (!notification) {
+            return next(ApiError.badRequest('Failed to create notification'))
+        }
+        return new ApiResponse(201, notification, 'Notification created successfully').send(res);
+    }
+    catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to create notification'));
+    }
+}
+export const getNotifications = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const notifications = await prisma.notification.findMany()
+        if (!notifications) {
+            return next(ApiError.notFound('Notifications not found'));
+        }
+        return new ApiResponse(200, notifications, 'Notifications fetched successfully').send(res);
+    }
+    catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to get notifications'));
+    }
+}
+export const deleteNotification = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const notification = await prisma.notification.delete({
+            where: {
+                id: parseInt(req.params.id)
+            }
+        })
+        if (!notification) {
+            return next(ApiError.notFound('Notification not found'));
+        }
+        return new ApiResponse(200, notification, 'Notification deleted successfully').send(res);
+    }
+    catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to delete notification'));
+    }
+}
+export const updateNotification = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const image = req.file?.filename || '';
+        const oldnotification =await prisma.notification.findUnique({
+            where:{
+                id:parseInt(req.params.id)
+            }
+        })
+
+        const notification = await prisma.notification.update({
+            where: {
+                id: parseInt(req.params.id)
+            },
+            data: {
+                message: req.body.message,
+                type: req.body.type,
+                title: req.body.title,
+                image:image || oldnotification?.image
+            }
+        })
+        if (!notification) {
+            return next(ApiError.badRequest('Failed to update notification'))
+        }
+        return new ApiResponse(201, notification, 'Notification updated successfully').send(res);
+    }
+    catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to update notification'));
+    }
+}

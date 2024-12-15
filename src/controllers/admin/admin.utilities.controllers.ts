@@ -98,7 +98,59 @@ export const getAgentsByDepartment = async (
             profilePicture: true,
             email: true
           },
+
         },
+        assignedDepartments: {
+          select: {
+            departmentId: true
+          }
+        }
+      },
+    });
+
+    if (!agents) {
+      return next(ApiError.notFound('No agents found for this department'));
+    }
+    return new ApiResponse(200, agents, 'Agents fetched successfully').send(
+      res
+    );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(ApiError.internal('Failed to fetch agents'));
+  }
+};
+export const getAllAgents = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const admin: User = req.body._user;
+    if (admin?.role !== UserRoles.admin) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+
+    const agents = await prisma.agent.findMany({
+      select: {
+        id: true,
+        AgentStatus: true,
+        user: {
+          select: {
+            id: true,
+            username: true,
+            firstname: true,
+            lastname: true,
+            profilePicture: true,
+            email: true
+          },
+        },
+        assignedDepartments: {
+          select: {
+            departmentId: true
+          }
+        }
       },
     });
 
@@ -347,7 +399,7 @@ department controller
 */
 export const createDepartment = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { title, description, status } = req.body;
+    const { title, description, status, Type = '', niche = '' } = req.body;
 
     const icon = req.file?.fieldname || '';
     const department = await prisma.department.create({
@@ -355,7 +407,10 @@ export const createDepartment = async (req: Request, res: Response, next: NextFu
         title,
         description,
         icon,
-        status
+        status,
+        Type: Type || 'buy',
+        niche: niche || 'crypto',
+
       }
     })
     if (!department) {
@@ -374,7 +429,7 @@ export const createDepartment = async (req: Request, res: Response, next: NextFu
 export const editDepartment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { title, description, status } = req.body;
+    const { title, description, status, Type = '', niche = '' } = req.body;
     const icon = req.file?.fieldname || '';
     const department = await prisma.department.update({
       where: { id: parseInt(id) },
@@ -382,7 +437,8 @@ export const editDepartment = async (req: Request, res: Response, next: NextFunc
         title,
         description,
         icon,
-        status
+        status, Type: Type || 'buy',
+        niche: niche || 'crypto',
       }
     })
     if (!department) {
@@ -432,22 +488,30 @@ export const getDepartment = async (req: Request, res: Response, next: NextFunct
 export const deleteDepartment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const department = await prisma.department.delete({
+
+    // Update department status to "inactive"
+    const department = await prisma.department.update({
       where: { id: parseInt(id) },
+      data: { status: 'inactive' },
     });
+
     if (!department) {
       return next(ApiError.notFound('Department not found'));
     }
-    return new ApiResponse(200, department, 'Department deleted successfully').send(res);
+
+    return new ApiResponse(200, department, 'Department marked as inactive successfully').send(res);
   } catch (error) {
-    console.log(error);
+    console.error(error);
+
     if (error instanceof ApiError) {
       next(error);
       return;
     }
+
     next(ApiError.internal('Internal Server Error'));
   }
-}
+};
+
 
 export const getAlldepartments = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -472,6 +536,8 @@ export const getAlldepartments = async (req: Request, res: Response, next: NextF
       createdAt: department.createdAt,
       updatedAt: department.updatedAt,
       status: department.status,
+      Type: department.Type,
+      niche: department.niche,
       noOfAgents: department._count.assignedDepartments, // Flatten the `_count` field
     }));
 
@@ -605,31 +671,38 @@ export const editCategory = async (req: Request, res: Response, next: NextFuncti
 export const deleteCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const category = await prisma.category.delete({
-      where: {
-        id: parseInt(id, 10)
-      }
-    })
 
-    const catDepart = await prisma.catDepart.deleteMany({
+    // Update the category's status to "inactive"
+    const category = await prisma.category.update({
       where: {
-        categoryId: category.id
-      }
+        id: parseInt(id, 10),
+      },
+      data: {
+        status: 'inactive',
+      },
     });
 
-    return new ApiResponse(200, category, 'Category deleted successfully').send(res);
+    if (!category) {
+      return next(ApiError.notFound('Category not found'));
+    }
+
+    return new ApiResponse(200, category, 'Category status updated to inactive').send(res);
   } catch (error) {
-    console.log(error);
+    console.error(error);
     if (error instanceof ApiError) {
       next(error);
       return;
     }
     next(ApiError.internal('Internal Server Error'));
   }
-}
+};
+
 export const getallCategories = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const categories = await prisma.category.findMany({
+      where: {
+        status: 'active'
+      },
       include: {
         departments: {
           select: {
@@ -821,6 +894,27 @@ export const getallSubCategories = async (req: Request, res: Response, next: Nex
 
 
 
+export const getAccountActivityofUser = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const accountActivites = prisma.accountActivity.findMany({
+      where: {
+        userId: parseInt(id)
+      }
+    })
+    if (!accountActivites) {
+      return new ApiResponse(201, [], 'No accountActivites found').send(res);
+    }
+    return new ApiResponse(200, accountActivites, 'AccountActivites retrieved successfully').send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+}
 interface AgentRequest {
   firstName: string;
   lastName: string;
