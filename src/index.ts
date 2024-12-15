@@ -12,6 +12,8 @@ import agentChatRouter from './routes/agent/chat.router';
 import upload from './middlewares/multer.middleware';
 import operationsRouter from './routes/admin/operations.router';
 import adminAgentRouter from './routes/admin.agent.router';
+import agentOperationsRouter from './routes/agent/agent.operations.router';
+import adminAuthRouter from './routes/admin/auth.router';
 
 const port = process.env.PORT || 8000;
 
@@ -32,12 +34,13 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/api/auth', authRouter);
 app.use('/api/customer', customerRouter);
 app.use('/api/agent', agentChatRouter);
+app.use('/api/agent', agentOperationsRouter);
 app.use('/api/public', publicRouter);
-app.use('/api/admin', operationsRouter);
-app.use('/api/', adminAgentRouter);
+app.use('/api', adminAgentRouter);
+app.use('/api/admin', adminAuthRouter);
+app.use('/api/admin/operations', operationsRouter);
 app.post('/api/file', upload.single('file'), (req: Request, res: Response) => {
   if (req?.file) {
-    // console.log('uploaded :', req.file);
     return res.status(201).json({
       message: 'File uploaded successfully',
       fileUrl: `http://localhost:8000/uploads/${req.file.filename}`,

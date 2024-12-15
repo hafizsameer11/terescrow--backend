@@ -5,9 +5,9 @@ import {
     getChatDetailsController,
     sendMessageController,
 } from '../../controllers/customer/chat.controllers';
-import { createAgent, createCategory, createDepartment, createSubCategory, deleteCategory, deleteDepartment, editAgent, editCategory, editDepartment, getAccountActivityofUser, getAgent, getAgentsByDepartment, getAllAgents, getallCategories, getAlldepartments, getallSubCategories, getDepartment, getSingleCategory } from '../../controllers/admin/admin.utilities.controllers';
+import {  createCategory, createDepartment, createSubCategory, deleteCategory, deleteDepartment, editAgent, editCategory, editDepartment, getAccountActivityofUser, getAgent, getAgentsByDepartment, getAllAgents, getallCategories, getAlldepartments, getallSubCategories, getDepartment, getSingleCategory } from '../../controllers/admin/admin.utilities.controllers';
 import upload from '../../middlewares/multer.middleware';
-import { createBanner, createNotification, createRate, deleteBanner, deleteNotification, editCustomer, getAgents, getAllCustomers, getAllUsers, getBanners, getCustomerDetails, getNotifications, getRates, getTransactionForCustomer, updateBanner, updateNotification } from '../../controllers/admin/admin.operation.controller';
+import { createBanner, createNotification, createRate, deleteBanner, deleteNotification, editCustomer, getAgents, getAllCustomers, getAllUsers, getBanners, getCustomerDetails, getNotifications, getRates, updateBanner, updateNotification } from '../../controllers/admin/admin.operation.controller';
 
 const operationsRouter = express.Router();
 
@@ -41,12 +41,12 @@ customer and agent routes
 
 */
 operationsRouter.post('/update-customer/:id', upload.single('profilePicture'), authenticateUser, editCustomer);
-operationsRouter.post('/create-agent', upload.single('profilepicture'), createAgent);
+// operationsRouter.post('/create-agent', upload.single('profilepicture'), createAgent);
 operationsRouter.post('/update-agent/:id', editAgent);
 operationsRouter.get('/get-agent/:agentId', getAgent);
 operationsRouter.get('/get-customer-details/:id', authenticateUser, getCustomerDetails);
 operationsRouter.get('/get-all-customers', authenticateUser, getAllCustomers);
-operationsRouter.get('/get-customer-transactions/:id', authenticateUser, getTransactionForCustomer);
+// operationsRouter.get('/get-customer-transactions/:id', authenticateUser, getTransactionForCustomer);
 operationsRouter.get('/get-agent-by-department/:id', authenticateUser, getAgentsByDepartment);
 operationsRouter.get('/get-all-agent', authenticateUser, getAllAgents);
 operationsRouter.get('/get-all-users', authenticateUser, getAllUsers);

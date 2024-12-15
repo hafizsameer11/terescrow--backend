@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import ApiResponse from '../../utils/ApiResponse';
 import ApiError from '../../utils/ApiError';
-import { Gender, PrismaClient, User, UserRoles } from '@prisma/client';
+import { ChatType, Gender, PrismaClient, User, UserRoles } from '@prisma/client';
 import { DepartmentStatus, AssignedDepartment } from '@prisma/client';
 import { hashPassword } from '../../utils/authUtils';
 import { UserRequest } from '../customer/auth.controllers';
@@ -60,7 +60,246 @@ export const changeDepartmentStatus = async (
     next(ApiError.internal('Failed to change department status'));
   }
 };
+export const createAgentController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      throw ApiError.badRequest(
+        'Please enter valid credentials',
+        errors.array()
+      );
+    }
 
+    const {
+      firstName,
+      lastName,
+      email,
+      phoneNumber,
+      password,
+      username,
+      gender,
+      countryId=1,
+      countr='',
+      departmentIds = [], // Default to empty array if not provided
+    }: AgentRequest = req.body;
+
+    // Check if user already exists
+    const profilePicture = req.file ? req.file.filename : '';
+    const isUser = await prisma.user.findFirst({
+      where: {
+        OR: [{ email }, { username }, { phoneNumber }],
+      },
+    });
+
+    if (isUser) {
+      return next(ApiError.badRequest('This user is already registered'));
+    }
+
+    const country = await prisma.country.findUnique({
+      where: {
+        id: +countryId,
+      },
+    });
+
+    if (!country) {
+      return next(ApiError.badRequest('Country not found'));
+    }
+
+    const hashedPassword = await hashPassword(password);
+    const newUser = await prisma.user.create({
+      data: {
+        firstname: firstName,
+        lastname: lastName,
+        email,
+        phoneNumber,
+        password: hashedPassword,
+        username,
+        country:countr,
+        gender,
+        countryId: country.id,
+        role: UserRoles.agent,
+        profilePicture,
+      },
+    });
+
+    if (!newUser) {
+      return next(ApiError.internal('User creation failed'));
+    }
+
+    const newAgent = await prisma.agent.create({
+      data: {
+        userId: newUser.id,
+        assignedDepartments: {
+          createMany: {
+            data: departmentIds.map((id) => ({
+              departmentId: id,
+            })),
+          },
+        },
+      },
+    });
+
+    if (!newAgent) {
+      return next(ApiError.internal('Agent creation failed'));
+    }
+
+    const allUsers = await prisma.user.findMany({
+      where: {
+        AND: [
+          {
+            role: {
+              not: UserRoles.customer,
+            },
+          },
+          {
+            id: {
+              not: newUser.id,
+            },
+          },
+        ],
+      },
+    });
+
+    const createdChats = await Promise.all(
+      [...allUsers].map((user) =>
+        prisma.chat.create({
+          data: {
+            chatType: ChatType.team_chat,
+          },
+          select: {
+            id: true,
+            chatType: true,
+            createdAt: true, // Include other fields as needed
+          },
+        })
+      )
+    );
+
+    if (!createdChats) {
+      return next(ApiError.internal('Chat creation failed'));
+    }
+
+    for (const newChat of createdChats) {
+      await Promise.all(
+        [...allUsers].map(async (user) => {
+          await prisma.chatParticipant.createMany({
+            data: [
+              {
+                chatId: newChat.id,
+                userId: user.id,
+              },
+              {
+                chatId: newChat.id,
+                userId: newUser.id,
+              },
+            ],
+          });
+        })
+      );
+    }
+
+    return new ApiResponse(201, undefined, 'User created successfully').send(
+      res
+    );
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+};
+export const getAllTransactions = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const admin: User = req.body._user;
+    if (admin?.role !== UserRoles.admin) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+    // Extract query params for pagination, default to latest 10 transactions
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const latestOnly = !req.query.page && !req.query.limit;
+
+    // Calculate the offset for pagination
+    const skip = latestOnly ? 0 : (page - 1) * limit;
+    const take = latestOnly ? 10 : limit;
+
+    // Fetch transactions
+    const transactions = await prisma.transaction.findMany({
+      skip, // Skip records for pagination
+      take, // Limit records returned
+      orderBy: {
+        createdAt: 'desc', // Sort by creation date
+      },
+      select: {
+        id: true,
+        status: true,
+        amount: true,
+        amountNaira: true,
+        chat: {
+          select: {
+            participants: {
+              where: {
+                user: {
+                  role: UserRoles.customer,
+                },
+              },
+              select: {
+                user: {
+                  select: {
+                    id: true,
+                    username: true,
+                    firstname: true,
+                    lastname: true,
+                    profilePicture: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    // Count total records for pagination
+    const totalRecords = await prisma.transaction.count();
+
+    // Build response based on mode
+    const response = {
+      currentPage: latestOnly ? 1 : page,
+      totalPages: latestOnly ? 1 : Math.ceil(totalRecords / limit),
+      totalRecords,
+      transactionsData: transactions,
+    };
+
+    let message = latestOnly
+      ? 'Latest 10 transactions fetched successfully'
+      : 'Paginated transactions fetched successfully';
+
+    if (transactions.length === 0) {
+      message = 'No transactions found';
+    }
+
+    return new ApiResponse(200, response, message).send(res);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    console.error(error);
+    next(ApiError.internal('Internal Server Error'));
+  }
+};
 
 /*
 Agent COntroller
@@ -168,102 +407,102 @@ export const getAllAgents = async (
   }
 };
 
-export const createAgent = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      throw ApiError.badRequest(
-        'Please enter valid credentials',
-        errors.array()
-      );
-    }
+// export const createAgent = async (req: Request, res: Response, next: NextFunction) => {
+//   try {
+//     const errors = validationResult(req);
+//     if (!errors.isEmpty()) {
+//       throw ApiError.badRequest(
+//         'Please enter valid credentials',
+//         errors.array()
+//       );
+//     }
 
-    const {
-      firstName,
-      lastName,
-      email,
-      phoneNumber,
-      password,
-      username,
-      gender,
-      country,
-      departmentIds = [], // Default to empty array if not provided
-    }: AgentRequest = req.body;
+//     const {
+//       firstName,
+//       lastName,
+//       email,
+//       phoneNumber,
+//       password,
+//       username,
+//       gender,
+//       country,
+//       departmentIds = [], // Default to empty array if not provided
+//     } = req.body;
 
-    // Check if user already exists
-    const profilePicture = req.file ? req.file.filename : '';
-    const isUser = await prisma.user.findFirst({
-      where: {
-        OR: [{ email }, { username }, { phoneNumber }],
-      },
-    });
+//     // Check if user already exists
+//     const profilePicture = req.file ? req.file.filename : '';
+//     const isUser = await prisma.user.findFirst({
+//       where: {
+//         OR: [{ email }, { username }, { phoneNumber }],
+//       },
+//     });
 
-    if (isUser) {
-      throw ApiError.badRequest('This user is already registered');
-    }
-    const hashedPassword = await hashPassword(password);
-    const newUser = await prisma.user.create({
-      data: {
-        firstname: firstName,
-        lastname: lastName,
-        email,
-        phoneNumber,
-        password: hashedPassword,
-        username,
-        gender,
-        country,
-        role: UserRoles.agent,
-        profilePicture
-      },
-    });
+//     if (isUser) {
+//       throw ApiError.badRequest('This user is already registered');
+//     }
+//     const hashedPassword = await hashPassword(password);
+//     const newUser = await prisma.user.create({
+//       data: {
+//         firstname: firstName,
+//         lastname: lastName,
+//         email,
+//         phoneNumber,
+//         password: hashedPassword,
+//         username,
+//         gender,
+//         country,
+//         role: UserRoles.agent,
+//         profilePicture
+//       },
+//     });
 
-    if (!newUser) {
-      return next(ApiError.internal('User creation failed'));
-    }
-    const newAgent = await prisma.agent.create({
-      data: {
-        userId: newUser.id,
-      },
-    })
-    if (!newAgent) {
-      return next(ApiError.internal('Agent creation failed'));
-    }
-    if (departmentIds.length > 0) {
-      let assignedCount = 0;
-      await Promise.all(
-        departmentIds.map(async (departmentId) => {
-          const result = await prisma.assignedDepartment.create({
-            data: {
-              agentId: newAgent.id,
-              departmentId: departmentId,
-            },
-          });
+//     if (!newUser) {
+//       return next(ApiError.internal('User creation failed'));
+//     }
+//     const newAgent = await prisma.agent.create({
+//       data: {
+//         userId: newUser.id,
+//       },
+//     })
+//     if (!newAgent) {
+//       return next(ApiError.internal('Agent creation failed'));
+//     }
+//     if (departmentIds.length > 0) {
+//       let assignedCount = 0;
+//       await Promise.all(
+//         departmentIds.map(async (departmentId) => {
+//           const result = await prisma.assignedDepartment.create({
+//             data: {
+//               agentId: newAgent.id,
+//               departmentId: departmentId,
+//             },
+//           });
 
-          if (result) {
-            assignedCount++;
-          }
-        })
-      );
+//           if (result) {
+//             assignedCount++;
+//           }
+//         })
+//       );
 
-      if (assignedCount !== departmentIds.length) {
-        return next(ApiError.internal('Department assignment failed'));
-      }
-    }
+//       if (assignedCount !== departmentIds.length) {
+//         return next(ApiError.internal('Department assignment failed'));
+//       }
+//     }
 
-    return new ApiResponse(
-      200,
-      undefined,
-      'User created successfully'
-    ).send(res);
-  } catch (error) {
-    console.log(error);
-    if (error instanceof ApiError) {
-      next(error);
-      return;
-    }
-    next(ApiError.internal('Internal Server Error'));
-  }
-};
+//     return new ApiResponse(
+//       200,
+//       undefined,
+//       'User created successfully'
+//     ).send(res);
+//   } catch (error) {
+//     console.log(error);
+//     if (error instanceof ApiError) {
+//       next(error);
+//       return;
+//     }
+//     next(ApiError.internal('Internal Server Error'));
+//   }
+// };
 
 export const editAgent = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -923,7 +1162,8 @@ interface AgentRequest {
   password: string;
   username: string;
   gender: Gender; // Assuming an enum-like structure for gender
-  country: string;
+  countr: string;
   role: 'ADMIN' | 'AGENT' | 'CUSTOMER';
   departmentIds?: number[]; // Optional, can be empty or undefined
+  countryId?: number;
 }

@@ -2,10 +2,9 @@ import express from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
 import {
   getAllChatsWithCustomerController,
-  getAllChatsWithTeamController,
   sendToCustomerController,
-  sendToTeamController,
-  getChatDetailsController,
+  changeChatStatusController,
+  getCustomerChatDetailsController,
 } from '../../controllers/agent/agent.chat.controllers';
 
 const agentChatRouter = express.Router();
@@ -15,21 +14,23 @@ agentChatRouter.post(
   authenticateUser,
   sendToCustomerController
 );
-agentChatRouter.post('/send-to-team', authenticateUser, sendToTeamController);
+
+agentChatRouter.post(
+  '/change-chat-status',
+  authenticateUser,
+  changeChatStatusController
+);
+
 agentChatRouter.get(
   '/get-all-chats-with-customer',
   authenticateUser,
   getAllChatsWithCustomerController
 );
-agentChatRouter.get(
-  '/get-all-chats-with-team',
-  authenticateUser,
-  getAllChatsWithTeamController
-);
+
 agentChatRouter.get(
   '/get-chat/:chatId',
   authenticateUser,
-  getChatDetailsController
+  getCustomerChatDetailsController
 );
 
 export default agentChatRouter;

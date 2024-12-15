@@ -85,6 +85,7 @@ model User {
   firstname         String              @db.VarChar(255)
   lastname          String              @db.VarChar(255)
   country           String              @db.VarChar(255)
+  countryId       Int?
   phoneNumber       String              @unique @db.VarChar(20)
   profilePicture    String?
   password          String              @db.VarChar(255)
@@ -98,7 +99,7 @@ model User {
   participations    ChatParticipant[]
   groups            ChatGroup[]
   inappNotification InAppNotification[]
-  transaction       Transaction[]
+  // transaction       Transaction[]
   notes             Notes[]
   KycStateTwo       KycStateTwo[]
   AccountActivity   AccountActivity[]
@@ -126,7 +127,7 @@ model Agent {
   assignedDepartments AssignedDepartment[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
-  transaction         Transaction[]
+  // transaction         Transaction[]
   notes               Notes[]
   rate                Rate[]
 }
@@ -139,7 +140,7 @@ model Department {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   status              DepartmentStatus
-  transaction         Transaction[]
+  // transaction         Transaction[]
   categories          CatDepart[]
   chatsDetails        ChatDetails[]
   assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
@@ -155,7 +156,7 @@ model Category {
   departments   CatDepart[]
   chatsDetails  ChatDetails[]
   subCategories CatSubcat[]
-  transaction   Transaction[]
+  // transaction   Transaction[]
   status        DepartmentStatus @default(active)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
@@ -219,12 +220,11 @@ model Chat {
   chatDetails  ChatDetails?
   chatGroup    ChatGroup?
   messages     Message[]
-  Rate         Rate[]
+  transactions Transaction[]
+  rate         Rate[]
+  chatDeclined  Chatdeclined[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
-  // chatdeclinedId Int
-  chatdeclined Chatdeclined[]
-  // chatdeclinedId Int
 }
 
 model ChatParticipant {
@@ -260,6 +260,7 @@ model ChatGroup {
   admin        User    @relation(fields: [adminId], references: [id])
 }
 
+
 // model GroupChat {
 //   id          Int           @id @default(autoincrement())
 //   agentId     Int
@@ -285,9 +286,9 @@ model ChatGroup {
 model Message {
   id          Int          @id @default(autoincrement())
   senderId    Int
-  receiverId  Int
+  receiverId  Int?
   sender      User         @relation("SentMessages", fields: [senderId], references: [id])
-  receiver    User         @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  receiver    User?        @relation("ReceivedMessages", fields: [receiverId], references: [id])
   attachments Attachment[]
   chatId      Int
   chat        Chat         @relation(fields: [chatId], references: [id])
@@ -308,32 +309,26 @@ model Attachment {
 }
 
 model Transaction {
-  id            Int                @id @default(autoincrement())
-  departmentId  Int
-  categoryId    Int
+  id            Int               @id @default(autoincrement())
+  chatId        Int
   subCategoryId Int
   countryId     Int
   cardType      String?
   cardNumber    String?
   amount        Float?
   exchangeRate  Float?
-  transactionId String?
   amountNaira   Float?
-  agentId       Int
-  customerId    Int
-  customer      User               @relation(fields: [customerId], references: [id])
   cryptoAmount  Float?
   fromAddress   String?
   toAddress     String?
-  status        TransactionStatus?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  agent         Agent              @relation(fields: [agentId], references: [id])
-  department    Department         @relation(fields: [departmentId], references: [id])
-  category      Category           @relation(fields: [categoryId], references: [id])
-  subCategory   Subcategory        @relation(fields: [subCategoryId], references: [id])
-  country       Country            @relation(fields: [countryId], references: [id])
+  status        TransactionStatus @default(successful)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  chat          Chat              @relation(fields: [chatId], references: [id])
+  subCategory   Subcategory       @relation(fields: [subCategoryId], references: [id])
+  country       Country           @relation(fields: [countryId], references: [id])
 }
+
 
 model Notes {
   id             Int      @id @default(autoincrement())

@@ -25,13 +25,13 @@ const sendMessageController = async (
       _user: sender,
     } = req.body as { message: string; chatId: string; _user: User };
 
-    console.log(message, chatId, sender);
+    // console.log(message, chatId, sender);
 
     if (sender.role !== UserRoles.customer) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
-    if (!message.trim() || chatId) {
+    if (!message.trim() || !chatId) {
       return next(ApiError.badRequest('Invalid request credentials'));
     }
 
@@ -80,16 +80,13 @@ const sendMessageController = async (
       return next(ApiError.internal('Message Sending Failed'));
     }
 
-    // if (!chat.messages.includes(newMessage._id)) {
-    //   chat.messages.push(newMessage._id);
-    //   await chat.save();
-    // }
-
     // its to check whether the user is online or offline now
     //io.to is used to send message to a particular user
 
+    console.log(chat.participants[0].userId);
     const recieverSocketId = getAgentSocketId(chat.participants[0].userId);
     if (recieverSocketId) {
+      console.log('reached');
       io.to(recieverSocketId).emit('message', {
         from: sender.id,
         message: newMessage,
@@ -117,6 +114,9 @@ const getChatDetailsController = async (
   try {
     const { chatId } = req.params;
     const user: User = req.body._user;
+
+    console.log(user.role);
+    console.log(chatId);
     if (user.role !== UserRoles.customer) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
@@ -144,6 +144,7 @@ const getChatDetailsController = async (
                 username: true,
                 firstname: true,
                 lastname: true,
+                profilePicture: true,
               },
             },
           },
@@ -156,25 +157,21 @@ const getChatDetailsController = async (
       },
     });
 
+    console.log(chat?.messages);
     if (!chat) {
       return next(ApiError.badRequest('Chat not found'));
     }
 
-    //Add a flag to check whether the user belongs to this chat or is admin
-    const { senderId, receiverId } = chat.messages[0];
-
-    if (user.id !== senderId && user.id !== receiverId) {
-      return next(ApiError.badRequest('Invalid chat request'));
-    }
-
-    const resData = {
-      id: chat.id,
-      chatType: chat.chatType,
-      receiverDetails: chat.participants[0].user,
-      messages: chat.messages,
-    };
-
-    return new ApiResponse(200, resData, 'Chat found successfully').send(res);
+    return new ApiResponse(
+      200,
+      {
+        id: chat.id,
+        chatType: chat.chatType,
+        receiverDetails: chat.participants[0].user,
+        messages: chat.messages || null,
+      },
+      'Chat found successfully'
+    ).send(res);
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -201,6 +198,11 @@ const getAllChatsController = async (
       },
       select: {
         id: true,
+        chatDetails: {
+          select: {
+            status: true,
+          },
+        },
         participants: {
           where: {
             userId: {
@@ -214,6 +216,16 @@ const getAllChatsController = async (
                 firstname: true,
                 lastname: true,
                 username: true,
+                profilePicture: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            messages: {
+              where: {
+                isRead: false,
               },
             },
           },
@@ -232,12 +244,18 @@ const getAllChatsController = async (
     }
 
     const responseData = chats.map((chat) => {
-      const message = chat.messages?.[0]?.message || null;
+      const recentMessage = chat.messages?.[0]?.message || null;
+      const recentMessageTimestamp = chat.messages?.[0]?.createdAt || null;
+      const agent = chat.participants?.[0]?.user || null;
+      const chatStatus = chat.chatDetails?.status || null;
+      const messagesCount = chat._count?.messages || 0;
       return {
         id: chat.id,
-        sender: chat.participants[0].user,
-        message,
-        createdAt: chat.messages[0].createdAt,
+        agent, // Ensure customer is not undefined
+        recentMessage, // Handle missing messages gracefully
+        recentMessageTimestamp,
+        chatStatus,
+        messagesCount,
       };
     });
 
@@ -253,6 +271,7 @@ const getAllChatsController = async (
     return next(ApiError.internal('Server Error Occured!'));
   }
 };
+
 
 export {
   getChatDetailsController,

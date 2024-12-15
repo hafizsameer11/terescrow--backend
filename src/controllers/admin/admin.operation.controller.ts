@@ -117,53 +117,53 @@ export const editCustomer = async (req: Request, res: Response, next: NextFuncti
         next(ApiError.internal('Failed to change department status'));
     }
 }
-export const getTransactionForCustomer = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const user = req.body._user
-        // return new ApiResponse(201, user, 'Transaction created successfully').send(res);
-        if (!user || (user.role !== UserRoles.admin)) {
-            return next(ApiError.unauthorized('You are not authorized'));
-        }
+// export const getTransactionForCustomer = async (req: Request, res: Response, next: NextFunction) => {
+//     try {
+//         const user = req.body._user
+//         // return new ApiResponse(201, user, 'Transaction created successfully').send(res);
+//         if (!user || (user.role !== UserRoles.admin)) {
+//             return next(ApiError.unauthorized('You are not authorized'));
+//         }
 
-        const customerId = req.params.id;
-        const transactions = await prisma.transaction.findMany({
-            where: {
-                customerId: parseInt(customerId)
-            },
-            include: {
-                department: true,
-                category: true,
-                agent: {
-                    select: {
-                        user: {
-                            select: {
-                                id: true,
-                                username: true
-                            }
-                        }
-                    }
-                },
-                customer: {
-                    select: {
-                        id: true,
-                        username: true,
-                    },
-                },
-            }
-        })
-        if (!transactions) {
-            return next(ApiError.notFound('Transactions not found'));
-        }
-        return new ApiResponse(200, transactions, 'Transactions fetched successfully').send(res);
-    } catch (error) {
-        console.log(error);
-        if (error instanceof ApiError) {
-            return next(error);
-        }
-        next(ApiError.internal('Failed to get transactions'));
+//         const customerId = req.params.id;
+//         const transactions = await prisma.transaction.findMany({
+//             where: {
+//                 customerId: parseInt(customerId)
+//             },
+//             include: {
+//                 department: true,
+//                 category: true,
+//                 agent: {
+//                     select: {
+//                         user: {
+//                             select: {
+//                                 id: true,
+//                                 username: true
+//                             }
+//                         }
+//                     }
+//                 },
+//                 customer: {
+//                     select: {
+//                         id: true,
+//                         username: true,
+//                     },
+//                 },
+//             }
+//         })
+//         if (!transactions) {
+//             return next(ApiError.notFound('Transactions not found'));
+//         }
+//         return new ApiResponse(200, transactions, 'Transactions fetched successfully').send(res);
+//     } catch (error) {
+//         console.log(error);
+//         if (error instanceof ApiError) {
+//             return next(error);
+//         }
+//         next(ApiError.internal('Failed to get transactions'));
 
-    }
-}
+//     }
+// }
 
 
 /*Rate Controller
