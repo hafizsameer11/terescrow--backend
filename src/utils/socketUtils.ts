@@ -18,29 +18,30 @@ const getAgentDepartments = async (
           select: {
             id: true,
             assignedDepartments: {
-              select: { id: true },
+              select: { departmentId: true },
             },
           },
         },
       },
     });
 
-    // console.log(
-    //   isAgent?.agent?.assignedDepartments.forEach((dep) =>
-    //     console.log('dep: ', dep.id)
-    //   )
-    // );
     if (!isAgent || !isAgent.agent) return null;
+
+    // Map assignedDepartments and rename `departmentId` to `id`
+    const transformedDepartments = isAgent.agent.assignedDepartments.map((dept) => ({
+      id: dept.departmentId, // Alias transformation
+    }));
+
     return {
       agentId: isAgent.agent.id,
-      assignedDepartments: isAgent.agent.assignedDepartments,
+      assignedDepartments: transformedDepartments,
     };
   } catch (error) {
-    console.log(error);
+    console.error('Error fetching agent departments:', error);
     return null;
-    // throw ApiError.badRequest('Internal server error');
   }
 };
+
 
 const createCustomerToAgentChat = async (
   agentId: number,

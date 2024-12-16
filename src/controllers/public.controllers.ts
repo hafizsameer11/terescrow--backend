@@ -20,6 +20,7 @@ export const loginController = async (
   next: NextFunction
 ) => {
   try {
+    console.log(req.body);
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       throw ApiError.badRequest(
@@ -124,13 +125,25 @@ export const getCategoriesFromDepartment = async (
       },
     });
 
-    if (!categories) {
+    if (!categories || categories.length === 0) {
       return next(ApiError.notFound('Categories not found'));
     }
+
+    // Update image URL
+    const modifiedCategories = categories.map((cat) => ({
+      category: {
+        ...cat.category,
+        image: cat.category.image
+          ? `${req.protocol}://${req.get('host')}/uploads/${cat.category.image}`
+          : null, // Handle cases where image is null
+      },
+    }));
+
     const resData = {
       departmentId,
-      categories,
+      categories: modifiedCategories,
     };
+
     return new ApiResponse(200, resData, 'Categories found').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
@@ -139,6 +152,7 @@ export const getCategoriesFromDepartment = async (
     next(error);
   }
 };
+
 
 export const getSubCategoriesFromCatDepart = async (
   req: Request,

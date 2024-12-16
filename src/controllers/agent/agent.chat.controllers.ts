@@ -180,10 +180,11 @@ export const getAllChatsWithCustomerController = async (
   next: NextFunction
 ) => {
   try {
-    const { _user } = req.body as { _user: User };
-    // console.log(_user);
+    const user  = req.body._user;
+    console.log(user);
+    
 
-    if (!_user) {
+    if (!user) {
       return ApiError.unauthorized('You are not authorized');
     }
 
@@ -193,7 +194,7 @@ export const getAllChatsWithCustomerController = async (
           {
             participants: {
               some: {
-                userId: _user.id,
+                userId: user.id,
               },
             },
           },
@@ -216,7 +217,7 @@ export const getAllChatsWithCustomerController = async (
         participants: {
           where: {
             userId: {
-              not: _user.id,
+              not: user.id,
             },
           },
           select: {
