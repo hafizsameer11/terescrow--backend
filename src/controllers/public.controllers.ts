@@ -35,6 +35,9 @@ export const loginController = async (
     }
     const isUser = await prisma.user.findUnique({
       where: { email },
+      include: {
+      KycStateTwo: true
+      }
     });
     if (!isUser) {
  
@@ -60,6 +63,11 @@ export const loginController = async (
       profilePicture: isUser.profilePicture,
       email: isUser.email,
       role: isUser.role,
+      phoneNumber: isUser.phoneNumber,
+      country: isUser.country,
+      gender: isUser.gender,
+      isVerified: isUser.isVerified,
+      KycStateTwo: isUser.KycStateTwo
     };
 
     return new ApiResponse(

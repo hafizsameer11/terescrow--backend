@@ -426,7 +426,133 @@ const sendPasswordOtpController = async (
     return next(ApiError.internal('Internal Server Error!'));
   }
 };
+export const editProfileController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const user: User = req.body._user;
 
+    if (!user) {
+      return next(ApiError.unauthorized("You are not authorized"));
+    }
+
+    const {
+      firstName,
+      lastName,
+      email,
+      phoneNumber,
+      userName,
+      gender,
+      country,
+    } = req.body;
+    console.log(firstName, lastName, email, phoneNumber, userName, gender, country);
+
+    const existingUser = await prisma.user.findUnique({
+      where: { id: user.id },
+    });
+
+    if (!existingUser) {
+      return next(ApiError.notFound("User not found"));
+    }
+
+    // Check if email, phone number, or username already exists for other users
+    const isDuplicate = await prisma.user.findFirst({
+      where: {
+        AND: [
+          { id: { not: user.id } }, // Ensure it's not the current user
+          {
+            OR: [
+              { email: email },
+              { username: userName },
+              { phoneNumber: phoneNumber },
+            ],
+          },
+        ],
+      },
+    });
+
+
+    if (isDuplicate) {
+      return next(ApiError.badRequest("Email, username, or phone already in use"));
+    }
+
+    // Update user profile
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        firstname: firstName || existingUser.firstname,
+        lastname: lastName || existingUser.lastname,
+        email: email || existingUser.email,
+        phoneNumber: phoneNumber || existingUser.phoneNumber,
+        username: userName || existingUser.username,
+        gender: gender || existingUser.gender,
+        country: country || existingUser.country,
+      },
+    });
+
+    return new ApiResponse(
+      200,
+      updatedUser,
+      "Profile updated successfully"
+    ).send(res);
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal("Internal Server Error"));
+  }
+};
+// export const verifyPassword
+export const changePasswordController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+
+  try {
+    const user = req.body._user;
+
+    if (!user) {
+      return next(ApiError.unauthorized("You are not authorized"));
+    }
+    const {
+      oldPassword,
+      newPassword,
+    } = req.body;
+
+    const existingUser = await prisma.user.findUnique({
+      where: { id: user.id },
+    });
+    if (!existingUser) {
+      return next(ApiError.notFound("User not found"));
+    }
+    const isMatch = await comparePassword(oldPassword, user.password);
+    if (!isMatch) {
+      return next(ApiError.badRequest("Old password is incorrect"));
+    }
+    const hashedPassword = await hashPassword(newPassword);
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+      },
+    });
+    // Return the updated user with a success message
+    return new ApiResponse(
+      200, updatedUser,
+      "Password changed successfully"
+    ).send(
+      res);
+
+  } catch (error) {
+    console.error(error);
+    next(ApiError.internal("Internal Server Error"));
+  }
+}
 export {
   registerCustomerController,
   logoutController,

@@ -382,6 +382,7 @@ model InAppNotification {
   title       String
   description String
   userId      Int
+  isRead Boolean     @default(false)
   user        User   @relation(fields: [userId], references: [id])
 }
 

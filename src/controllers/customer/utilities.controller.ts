@@ -14,12 +14,13 @@ export const kycTierTwoRequest = async (req: Request, res: Response, next: NextF
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const userId = user.id
-        const { firstName, surName, firtName, bvn } = req.body
+        const { firstName, surName, bvn,dateofBirth } = req.body
         const kycTierTwoRequest = await prisma.kycStateTwo.create({
             data: {
                 firtName: firstName,
                 bvn: bvn,
                 surName: surName,
+                dob: dateofBirth || '',
                 userId: userId,
                 status: 'tier2'
             }
@@ -41,61 +42,84 @@ export const kycTierTwoRequest = async (req: Request, res: Response, next: NextF
 
 
 }
-export const getTransactionGroupData = async (req: Request, res: Response, next: NextFunction) => {
+export const getTransactionGroupData = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) => {
     try {
-        const user: User = req.body._user;
-        if (!user) {
-            return next(ApiError.unauthorized('You are not authorized'));
-        }
-        const userId = user.id
-        const transactionGroupData = await prisma.transaction.findMany({
-            where: {
-                chat: {
-                    participants: {
-                        some: {
-                            userId: userId
-                        }
-                    }
-                }
+      const user: User = req.body._user;
+  
+      if (!user) {
+        return next(ApiError.unauthorized("You are not authorized"));
+      }
+  
+      const userId = user.id;
+  
+      // Group transactions by departmentId
+      const transactionGroupData = await prisma.transaction.groupBy({
+        by: ["departmentId"],
+        where: {
+          chat: {
+            participants: {
+              some: {
+                userId: userId,
+              },
             },
+          },
+        },
+        _sum: {
+          amount: true,
+          amountNaira: true,
+        },
+        _max: {
+          createdAt: true,
+        },
+      });
+  
+      const result = await Promise.all(
+        transactionGroupData.map(async (transaction) => {
+          const department = await prisma.department.findUnique({
+            where: { id: transaction.departmentId || 0 },
             select: {
-                id: true,
-                amount: true,
-                createdAt: true,
-                amountNaira: true,
-                department:{
-                    select:{
-                        title: true,
-                        icon: true,
-                        id:true
-                    }
-                },
-                category:{
-                    select:{
-                        title: true,
-                        id:true,
-                        image:true
-                    }
-                }
-
-            }
-        });
-        if (!transactionGroupData) {
-            return next(ApiError.notFound('TransactionGroupData not found'));
-
-        }
-
-        return new ApiResponse(200, transactionGroupData, 'TransactionGroupData found').send(res);
+              title: true,
+              icon: true,
+              id: true,
+            },
+          });
+  
+          return {
+            id: transaction.departmentId,
+            amount: transaction._sum.amount || 0,
+            amountNaira: transaction._sum.amountNaira || 0,
+            createdAt: transaction._max.createdAt, // Latest createdAt
+            department,
+          };
+        })
+      );
+  
+      if (!result.length) {
+        return next(ApiError.notFound("TransactionGroupData not found"));
+      }
+  
+      return new ApiResponse(
+        200,
+        result,
+        "TransactionGroupData found"
+      ).send(res);
     } catch (error) {
-        console.log(error);
-        if (error instanceof ApiError) {
-            next(error);
-            return;
-        }
-        next(ApiError.internal('Internal Server Error'));
-
+      console.error(error);
+      if (error instanceof ApiError) {
+        next(error);
+        return;
+      }
+      next(ApiError.internal("Internal Server Error"));
     }
-}
+  };
+  
+  
+
+  
 export const getTransactionBydepartment = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const departmetnId = req.params.id

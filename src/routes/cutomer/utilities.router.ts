@@ -11,4 +11,5 @@ const customerUtilityrouter = express.Router();
 
 customerUtilityrouter.get('/get-transaction-group',authenticateUser,getTransactionGroupData);
 customerUtilityrouter.get('/get-transaction-by-department/:id',authenticateUser,getTransactionBydepartment);
+// customerUtilityrouter.post()
 export default customerUtilityrouter;

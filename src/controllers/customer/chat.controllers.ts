@@ -76,6 +76,15 @@ const sendMessageController = async (
       },
     });
 
+    //create nofiticaion for the receiver
+    const notification=await prisma.inAppNotification.create({
+      data:{
+        userId:chat.participants[0].userId,
+        title:"New Message",
+        description:`You have a new message from ${sender.firstname} ${sender.lastname}`,
+      }
+    });
+    
     if (!newMessage) {
       return next(ApiError.internal('Message Sending Failed'));
     }
