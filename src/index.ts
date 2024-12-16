@@ -14,6 +14,7 @@ import operationsRouter from './routes/admin/operations.router';
 import adminAgentRouter from './routes/admin.agent.router';
 import agentOperationsRouter from './routes/agent/agent.operations.router';
 import adminAuthRouter from './routes/admin/auth.router';
+import customerUtilityrouter from './routes/cutomer/utilities.router';
 const bodyParser = require('body-parser')
 
 const port = process.env.PORT || 8000;
@@ -36,6 +37,7 @@ app.use(bodyParser.json({ limit: '5mb' }))
 app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }))
 app.use('/api/auth', authRouter);
 app.use('/api/customer', customerRouter);
+app.use('/api/customer/utilities', customerUtilityrouter);
 app.use('/api/agent', agentChatRouter);
 app.use('/api/agent', agentOperationsRouter);
 app.use('/api/public', publicRouter);
@@ -67,6 +69,9 @@ app.use(
   }
 );
 
+app.get('/', (req: Request, res: Response) => {
+  res.send('Hello World!');
+});
 httpServer.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
