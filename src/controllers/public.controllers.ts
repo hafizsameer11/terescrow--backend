@@ -33,11 +33,11 @@ export const loginController = async (
     if (!email || !password) {
       return next(ApiError.badRequest('Please enter valid credentials'));
     }
-
     const isUser = await prisma.user.findUnique({
       where: { email },
     });
     if (!isUser) {
+ 
       return next(ApiError.badRequest('This email is not registerd'));
     }
     // console.log(password);
@@ -160,6 +160,7 @@ export const getSubCategoriesFromCatDepart = async (
   next: NextFunction
 ) => {
   try {
+    console.log(req.query);
     const user: User = req.body._user;
     if (!user) {
       return next(ApiError.unauthorized('You are not authorized'));

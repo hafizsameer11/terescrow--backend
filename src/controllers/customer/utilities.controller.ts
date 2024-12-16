@@ -41,3 +41,41 @@ export const kycTierTwoRequest = async (req: Request, res: Response, next: NextF
 
 
 }
+// export const getTransactionGroupData = async (req: Request, res: Response, next: NextFunction) => {
+//     try {
+//         const user: User = req.body._user;
+//         if (!user) {
+//             return next(ApiError.unauthorized('You are not authorized'));
+//         }
+//         const userId = user.id
+//         const transactionGroupData = await prisma.transaction.findMany({
+//             where: {
+//                 chat: {
+//                     participants: {
+//                         some: {
+//                             userId: userId
+//                         }
+//                     }
+//                 }
+//             },
+//             select:{
+//                 id: true,
+//                 amount: true,
+//             }
+//         });
+//         if (!transactionGroupData) {
+//             return next(ApiError.notFound('TransactionGroupData not found'));
+
+//         }
+
+//         return new ApiResponse(200, transactionGroupData, 'TransactionGroupData found').send(res);
+//     } catch (error) {
+//         console.log(error);
+//         if (error instanceof ApiError) {
+//             next(error);
+//             return;
+//         }
+//         next(ApiError.internal('Internal Server Error'));   
+
+//     }
+// }

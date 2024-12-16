@@ -316,7 +316,13 @@ export const getCustomerChatDetailsController = async (
             },
           },
         },
-        chatDetails: true,
+        chatDetails: {
+          include:{
+            category: true,
+            department: true
+
+          }
+        },
         chatGroup: true,
         messages: true,
       },
@@ -344,6 +350,7 @@ export const getCustomerChatDetailsController = async (
       createdAt,
       updatedAt,
     };
+    // console.log(resData)
     return new ApiResponse(200, resData, 'Chat found').send(res);
   } catch (error) {
     if (error instanceof ApiError) {

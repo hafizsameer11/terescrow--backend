@@ -85,7 +85,7 @@ model User {
   firstname         String              @db.VarChar(255)
   lastname          String              @db.VarChar(255)
   country           String              @db.VarChar(255)
-  countryId       Int?
+  countryId         Int?
   phoneNumber       String              @unique @db.VarChar(20)
   profilePicture    String?
   password          String              @db.VarChar(255)
@@ -140,9 +140,9 @@ model Department {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   status              DepartmentStatus
-  // transaction         Transaction[]
   categories          CatDepart[]
   chatsDetails        ChatDetails[]
+  transaction         Transaction[]
   assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
   Type                DepartmentType       @default(buy)
   niche               departmentNiche      @default(crypto)
@@ -160,6 +160,7 @@ model Category {
   status        DepartmentStatus @default(active)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
+  transaction         Transaction[]
 }
 
 model Country {
@@ -222,7 +223,7 @@ model Chat {
   messages     Message[]
   transactions Transaction[]
   rate         Rate[]
-  chatDeclined  Chatdeclined[]
+  chatDeclined Chatdeclined[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 }
@@ -259,7 +260,6 @@ model ChatGroup {
   adminId      Int     @unique
   admin        User    @relation(fields: [adminId], references: [id])
 }
-
 
 // model GroupChat {
 //   id          Int           @id @default(autoincrement())
@@ -312,8 +312,10 @@ model Transaction {
   id            Int               @id @default(autoincrement())
   chatId        Int
   subCategoryId Int
-  countryId     Int
+  countryId     Int?
   cardType      String?
+  departmentId  Int?              @map("Transaction_Department_FK")
+  categoryId    Int?              @map("Transaction_Category_FK")
   cardNumber    String?
   amount        Float?
   exchangeRate  Float?
@@ -324,9 +326,12 @@ model Transaction {
   status        TransactionStatus @default(successful)
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
-  chat          Chat              @relation(fields: [chatId], references: [id])
-  subCategory   Subcategory       @relation(fields: [subCategoryId], references: [id])
-  country       Country           @relation(fields: [countryId], references: [id])
+
+  chat          Chat              @relation(fields: [chatId], references: [id], map: "Transaction_Chat_FK")
+  subCategory   Subcategory       @relation(fields: [subCategoryId], references: [id], map: "Transaction_SubCategory_FK")
+  country       Country?          @relation(fields: [countryId], references: [id], map: "Transaction_Country_FK")
+  department    Department?       @relation(fields: [departmentId], references: [id], map: "Transaction_Department_FK")
+  category      Category?         @relation(fields: [categoryId], references: [id], map: "Transaction_Category_FK")
 }
 
 
@@ -356,19 +361,18 @@ model Rate {
 }
 
 model Notification {
-  id                     Int                      @id @default(autoincrement())
-  title                  String
-  message                String
-  type                   UserRoles
-  isSingle               Boolean
-  image                  String?
-  userId                 Int?
-  createdAt              DateTime                 @default(now())
-
+  id        Int       @id @default(autoincrement())
+  title     String
+  message   String
+  type      UserRoles
+  isSingle  Boolean
+  image     String?
+  userId    Int?
+  createdAt DateTime  @default(now())
 }
 
 model NotificationAttachment {
-  id             Int          @id @default(autoincrement())
+  id             Int    @id @default(autoincrement())
   mediUrl        String
   motificationId Int
 }
