@@ -11,7 +11,7 @@ export const getAllChatsWithTeamController = async (
   next: NextFunction
 ) => {
   try {
-    const { _user } = req.body as { _user: User };
+ const _user: User = req.body._user;
 
     if (_user.role == UserRoles.customer) {
       return ApiError.unauthorized('You are not authorized');

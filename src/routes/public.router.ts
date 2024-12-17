@@ -6,7 +6,6 @@ import {
   getCountriesController,
   getSubCategoriesFromCatDepart,
   loginController,
-  readAllMessagesControllers,
 } from '../controllers/public.controllers';
 
 const publicRouter = express.Router();
@@ -27,12 +26,6 @@ publicRouter.get(
   getSubCategoriesFromCatDepart
 );
 
-publicRouter.get('/countries', getCountriesController);
-
-publicRouter.post(
-  '/read-all-messages',
-  authenticateUser,
-  readAllMessagesControllers
-);
+publicRouter.get('/countries', authenticateUser, getCountriesController);
 
 export default publicRouter;

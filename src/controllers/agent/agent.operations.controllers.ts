@@ -27,15 +27,17 @@ export const createTransactionCard = async (
 
     const {
       subCategoryId,
-      countryId,
+
       chatId,
       cardType,
       cardNumber,
       amount,
+      departmentId,
+      categoryId,
       exchangeRate,
       amountNaira,
     } = req.body;
-    if (!subCategoryId || !countryId || !amount || !chatId) {
+    if (!subCategoryId ||  !amount || !chatId) {
       return next(ApiError.badRequest('Missing required fields'));
     }
 
@@ -73,9 +75,10 @@ export const createTransactionCard = async (
       data: {
         chatId: parseInt(chatId, 10),
         subCategoryId: parseInt(subCategoryId, 10),
-        countryId: parseInt(countryId, 10),
         cardType: cardType || null,
         cardNumber: cardNumber || null,
+        departmentId: parseInt(departmentId, 10),
+        categoryId: parseInt(categoryId, 10),
         amount: parseFloat(amount),
         exchangeRate: exchangeRate ? parseFloat(exchangeRate) : null,
         amountNaira: amountNaira ? parseFloat(amountNaira) : null,
@@ -139,6 +142,7 @@ export const createTransactionCrypto = async (
 ) => {
   try {
     // Extract agentId from auth middleware
+    console.log(req.body);
     const agent: User = req.body._user;
     if (!agent || agent.role !== UserRoles.agent) {
       return next(ApiError.unauthorized('Unauthorized'));
@@ -148,7 +152,6 @@ export const createTransactionCrypto = async (
       departmentId,
       categoryId,
       subCategoryId,
-      countryId,
       chatId,
       amount,
       exchangeRate,
@@ -163,7 +166,6 @@ export const createTransactionCrypto = async (
       !departmentId ||
       !categoryId ||
       !subCategoryId ||
-      !countryId ||
       !amount ||
       !chatId ||
       !exchangeRate
@@ -207,8 +209,9 @@ export const createTransactionCrypto = async (
       data: {
         chatId: parseInt(chatId, 10),
         subCategoryId: parseInt(subCategoryId, 10),
-        countryId: parseInt(countryId, 10),
         amount: parseFloat(amount),
+        departmentId: parseInt(departmentId, 10),
+        categoryId: parseInt(categoryId, 10),
         exchangeRate: exchangeRate ? parseFloat(exchangeRate) : null,
         amountNaira: amountNaira ? parseFloat(amountNaira) : null,
         cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,

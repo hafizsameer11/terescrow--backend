@@ -20,6 +20,7 @@ export const loginController = async (
   next: NextFunction
 ) => {
   try {
+    console.log(req.body);
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       throw ApiError.badRequest(
@@ -32,11 +33,14 @@ export const loginController = async (
     if (!email || !password) {
       return next(ApiError.badRequest('Please enter valid credentials'));
     }
-
     const isUser = await prisma.user.findUnique({
       where: { email },
+      include: {
+      KycStateTwo: true
+      }
     });
     if (!isUser) {
+ 
       return next(ApiError.badRequest('This email is not registerd'));
     }
     // console.log(password);
@@ -59,6 +63,11 @@ export const loginController = async (
       profilePicture: isUser.profilePicture,
       email: isUser.email,
       role: isUser.role,
+      phoneNumber: isUser.phoneNumber,
+      country: isUser.country,
+      gender: isUser.gender,
+      isVerified: isUser.isVerified,
+      KycStateTwo: isUser.KycStateTwo
     };
 
     return new ApiResponse(
@@ -124,13 +133,25 @@ export const getCategoriesFromDepartment = async (
       },
     });
 
-    if (!categories) {
+    if (!categories || categories.length === 0) {
       return next(ApiError.notFound('Categories not found'));
     }
+
+    // Update image URL
+    const modifiedCategories = categories.map((cat) => ({
+      category: {
+        ...cat.category,
+        image: cat.category.image
+          ? `${req.protocol}://${req.get('host')}/uploads/${cat.category.image}`
+          : null, // Handle cases where image is null
+      },
+    }));
+
     const resData = {
       departmentId,
-      categories,
+      categories: modifiedCategories,
     };
+
     return new ApiResponse(200, resData, 'Categories found').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
@@ -140,12 +161,14 @@ export const getCategoriesFromDepartment = async (
   }
 };
 
+
 export const getSubCategoriesFromCatDepart = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
+    console.log(req.query);
     const user: User = req.body._user;
     if (!user) {
       return next(ApiError.unauthorized('You are not authorized'));

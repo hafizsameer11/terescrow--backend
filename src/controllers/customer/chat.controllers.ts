@@ -76,6 +76,15 @@ const sendMessageController = async (
       },
     });
 
+    //create nofiticaion for the receiver
+    const notification=await prisma.inAppNotification.create({
+      data:{
+        userId:chat.participants[0].userId,
+        title:"New Message",
+        description:`You have a new message from ${sender.firstname} ${sender.lastname}`,
+      }
+    });
+    
     if (!newMessage) {
       return next(ApiError.internal('Message Sending Failed'));
     }
@@ -151,7 +160,12 @@ const getChatDetailsController = async (
         },
         messages: {
           orderBy: {
-            createdAt: 'desc',
+            createdAt: 'asc',
+          },
+        },
+        chatDetails: {
+          select: {
+            status: true,
           },
         },
       },
@@ -161,13 +175,20 @@ const getChatDetailsController = async (
     if (!chat) {
       return next(ApiError.badRequest('Chat not found'));
     }
-
+    console.log({
+      id: chat.id,
+      chatType: chat.chatType,
+      receiverDetails: chat.participants[0].user,
+      status: chat.chatDetails?.status,
+      messages: chat.messages || null,
+    },)
     return new ApiResponse(
       200,
       {
         id: chat.id,
         chatType: chat.chatType,
         receiverDetails: chat.participants[0].user,
+        status: chat.chatDetails?.status,
         messages: chat.messages || null,
       },
       'Chat found successfully'
@@ -236,7 +257,10 @@ const getAllChatsController = async (
             createdAt: 'desc',
           },
         },
+       
+        
       },
+      
     });
 
     if (!chats) {

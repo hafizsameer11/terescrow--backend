@@ -57,30 +57,54 @@ enum TransactionStatus {
   successful
 }
 
+enum KycTier {
+  tier1
+  tier2
+  tier3
+}
+
+enum AgentStatus {
+  offline
+  online
+}
+
+enum DepartmentType {
+  sell
+  buy
+}
+
+enum departmentNiche {
+  crypto
+  giftCard
+}
+
 model User {
-  id              Int               @id @default(autoincrement())
-  username        String            @unique @db.VarChar(255)
-  email           String            @unique @db.VarChar(255)
-  firstname       String            @db.VarChar(255)
-  lastname        String            @db.VarChar(255)
-  countryId       Int
-  phoneNumber     String            @unique @db.VarChar(20)
-  profilePicture  String?
-  password        String            @db.VarChar(255)
-  gender          Gender
-  role            UserRoles
-  isVerified      Boolean           @default(false)
-  otps            UserOTP[]
-  country         Country           @relation(fields: [countryId], references: [id])
-  agent           Agent?
-  sentMessages    Message[]         @relation("SentMessages")
-  receivedMessges Message[]         @relation("ReceivedMessages")
-  participations  ChatParticipant[]
-  groups          ChatGroup[]
-  notes           Notes[]
-  // transactions    Transaction[]
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  id                Int                 @id @default(autoincrement())
+  username          String              @unique @db.VarChar(255)
+  email             String              @unique @db.VarChar(255)
+  firstname         String              @db.VarChar(255)
+  lastname          String              @db.VarChar(255)
+  country           String              @db.VarChar(255)
+  countryId         Int?
+  phoneNumber       String              @unique @db.VarChar(20)
+  profilePicture    String?
+  password          String              @db.VarChar(255)
+  gender            Gender
+  role              UserRoles
+  isVerified        Boolean             @default(false)
+  otps              UserOTP[]
+  agent             Agent?
+  sentMessages      Message[]           @relation("SentMessages")
+  receivedMessges   Message[]           @relation("ReceivedMessages")
+  participations    ChatParticipant[]
+  groups            ChatGroup[]
+  inappNotification InAppNotification[]
+  // transaction       Transaction[]
+  notes             Notes[]
+  KycStateTwo       KycStateTwo[]
+  AccountActivity   AccountActivity[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
 }
 
 model UserOTP {
@@ -98,10 +122,14 @@ model Agent {
   id                  Int                  @id @default(autoincrement())
   user                User                 @relation(fields: [userId], references: [id])
   userId              Int                  @unique
-  notes               Notes[]
+  // status        
+  AgentStatus         AgentStatus          @default(online)
   assignedDepartments AssignedDepartment[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
+  // transaction         Transaction[]
+  notes               Notes[]
+  rate                Rate[]
 }
 
 model Department {
@@ -109,35 +137,36 @@ model Department {
   title               String               @db.VarChar(255)
   description         String
   icon                String
-  status              DepartmentStatus     @default(active)
-  categories          CatDepart[]
-  chatsDetails        ChatDetails[]
-  assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
-  // transactions        Transaction[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
+  status              DepartmentStatus
+  categories          CatDepart[]
+  chatsDetails        ChatDetails[]
+  transaction         Transaction[]
+  assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
+  Type                DepartmentType       @default(buy)
+  niche               departmentNiche      @default(crypto)
 }
 
 model Category {
-  id            Int           @id @default(autoincrement())
-  title         String        @db.VarChar(255)
+  id            Int              @id @default(autoincrement())
+  title         String           @db.VarChar(255)
   subTitle      String?
   image         String?
   departments   CatDepart[]
   chatsDetails  ChatDetails[]
   subCategories CatSubcat[]
-  // transactions  Transaction[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  // transaction   Transaction[]
+  status        DepartmentStatus @default(active)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  transaction   Transaction[]
 }
 
 model Country {
-  id           Int           @id @default(autoincrement())
-  title        String
-  transactions Transaction[]
-  users        User[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id          Int           @id @default(autoincrement())
+  title       String
+  transaction Transaction[]
 }
 
 model CatDepart {
@@ -159,18 +188,18 @@ model AssignedDepartment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([agentId, departmentId]) // Composite unique constraint to prevent duplicate assignments
+  @@unique([agentId, departmentId])
 }
 
 model Subcategory {
-  id           Int           @id @default(autoincrement())
-  title        String        @db.VarChar(255)
-  price        Decimal
-  catSubcat    CatSubcat[]
-  transactions Transaction[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          Int           @id @default(autoincrement())
+  title       String        @db.VarChar(255)
+  price       Decimal
+  catSubcat   CatSubcat[]
+  // chat         Chat[]
+  transaction Transaction[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 }
 
 model CatSubcat {
@@ -193,6 +222,8 @@ model Chat {
   chatGroup    ChatGroup?
   messages     Message[]
   transactions Transaction[]
+  rate         Rate[]
+  chatDeclined Chatdeclined[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 }
@@ -281,8 +312,10 @@ model Transaction {
   id            Int               @id @default(autoincrement())
   chatId        Int
   subCategoryId Int
-  countryId     Int
+  countryId     Int?
   cardType      String?
+  departmentId  Int?              @map("Transaction_Department_FK")
+  categoryId    Int?              @map("Transaction_Category_FK")
   cardNumber    String?
   amount        Float?
   exchangeRate  Float?
@@ -293,19 +326,95 @@ model Transaction {
   status        TransactionStatus @default(successful)
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
-  chat          Chat              @relation(fields: [chatId], references: [id])
-  subCategory   Subcategory       @relation(fields: [subCategoryId], references: [id])
-  country       Country           @relation(fields: [countryId], references: [id])
+
+  chat        Chat        @relation(fields: [chatId], references: [id], map: "Transaction_Chat_FK")
+  subCategory Subcategory @relation(fields: [subCategoryId], references: [id], map: "Transaction_SubCategory_FK")
+  country     Country?    @relation(fields: [countryId], references: [id], map: "Transaction_Country_FK")
+  department  Department? @relation(fields: [departmentId], references: [id], map: "Transaction_Department_FK")
+  category    Category?   @relation(fields: [categoryId], references: [id], map: "Transaction_Category_FK")
 }
 
 model Notes {
   id             Int      @id @default(autoincrement())
   title          String?
+  userId         Int
   agentId        Int
-  customerId     Int
   isHighlighited Boolean?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   agent          Agent    @relation(fields: [agentId], references: [id])
-  customer       User     @relation(fields: [customerId], references: [id])
+  user           User     @relation(fields: [userId], references: [id])
+}
+
+model Rate {
+  id          Int      @id @default(autoincrement())
+  rate        Float?
+  amount      Float?
+  amountNaira Float?
+  agentId     Int
+  chatId      Int
+  chat        Chat     @relation(fields: [chatId], references: [id])
+  agent       Agent    @relation(fields: [agentId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Notification {
+  id        Int       @id @default(autoincrement())
+  title     String
+  message   String
+  type      UserRoles
+  isSingle  Boolean
+  image     String?
+  userId    Int?
+  createdAt DateTime  @default(now())
+}
+
+model NotificationAttachment {
+  id             Int    @id @default(autoincrement())
+  mediUrl        String
+  motificationId Int
+}
+
+model InAppNotification {
+  id          Int     @id @default(autoincrement())
+  title       String
+  description String
+  userId      Int
+  isRead      Boolean @default(false)
+  user        User    @relation(fields: [userId], references: [id])
+}
+
+model Chatdeclined {
+  id        Int      @id @default(autoincrement())
+  message   String?
+  chatId    Int
+  chat      Chat     @relation(fields: [chatId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model KycStateTwo {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  bvn       String
+  surName   String?
+  firtName  String?
+  dob       String?
+  status    KycTier
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model AccountActivity {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  description String
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model Banner {
+  id        Int      @id @default(autoincrement())
+  image     String
+  createdAt DateTime @default(now())
 }

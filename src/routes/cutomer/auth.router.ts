@@ -1,5 +1,6 @@
 import express from 'express';
 import {
+  editProfileController,
   logoutController,
   registerCustomerController,
   resendOtpController,
@@ -8,6 +9,8 @@ import {
   verifyUserController,
 } from '../../controllers/customer/auth.controllers';
 import authenticateUser from '../../middlewares/authenticate.user';
+import { editCustomer } from '../../controllers/admin/admin.operation.controller';
+import { kycTierTwoRequest } from '../../controllers/customer/utilities.controller';
 // import authController from '../controllers/auth.controller';
 const authRouter = express.Router();
 
@@ -17,8 +20,6 @@ authRouter.post('/verify-email-otp', authenticateUser, verifyUserController);
 authRouter.post('/verify-forgot-password-otp', verifyForgotPasswordOtp);
 authRouter.post('/resend-otp', resendOtpController);
 authRouter.post('/forgot-password', sendPasswordOtpController);
-authRouter.post('/edit-profile', authenticateUser);
-authRouter.post('/set-new-password', authenticateUser);
-//editprofile
-
+authRouter.post('/edit-profile',authenticateUser,editProfileController)
+authRouter.post('/kyc-request',authenticateUser,kycTierTwoRequest);
 export default authRouter;
