@@ -25,7 +25,6 @@ const sendMessageController = async (
       _user: sender,
     } = req.body as { message: string; chatId: string; _user: User };
 
-    // console.log(message, chatId, sender);
 
     if (sender.role !== UserRoles.customer) {
       return next(ApiError.unauthorized('You are not authorized'));
@@ -75,16 +74,25 @@ const sendMessageController = async (
         message,
       },
     });
-
-    //create nofiticaion for the receiver
-    const notification=await prisma.inAppNotification.create({
-      data:{
-        userId:chat.participants[0].userId,
-        title:"New Message",
-        description:`You have a new message from ${sender.firstname} ${sender.lastname}`,
+    //update chat updatedAt to current time
+    const updatedChat = await prisma.chat.update({
+      where: {
+        id: chat.id
+      },
+      data: {
+        updatedAt: new Date()
       }
     });
-    
+
+    //create nofiticaion for the receiver
+    const notification = await prisma.inAppNotification.create({
+      data: {
+        userId: chat.participants[0].userId,
+        title: "New Message",
+        description: `You have a new message from ${sender.firstname} ${sender.lastname}`,
+      }
+    });
+
     if (!newMessage) {
       return next(ApiError.internal('Message Sending Failed'));
     }
@@ -170,18 +178,30 @@ const getChatDetailsController = async (
         },
       },
     });
-
-    console.log(chat?.messages);
+    if (chat) {
+      const updatedMessages = await prisma.message.updateMany({
+        where: {
+          AND: [
+            {
+              chatId: chat.id,
+            },
+            {
+              receiverId: user.id,
+            }
+          ]
+        },
+        data: {
+          isRead: true, 
+        },
+      });
+      
+      if (updatedMessages) {
+        console.log("messages updated");
+      }
+    }
     if (!chat) {
       return next(ApiError.badRequest('Chat not found'));
     }
-    console.log({
-      id: chat.id,
-      chatType: chat.chatType,
-      receiverDetails: chat.participants[0].user,
-      status: chat.chatDetails?.status,
-      messages: chat.messages || null,
-    },)
     return new ApiResponse(
       200,
       {
@@ -257,10 +277,13 @@ const getAllChatsController = async (
             createdAt: 'desc',
           },
         },
-       
-        
+
+
       },
-      
+      orderBy: {
+        updatedAt: 'desc',
+      },
+
     });
 
     if (!chats) {
@@ -303,10 +326,3 @@ export {
   sendMessageController,
 };
 
-// interface MessageRequest {
-//   _user: User;
-//   receiverId: User['id'];
-//   message: string;
-//   categoryId: number;
-//   departmentId: number;
-// }

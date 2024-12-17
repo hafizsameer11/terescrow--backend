@@ -37,7 +37,7 @@ export const createTransactionCard = async (
       exchangeRate,
       amountNaira,
     } = req.body;
-    if (!subCategoryId ||  !amount || !chatId) {
+    if (!subCategoryId || !amount || !chatId) {
       return next(ApiError.badRequest('Missing required fields'));
     }
 
@@ -267,3 +267,112 @@ export const createTransactionCrypto = async (
     next(ApiError.internal('Internal Server Error'));
   }
 };
+
+
+/**
+ * 
+ * 
+ * 
+ * Transaction controller
+ * 
+ * 
+ */
+
+
+export const getAgentTransactions = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const agent: User = req.body._user;
+
+    if (!agent || agent.role !== UserRoles.agent) {
+      return next(ApiError.badRequest('Invalid user'));
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        chat: {
+          participants: {
+            some: {
+              userId: agent.id, // Ensure the agent is a participant
+            },
+          },
+        },
+      },
+      include: {
+        chat: {
+          select: {
+            participants: {
+              where: {
+                NOT: { userId: agent.id }, // Exclude current agent
+              },
+              select: {
+                user: {
+                  select: {
+                    id: true,
+                    username: true,
+                    profilePicture: true,
+                    firstname: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        department: true,
+        category: true,
+      },
+    });
+
+    if (!transactions || transactions.length === 0) {
+      return next(ApiError.notFound('Transactions not found'));
+    }
+
+    // Map transactions to match the expected API response
+    const mappedTransactions = transactions.map((transaction) => ({
+      id: transaction.id,
+      chatId: transaction.chatId,
+      subCategoryId: transaction.subCategoryId,
+      countryId: transaction.countryId,
+      cardType: transaction.cardType,
+      departmentId: transaction.departmentId,
+      categoryId: transaction.categoryId,
+      cardNumber: transaction.cardNumber,
+      amount: transaction.amount,
+      exchangeRate: transaction.exchangeRate,
+      amountNaira: transaction.amountNaira,
+      cryptoAmount: transaction.cryptoAmount,
+      fromAddress: transaction.fromAddress,
+      toAddress: transaction.toAddress,
+      status: transaction.status,
+      createdAt: transaction.createdAt,
+      updatedAt: transaction.updatedAt,
+
+      // Map customer directly from chat participants
+      customer:
+        transaction.chat.participants.length > 0
+          ? transaction.chat.participants[0].user
+          : null,
+
+      department: transaction.department || null,
+      category: transaction.category || null,
+    }));
+
+    return new ApiResponse(
+      200,
+      mappedTransactions,
+      'Transactions found successfully'
+    ).send(res);
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+};
+

@@ -39,7 +39,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/customer', customerRouter);
 app.use('/api/customer/utilities', customerUtilityrouter);
 app.use('/api/agent', agentChatRouter);
-app.use('/api/agent', agentOperationsRouter);
+app.use('/api/agent/utilities', agentOperationsRouter);
 app.use('/api/public', publicRouter);
 app.use('/api', adminAgentRouter);
 app.use('/api/admin', adminAuthRouter);
@@ -70,7 +70,7 @@ app.use(
 );
 
 app.get('/', (req: Request, res: Response) => {
-  res.send('Hello World!');
+  res.send('Hello kali mata');
 });
 httpServer.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);

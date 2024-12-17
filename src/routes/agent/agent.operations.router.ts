@@ -3,6 +3,7 @@ import authenticateUser from '../../middlewares/authenticate.user';
 import {
   createTransactionCard,
   createTransactionCrypto,
+  getAgentTransactions,
 } from '../../controllers/agent/agent.operations.controllers';
 
 const agentOperationsRouter = express.Router();
@@ -17,5 +18,5 @@ agentOperationsRouter.post(
   authenticateUser,
   createTransactionCrypto
 );
-
+agentOperationsRouter.get('/get-agent-transactions',authenticateUser,getAgentTransactions);
 export default agentOperationsRouter;

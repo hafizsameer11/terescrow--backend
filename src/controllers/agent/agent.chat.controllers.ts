@@ -61,6 +61,17 @@ export const sendToCustomerController = async (
         },
       },
     });
+    //update chat updatedAt to current one
+    if (chat) {
+      const updatedChat = await prisma.chat.update({
+        where: {
+          id: chat.id,
+        },
+        data: {
+          updatedAt: new Date(),
+        }
+      });
+    }
 
     if (!chat) {
       return next(ApiError.notFound('this chat does not exist'));
