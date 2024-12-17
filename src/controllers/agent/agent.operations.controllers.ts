@@ -376,3 +376,77 @@ export const getAgentTransactions = async (
   }
 };
 
+
+/// agent stats
+export const getAgentStats = async (req: Request, res: Response, next: NextFunction) => {
+
+  try {
+    const user: User = req.body._user;
+    const agentId = user.id;
+    const totalChats = await prisma.chat.count({
+      where: {
+        chatType: ChatType.customer_to_agent,
+        participants: {
+          some: {
+            userId: agentId
+          }
+        }
+      }
+    })
+    const successfulllTransactions = await prisma.transaction.count({
+      where: {
+        chat: {
+          participants: {
+            some: {
+              userId: agentId,
+            },
+          },
+        },
+        status: TransactionStatus.successful,
+      },
+    });
+    const pendingChats = await prisma.chat.count({
+      where: {
+        participants: {
+          some: {
+            userId: agentId,
+          },
+        },
+        chatDetails: {
+          status: ChatStatus.pending,
+        },
+      },
+    });
+    const declinedChats = await prisma.chat.count({
+      where: {
+        participants: {
+          some: {
+            userId: agentId,
+          },
+        },
+        chatDetails: {
+          status: ChatStatus.declined,
+        },
+      },
+    });
+    const data = {
+      totalChats: totalChats,
+      successfulllTransactions: successfulllTransactions,
+      pendingChats: pendingChats,
+      declinedChats: declinedChats
+    }
+    return new ApiResponse(
+      200,
+      data,
+      'Stats found successfully'
+    ).send(res);
+
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}

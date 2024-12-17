@@ -160,7 +160,7 @@ model Category {
   status        DepartmentStatus @default(active)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
-  transaction         Transaction[]
+  transaction   Transaction[]
 }
 
 model Country {
@@ -293,6 +293,7 @@ model Message {
   chatId      Int
   chat        Chat         @relation(fields: [chatId], references: [id])
   message     String       @db.VarChar(255)
+  image       String?
   isRead      Boolean      @default(false)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -327,13 +328,12 @@ model Transaction {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
-  chat          Chat              @relation(fields: [chatId], references: [id], map: "Transaction_Chat_FK")
-  subCategory   Subcategory       @relation(fields: [subCategoryId], references: [id], map: "Transaction_SubCategory_FK")
-  country       Country?          @relation(fields: [countryId], references: [id], map: "Transaction_Country_FK")
-  department    Department?       @relation(fields: [departmentId], references: [id], map: "Transaction_Department_FK")
-  category      Category?         @relation(fields: [categoryId], references: [id], map: "Transaction_Category_FK")
+  chat        Chat        @relation(fields: [chatId], references: [id], map: "Transaction_Chat_FK")
+  subCategory Subcategory @relation(fields: [subCategoryId], references: [id], map: "Transaction_SubCategory_FK")
+  country     Country?    @relation(fields: [countryId], references: [id], map: "Transaction_Country_FK")
+  department  Department? @relation(fields: [departmentId], references: [id], map: "Transaction_Department_FK")
+  category    Category?   @relation(fields: [categoryId], references: [id], map: "Transaction_Category_FK")
 }
-
 
 model Notes {
   id             Int      @id @default(autoincrement())
@@ -378,13 +378,13 @@ model NotificationAttachment {
 }
 
 model InAppNotification {
-  id          Int    @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   title       String
   description String
   userId      Int
-  isRead Boolean     @default(false)
-  user        User   @relation(fields: [userId], references: [id])
-  createdAt   DateTime   @default(now())
+  isRead      Boolean  @default(false)
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
 }
 
 model Chatdeclined {

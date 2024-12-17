@@ -54,7 +54,12 @@ export const loginController = async (
       secure: true,
       sameSite: 'lax',
     });
-
+    const getNotificationCount = await prisma.inAppNotification.findMany({
+      where: {
+        userId: isUser.id,
+        isRead: false,
+      }
+    });
     const resData = {
       id: isUser.id,
       firstname: isUser.firstname,
@@ -67,7 +72,8 @@ export const loginController = async (
       country: isUser.country,
       gender: isUser.gender,
       isVerified: isUser.isVerified,
-      KycStateTwo: isUser.KycStateTwo
+      KycStateTwo: isUser.KycStateTwo,
+      unReadNotification: getNotificationCount.length
     };
 
     return new ApiResponse(
@@ -270,8 +276,34 @@ export const getNotificationController = async (req: Request, res: Response, nex
       return next(ApiError.unauthorized('You are not authorized'));
     }
     const notifications = await prisma.inAppNotification.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id,
+        isRead:false
+       },
       orderBy: { id: 'desc' }
+    });
+    if (!notifications) {
+      return next(ApiError.notFound('No notifications were found'));
+    }
+    return new ApiResponse(200, notifications, 'Notifications found').send(res);
+
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(error);
+    // next(error);
+  }
+}
+
+export const markAllReadController = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.body._user;
+    if (!user) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+    const notifications = await prisma.inAppNotification.updateMany({
+      where: { userId: user.id },
+      data: { isRead: true }
     });
     if (!notifications) {
       return next(ApiError.notFound('No notifications were found'));

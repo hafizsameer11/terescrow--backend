@@ -5,10 +5,11 @@ import {
   getChatDetailsController,
   sendMessageController,
 } from '../../controllers/customer/chat.controllers';
+import upload from '../../middlewares/multer.middleware';
 
 const customerRouter = express.Router();
 
-customerRouter.post('/send-message', authenticateUser, sendMessageController);
+customerRouter.post('/send-message', upload.single('image'), authenticateUser, sendMessageController);
 
 customerRouter.get(
   '/get-chat/:chatId',

@@ -7,6 +7,7 @@ import {
   getNotificationController,
   getSubCategoriesFromCatDepart,
   loginController,
+  markAllReadController,
 } from '../controllers/public.controllers';
 
 const publicRouter = express.Router();
@@ -29,5 +30,6 @@ publicRouter.get(
 
 publicRouter.get('/countries', authenticateUser, getCountriesController);
 publicRouter.get('/get-all-notifications',authenticateUser,getNotificationController)
+publicRouter.get('/mark-all-read',authenticateUser,markAllReadController)
 
 export default publicRouter;

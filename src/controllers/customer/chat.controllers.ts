@@ -97,9 +97,6 @@ const sendMessageController = async (
       return next(ApiError.internal('Message Sending Failed'));
     }
 
-    // its to check whether the user is online or offline now
-    //io.to is used to send message to a particular user
-
     console.log(chat.participants[0].userId);
     const recieverSocketId = getAgentSocketId(chat.participants[0].userId);
     if (recieverSocketId) {
@@ -263,12 +260,16 @@ const getAllChatsController = async (
           },
         },
         _count: {
-          select: {
+        
+          select: {      
             messages: {
               where: {
                 isRead: false,
+              receiverId:user.id
               },
+
             },
+            
           },
         },
         messages: {

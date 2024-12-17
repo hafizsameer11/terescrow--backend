@@ -3,6 +3,7 @@ import authenticateUser from '../../middlewares/authenticate.user';
 import {
   createTransactionCard,
   createTransactionCrypto,
+  getAgentStats,
   getAgentTransactions,
 } from '../../controllers/agent/agent.operations.controllers';
 
@@ -19,4 +20,5 @@ agentOperationsRouter.post(
   createTransactionCrypto
 );
 agentOperationsRouter.get('/get-agent-transactions',authenticateUser,getAgentTransactions);
+agentOperationsRouter.get('/get-agent-stats',authenticateUser,getAgentStats);
 export default agentOperationsRouter;
