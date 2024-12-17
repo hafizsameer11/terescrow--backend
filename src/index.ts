@@ -15,7 +15,8 @@ import adminAgentRouter from './routes/admin.agent.router';
 import agentOperationsRouter from './routes/agent/agent.operations.router';
 import adminAuthRouter from './routes/admin/auth.router';
 import customerUtilityrouter from './routes/cutomer/utilities.router';
-const bodyParser = require('body-parser')
+import adminChatRouter from './routes/admin/chat.router';
+const bodyParser = require('body-parser');
 
 const port = process.env.PORT || 8000;
 
@@ -33,8 +34,8 @@ app.use(cookie());
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 //routes
-app.use(bodyParser.json({ limit: '5mb' }))
-app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }))
+app.use(bodyParser.json({ limit: '5mb' }));
+app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }));
 app.use('/api/auth', authRouter);
 app.use('/api/customer', customerRouter);
 app.use('/api/customer/utilities', customerUtilityrouter);
@@ -43,6 +44,7 @@ app.use('/api/agent', agentOperationsRouter);
 app.use('/api/public', publicRouter);
 app.use('/api', adminAgentRouter);
 app.use('/api/admin', adminAuthRouter);
+app.use('/api/admin', adminChatRouter);
 app.use('/api/admin/operations', operationsRouter);
 app.post('/api/file', upload.single('file'), (req: Request, res: Response) => {
   if (req?.file) {

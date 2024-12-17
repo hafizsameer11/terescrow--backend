@@ -29,18 +29,18 @@ export const loginController = async (
       );
     }
     const { email, password }: { email: string; password: string } = req.body;
-
+    console.log(email);
     if (!email || !password) {
       return next(ApiError.badRequest('Please enter valid credentials'));
     }
     const isUser = await prisma.user.findUnique({
       where: { email },
       include: {
-      KycStateTwo: true
-      }
+        country: true,
+        KycStateTwo: true,
+      },
     });
     if (!isUser) {
- 
       return next(ApiError.badRequest('This email is not registerd'));
     }
     // console.log(password);
@@ -49,11 +49,11 @@ export const loginController = async (
       return next(ApiError.badRequest('Your password is not correct'));
     }
     const token = generateToken(isUser.id, isUser.username, isUser.role);
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-    });
+    // res.cookie('token', token, {
+    //   httpOnly: true,
+    //   secure: true,
+    //   sameSite: 'lax',
+    // });
 
     const resData = {
       id: isUser.id,
@@ -64,10 +64,10 @@ export const loginController = async (
       email: isUser.email,
       role: isUser.role,
       phoneNumber: isUser.phoneNumber,
-      country: isUser.country,
+      country: isUser.country.title,
       gender: isUser.gender,
       isVerified: isUser.isVerified,
-      KycStateTwo: isUser.KycStateTwo
+      KycStateTwo: isUser.KycStateTwo,
     };
 
     return new ApiResponse(
@@ -160,7 +160,6 @@ export const getCategoriesFromDepartment = async (
     next(error);
   }
 };
-
 
 export const getSubCategoriesFromCatDepart = async (
   req: Request,

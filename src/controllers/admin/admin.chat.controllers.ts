@@ -21,6 +21,8 @@ export const createChatGroupController = async (
       groupName: string;
     };
 
+    console.log(participants, groupName);
+
     const newChatGroup = await prisma.chat.create({
       data: {
         chatType: ChatType.group_chat,
@@ -30,17 +32,55 @@ export const createChatGroupController = async (
             adminId: admin.id,
           },
         },
-        participants: {
-          createMany: {
-            data: participants.map((participant) => ({
-              userId: +participant.id,
-            })),
-          },
-        },
       },
     });
 
     if (!newChatGroup) {
+      return next(ApiError.internal('Failed to create chat group'));
+    }
+
+    const agents = await prisma.agent.findMany({
+      where: {
+        id: {
+          in: participants.map((participant) => participant.id),
+        },
+      },
+      select: {
+        userId: true,
+      },
+    });
+
+    if (!agents) {
+      await prisma.chat.delete({
+        where: {
+          id: newChatGroup.id,
+        },
+      });
+      return next(ApiError.internal('Failed to create chat group'));
+    }
+    console.log('agents: ', agents);
+    // console.log(agents.forEach((agent) => console.log(agent.userId)));
+    const createParticipants = await prisma.chatParticipant.createMany({
+      data: [
+        ...agents.map((participant) => ({
+          chatId: newChatGroup.id,
+          userId: participant.userId,
+        })),
+        {
+          chatId: newChatGroup.id,
+          userId: admin.id,
+        },
+      ],
+    });
+
+    console.log(createParticipants);
+
+    if (!createParticipants) {
+      await prisma.chat.delete({
+        where: {
+          id: newChatGroup.id,
+        },
+      });
       return next(ApiError.internal('Failed to create chat group'));
     }
 
@@ -50,6 +90,7 @@ export const createChatGroupController = async (
       'Chat group created successfully'
     ).send(res);
   } catch (error) {
+    console.log(error);
     if (error instanceof ApiError) {
       return next(error);
     }
@@ -126,20 +167,20 @@ export const getAllAdminTeamChats = async (
 
     const teamChats = await prisma.chat.findMany({
       where: {
-        AND: [
+        OR: [
           {
-            participants: {
-              some: {
-                userId: admin.id,
+            AND: [
+              {
+                participants: {
+                  some: {
+                    userId: admin.id,
+                  },
+                },
               },
-            },
-          },
-          {
-            OR: [
               { chatType: ChatType.team_chat },
-              { chatType: ChatType.group_chat },
             ],
           },
+          { chatType: ChatType.group_chat },
         ],
       },
       include: {
@@ -184,8 +225,6 @@ export const getAllAdminTeamChats = async (
     return next(ApiError.internal('Failed to fetch chats'));
   }
 };
-
-
 
 // export const getChatDetails = async (req: Request, res: Response,  next: NextFunction) => {
 //     try {

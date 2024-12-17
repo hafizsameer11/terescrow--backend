@@ -1,4 +1,10 @@
-import { ChatType, PrismaClient } from '@prisma/client';
+import {
+  ChatType,
+  departmentNiche,
+  DepartmentStatus,
+  DepartmentType,
+  PrismaClient,
+} from '@prisma/client';
 import {
   amazonItems,
   cardData,
@@ -19,12 +25,21 @@ async function createDepartments() {
         icon: department.icon,
         description: department.text,
         title: department.heading,
+        Type: department.heading.includes('Sell')
+          ? DepartmentType.sell
+          : DepartmentType.buy,
+        niche: department.heading.includes('crypto')
+          ? departmentNiche.crypto
+          : departmentNiche.giftCard,
+        status: DepartmentStatus.active,
       },
     });
   }
 }
 
-// createDepartments();
+// createDepartments()
+//   .then(() => console.log('done'))
+//   .catch((err) => console.log(err));
 
 async function createItems() {
   for (const item of cardData) {
@@ -293,6 +308,6 @@ const deleteAgent = async (userId: number) => {
 //   .then(() => console.log('done'))
 //   .catch((err) => console.log(err));
 
-deleteAgent(4)
-  .then(() => console.log('done'))
-  .catch((err) => console.log(err));
+// deleteAgent(5)
+//   .then(() => console.log('done'))
+//   .catch((err) => console.log(err));

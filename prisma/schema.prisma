@@ -84,8 +84,8 @@ model User {
   email             String              @unique @db.VarChar(255)
   firstname         String              @db.VarChar(255)
   lastname          String              @db.VarChar(255)
-  country           String              @db.VarChar(255)
-  countryId         Int?
+  countryId         Int
+  country           Country             @relation(fields: [countryId], references: [id])
   phoneNumber       String              @unique @db.VarChar(20)
   profilePicture    String?
   password          String              @db.VarChar(255)
@@ -167,6 +167,7 @@ model Country {
   id          Int           @id @default(autoincrement())
   title       String
   transaction Transaction[]
+  users       User[]
 }
 
 model CatDepart {
@@ -257,7 +258,7 @@ model ChatGroup {
   groupProfile String?
   chatId       Int     @unique
   chat         Chat    @relation(fields: [chatId], references: [id])
-  adminId      Int     @unique
+  adminId      Int
   admin        User    @relation(fields: [adminId], references: [id])
 }
 
