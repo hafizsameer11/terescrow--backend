@@ -523,7 +523,7 @@ export const changePasswordController = async (
       oldPassword,
       newPassword,
     } = req.body;
-
+console.log(user)
     const existingUser = await prisma.user.findUnique({
       where: { id: user.id },
     });

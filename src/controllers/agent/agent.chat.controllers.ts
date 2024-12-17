@@ -72,6 +72,13 @@ export const sendToCustomerController = async (
         }
       });
     }
+    const notification = await prisma.inAppNotification.create({
+      data: {
+        userId: chat?.participants[0].userId || sender.id,
+        title: "New Message",
+        description: `You have a new message from ${sender.firstname} ${sender.lastname}`,
+      }
+    });
 
     if (!chat) {
       return next(ApiError.notFound('this chat does not exist'));

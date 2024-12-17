@@ -1,5 +1,6 @@
 import express from 'express';
 import {
+  changePasswordController,
   editProfileController,
   logoutController,
   registerCustomerController,
@@ -21,5 +22,6 @@ authRouter.post('/verify-forgot-password-otp', verifyForgotPasswordOtp);
 authRouter.post('/resend-otp', resendOtpController);
 authRouter.post('/forgot-password', sendPasswordOtpController);
 authRouter.post('/edit-profile',authenticateUser,editProfileController)
+authRouter.post('/change-password',authenticateUser,changePasswordController)
 authRouter.post('/kyc-request',authenticateUser,kycTierTwoRequest);
 export default authRouter;

@@ -4,6 +4,7 @@ import {
   getAllDepartmentsController,
   getCategoriesFromDepartment,
   getCountriesController,
+  getNotificationController,
   getSubCategoriesFromCatDepart,
   loginController,
 } from '../controllers/public.controllers';
@@ -27,5 +28,6 @@ publicRouter.get(
 );
 
 publicRouter.get('/countries', authenticateUser, getCountriesController);
+publicRouter.get('/get-all-notifications',authenticateUser,getNotificationController)
 
 export default publicRouter;

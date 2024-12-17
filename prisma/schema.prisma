@@ -384,6 +384,7 @@ model InAppNotification {
   userId      Int
   isRead Boolean     @default(false)
   user        User   @relation(fields: [userId], references: [id])
+  createdAt   DateTime   @default(now())
 }
 
 model Chatdeclined {

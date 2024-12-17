@@ -36,11 +36,11 @@ export const loginController = async (
     const isUser = await prisma.user.findUnique({
       where: { email },
       include: {
-      KycStateTwo: true
+        KycStateTwo: true
       }
     });
     if (!isUser) {
- 
+
       return next(ApiError.badRequest('This email is not registerd'));
     }
     // console.log(password);
@@ -261,3 +261,28 @@ export const readAllMessagesControllers = async (
     next(error);
   }
 };
+
+
+export const getNotificationController = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.body._user;
+    if (!user) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+    const notifications = await prisma.inAppNotification.findMany({
+      where: { userId: user.id },
+      orderBy: { id: 'desc' }
+    });
+    if (!notifications) {
+      return next(ApiError.notFound('No notifications were found'));
+    }
+    return new ApiResponse(200, notifications, 'Notifications found').send(res);
+
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(error);
+    // next(error);
+  }
+}
