@@ -106,15 +106,15 @@ export const createAgentController = async (
       return next(ApiError.badRequest('This user is already registered'));
     }
 
-    const country = await prisma.country.findUnique({
-      where: {
-        id: +countryId,
-      },
-    });
+    // const country = await prisma.country.findUnique({
+    //   where: {
+    //     id: +countryId,
+    //   },
+    // });
 
-    if (!country) {
-      return next(ApiError.badRequest('Country not found'));
-    }
+    // if (!country) {
+    //   return next(ApiError.badRequest('Country not found'));
+    // }
 
     const hashedPassword = await hashPassword(password);
     const newUser = await prisma.user.create({
@@ -127,7 +127,7 @@ export const createAgentController = async (
         username,
         country:countr,
         gender,
-        countryId: country.id,
+        countryId:1,
         role: UserRoles.agent,
         profilePicture,
       },
