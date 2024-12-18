@@ -50,7 +50,7 @@ const profilePicture=req.file?req.file.filename:''
     if (isUser) {
       throw ApiError.badRequest('This user is already registerd');
     }
-
+    console.log(req.body);
     const hashedPassword = await hashPassword(password);
 
     const newUser = await prisma.user.create({
