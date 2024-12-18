@@ -198,13 +198,13 @@ export const getAllChatsWithCustomerController = async (
   next: NextFunction
 ) => {
   try {
-    const user  = req.body._user;
-    console.log(user);
-    
+    const user = req.body._user;
 
     if (!user) {
       return ApiError.unauthorized('You are not authorized');
     }
+
+    const hostUrl = `${req.protocol}://${req.get('host')}`;
 
     const chats = await prisma.chat.findMany({
       where: {
@@ -224,7 +224,14 @@ export const getAllChatsWithCustomerController = async (
         chatType: true,
         _count: {
           select: {
-            messages: true,
+            messages: {
+              where: {
+                isRead: false,
+                receiverId: user.id
+              },
+
+            },
+
           },
         },
         chatDetails: {
@@ -259,18 +266,16 @@ export const getAllChatsWithCustomerController = async (
       },
       orderBy: {
         messages: {
+
           _count: 'desc',
         },
       },
     });
 
-    // console.log(chats);
-
     if (!chats) {
       return next(ApiError.notFound('Chats not found'));
     }
 
-    // console.log(chats);
     const resData = chats.map((chat) => {
       const recentMessage = chat.messages?.[0] || null;
       const recentMessageTimestamp = chat.messages?.[0]?.createdAt || null;
@@ -278,10 +283,15 @@ export const getAllChatsWithCustomerController = async (
       const chatStatus = chat.chatDetails?.status || null;
       const messagesCount = chat._count?.messages || 0;
 
+      // Construct full profile picture URL
+      if (customer && customer.profilePicture) {
+        customer.profilePicture = `${hostUrl}/uploads/${customer.profilePicture}`;
+      }
+
       return {
         id: chat.id,
-        customer, // Ensure customer is not undefined
-        recentMessage, // Handle missing messages gracefully
+        customer,
+        recentMessage,
         recentMessageTimestamp,
         chatStatus,
         messagesCount,
@@ -290,11 +300,10 @@ export const getAllChatsWithCustomerController = async (
 
     return new ApiResponse(200, resData, 'Chats found').send(res);
   } catch (error) {
-    console.log('jumped here');
     if (error instanceof ApiError) {
       return next(error);
     }
-    return next(ApiError.internal('Server Error Occured!'));
+    return next(ApiError.internal('Server Error Occurred!'));
   }
 };
 
@@ -335,7 +344,7 @@ export const getCustomerChatDetailsController = async (
           },
         },
         chatDetails: {
-          include:{
+          include: {
             category: true,
             department: true
 
@@ -348,6 +357,25 @@ export const getCustomerChatDetailsController = async (
 
     if (!chat || chat.chatType !== ChatType.customer_to_agent) {
       return next(ApiError.notFound('Chat does not exist'));
+    }
+    const updatedMessages = await prisma.message.updateMany({
+      where: {
+        AND: [
+          {
+            chatId: chat.id,
+          },
+          {
+            receiverId: user.id,
+          }
+        ]
+      },
+      data: {
+        isRead: true,
+      },
+    });
+
+    if (updatedMessages) {
+      console.log("messages updated");
     }
     const {
       messages,

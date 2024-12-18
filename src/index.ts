@@ -10,6 +10,13 @@ import customerRouter from './routes/cutomer/chat.router';
 import publicRouter from './routes/public.router';
 import agentChatRouter from './routes/agent/chat.router';
 import upload from './middlewares/multer.middleware';
+// import operationsRouter from './routes/admin/operations.router';
+// import adminAgentRouter from './routes/admin.agent.router';
+// import agentOperationsRouter from './routes/agent/agent.operations.router';
+// import adminAuthRouter from './routes/admin/auth.router';
+// import customerUtilityrouter from './routes/cutomer/utilities.router';
+import adminChatRouter from './routes/admin/chat.router';
+// const bodyParser = require('body-parser');
 import operationsRouter from './routes/admin/operations.router';
 import adminAgentRouter from './routes/admin.agent.router';
 import agentOperationsRouter from './routes/agent/agent.operations.router';
@@ -33,16 +40,25 @@ app.use(cookie());
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 //routes
+app.use(bodyParser.json({ limit: '5mb' }));
+app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }));
 app.use(bodyParser.json({ limit: '5mb' }))
 app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }))
 app.use('/api/auth', authRouter);
 app.use('/api/customer', customerRouter);
 app.use('/api/customer/utilities', customerUtilityrouter);
+app.use('/api/customer/utilities', customerUtilityrouter);
 app.use('/api/agent', agentChatRouter);
 app.use('/api/agent/utilities', agentOperationsRouter);
+app.use('/api/agent', agentOperationsRouter);
 app.use('/api/public', publicRouter);
 app.use('/api', adminAgentRouter);
 app.use('/api/admin', adminAuthRouter);
+app.use('/api/admin', adminChatRouter);
+app.use('/api/admin/operations', operationsRouter);
+app.use('/api', adminAgentRouter);
+app.use('/api/admin', adminAuthRouter);
+app.use('/api/admin', adminChatRouter);
 app.use('/api/admin/operations', operationsRouter);
 app.post('/api/file', upload.single('file'), (req: Request, res: Response) => {
   if (req?.file) {
@@ -69,6 +85,9 @@ app.use(
   }
 );
 
+app.get('/', (req: Request, res: Response) => {
+  res.send('Hello World!');
+});
 app.get('/', (req: Request, res: Response) => {
   res.send('Hello kali mata');
 });

@@ -20,6 +20,7 @@ const authenticateUser = async (
     }
 
     const decoded = await verifyToken(token);
+    // console.log(decoded);
     if (!decoded) {
       throw ApiError.unauthorized('You are not logged in');
     }

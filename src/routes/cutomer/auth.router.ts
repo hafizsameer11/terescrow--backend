@@ -11,6 +11,8 @@ import {
 } from '../../controllers/customer/auth.controllers';
 import authenticateUser from '../../middlewares/authenticate.user';
 import { editCustomer } from '../../controllers/admin/admin.operation.controller';
+// import { kycTierTwoRequest } from '../../controllers/customer/utilities.controller';
+// import { editCustomer } from '../../controllers/admin/admin.operation.controller';
 import { kycTierTwoRequest } from '../../controllers/customer/utilities.controller';
 // import authController from '../controllers/auth.controller';
 const authRouter = express.Router();

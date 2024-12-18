@@ -1,7 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import ApiResponse from '../../utils/ApiResponse';
 import ApiError from '../../utils/ApiError';
-import { ChatType, Gender, PrismaClient, User, UserRoles } from '@prisma/client';
+import {
+  AgentStatus,
+  ChatType,
+  Gender,
+  PrismaClient,
+  User,
+  UserRoles,
+} from '@prisma/client';
 import { DepartmentStatus, AssignedDepartment } from '@prisma/client';
 import { hashPassword } from '../../utils/authUtils';
 import { UserRequest } from '../customer/auth.controllers';
@@ -382,14 +389,15 @@ export const getAllAgents = async (
             firstname: true,
             lastname: true,
             profilePicture: true,
-            email: true
+            email: true,
           },
         },
         assignedDepartments: {
           select: {
-            departmentId: true
-          }
-        }
+            departmentId: true,
+          },
+        },
+        
       },
     });
 

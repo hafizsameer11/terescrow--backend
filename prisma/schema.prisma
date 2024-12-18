@@ -78,6 +78,10 @@ enum departmentNiche {
   giftCard
 }
 
+enum InAppNotificationType {
+  customeer
+  team
+}
 model User {
   id                Int                 @id @default(autoincrement())
   username          String              @unique @db.VarChar(255)
@@ -385,6 +389,7 @@ model InAppNotification {
   isRead      Boolean  @default(false)
   user        User     @relation(fields: [userId], references: [id])
   createdAt   DateTime @default(now())
+  type      InAppNotificationType     @default(customeer)
 }
 
 model Chatdeclined {

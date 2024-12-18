@@ -4,12 +4,14 @@ import ApiResponse from '../../utils/ApiResponse';
 import {
   ChatStatus,
   ChatType,
+  InAppNotificationType,
   PrismaClient,
   User,
   UserRoles,
 } from '@prisma/client';
 import { TransactionStatus } from '@prisma/client';
 import { getCustomerSocketId, io } from '../../socketConfig';
+import { hashPassword } from '../../utils/authUtils';
 
 const prisma = new PrismaClient();
 
@@ -450,3 +452,252 @@ export const getAgentStats = async (req: Request, res: Response, next: NextFunct
     return next(ApiError.internal('Internal Server Error'));
   }
 }
+
+
+export const getTeamNotification = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const agentId = req.body._user.id;
+    const notifications = await prisma.inAppNotification.findMany({
+      where: {
+        userId: agentId,
+        type: InAppNotificationType.team
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        isRead: true,
+        createdAt: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 7,
+    })
+    if (!notifications) {
+      return next(ApiError.notFound('Notifications not found'));
+    }
+    return new ApiResponse(
+      200,
+      notifications,
+      'Notifications found successfully'
+    ).send(res);
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}
+export const getAllNotifications = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const agentId = req.body._user.id;
+    const notifications = await prisma.inAppNotification.findMany({
+      where: {
+        userId: agentId,
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        isRead: true,
+        createdAt: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 7,
+    })
+    if (!notifications) {
+      return next(ApiError.notFound('Notifications not found'));
+    }
+    return new ApiResponse(
+      200,
+      notifications,
+      'Notifications found successfully'
+    ).send(res);
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}
+
+export const getCustomerNotifications = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const agentId = req.body._user.id;
+    //get latest 10 notifications
+    const notifications = await prisma.inAppNotification.findMany({
+      where: {
+        userId: agentId,
+        type: InAppNotificationType.customeer
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        isRead: true,
+        createdAt: true,
+        type: true
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 7,
+    })
+    if (!notifications) {
+      return next(ApiError.notFound('Notifications not found'));
+    }
+    return new ApiResponse(
+      200,
+      notifications,
+      'Notifications found successfully'
+    ).send(res);
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}
+
+
+export const getTransactionsForAgent = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const agentId = req.body._user.id;
+    if (!agentId) {
+      return next(ApiError.notFound('Agent not found'));
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        chat: {
+          participants: {
+            some: {
+              userId: agentId
+            }
+          }
+        }
+      },
+      include: {
+        department: true,
+        category: true,
+        chat: {
+          select: {
+            participants: {
+              where: {
+                NOT: {
+                  userId: agentId
+                }
+              },
+              select: {
+                user: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 10
+    });
+
+    // Base URL for profile picture
+    const BASE_URL = `${req.protocol}://${req.get('host')}/uploads/`;
+
+    // Map customer and add profile picture URL
+    const mappedTransactions = transactions.map(transaction => {
+      const customer = transaction.chat?.participants?.[0]?.user || null;
+
+      if (customer && customer.profilePicture) {
+        customer.profilePicture = `${BASE_URL}${customer.profilePicture}`;
+      }
+
+      const { chat, ...rest } = transaction;
+      return {
+        ...rest,
+        customer,
+      };
+    });
+
+    if (!mappedTransactions.length) {
+      return next(ApiError.notFound('Transactions not found'));
+    }
+
+    return new ApiResponse(
+      200,
+      mappedTransactions,
+      'Transactions found successfully',
+    ).send(res);
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+};
+
+
+export const editProfile=async(req:Request,res:Response,next:NextFunction)=>{
+  try {
+    const agentId = req.body._user.id;
+    if (!agentId) {
+      return next(ApiError.notFound('Agent not found'));
+    }
+    const agent = await prisma.user.findFirst({
+      where: {
+        id: agentId
+      }
+    })
+    if (!agent) {
+      return next(ApiError.notFound('Agent not found'));
+    }
+    //check if password is not null or mepty
+    const profilePicture=req.file?req.file.filename:agent.profilePicture
+    const hasshedPassword = await hashPassword(req.body.password);
+    const updatedAgent = await prisma.agent.update({
+      where: {
+        userId: agentId
+      },
+      data: {
+        user: {
+          update: {
+            firstname: req.body.firstName,
+            lastname: req.body.lastName,
+            email: req.body.email,
+            phoneNumber: req.body.phoneNumber,
+            username: req.body.username,
+            gender: req.body.gender,
+            country: req.body.country,
+            password: hasshedPassword||agent.password,
+            profilePicture:profilePicture
+          }
+        }
+      }
+
+    });
+    if (!updatedAgent) {
+      return next(ApiError.notFound('Agent not found'));
+    }
+    return new ApiResponse(
+      200,
+      updatedAgent,
+      'Agent updated successfully',
+      );
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }}

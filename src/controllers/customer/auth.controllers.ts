@@ -35,6 +35,7 @@ const registerCustomerController = async (
       password,
       username,
       gender,
+      countryId,
       country,
     }: UserRequest = req.body;
 
@@ -58,7 +59,8 @@ const registerCustomerController = async (
         phoneNumber,
         password: hashedPassword,
         username,
-        gender,
+        gender: gender == 1 ? 'male' : 'female',
+        // countryId: +countryId,
         country,
         role: UserRoles.customer,
       },
@@ -435,7 +437,7 @@ export const editProfileController = async (
     const user: User = req.body._user;
 
     if (!user) {
-      return next(ApiError.unauthorized("You are not authorized"));
+      return next(ApiError.unauthorized('You are not authorized'));
     }
 
     const {
@@ -445,16 +447,24 @@ export const editProfileController = async (
       phoneNumber,
       userName,
       gender,
-      country,
+      countryId,
     } = req.body;
-    console.log(firstName, lastName, email, phoneNumber, userName, gender, country);
+    console.log(
+      firstName,
+      lastName,
+      email,
+      phoneNumber,
+      userName,
+      gender,
+      countryId
+    );
 
     const existingUser = await prisma.user.findUnique({
       where: { id: user.id },
     });
-
+    console.log(req.body)
     if (!existingUser) {
-      return next(ApiError.notFound("User not found"));
+      return next(ApiError.notFound('User not found'));
     }
 
     // Check if email, phone number, or username already exists for other users
@@ -473,9 +483,10 @@ export const editProfileController = async (
       },
     });
 
-
     if (isDuplicate) {
-      return next(ApiError.badRequest("Email, username, or phone already in use"));
+      return next(
+        ApiError.badRequest('Email, username, or phone already in use')
+      );
     }
 
     // Update user profile
@@ -488,14 +499,14 @@ export const editProfileController = async (
         phoneNumber: phoneNumber || existingUser.phoneNumber,
         username: userName || existingUser.username,
         gender: gender || existingUser.gender,
-        country: country || existingUser.country,
+        countryId: countryId || existingUser.countryId,
       },
     });
 
     return new ApiResponse(
       200,
       updatedUser,
-      "Profile updated successfully"
+      'Profile updated successfully'
     ).send(res);
   } catch (error) {
     console.error(error);
@@ -503,7 +514,7 @@ export const editProfileController = async (
       next(error);
       return;
     }
-    next(ApiError.internal("Internal Server Error"));
+    next(ApiError.internal('Internal Server Error'));
   }
 };
 // export const verifyPassword
@@ -512,27 +523,23 @@ export const changePasswordController = async (
   res: Response,
   next: NextFunction
 ) => {
-
   try {
     const user = req.body._user;
 
     if (!user) {
-      return next(ApiError.unauthorized("You are not authorized"));
+      return next(ApiError.unauthorized('You are not authorized'));
     }
-    const {
-      oldPassword,
-      newPassword,
-    } = req.body;
-console.log(user)
+    const { oldPassword, newPassword } = req.body;
+
     const existingUser = await prisma.user.findUnique({
       where: { id: user.id },
     });
     if (!existingUser) {
-      return next(ApiError.notFound("User not found"));
+      return next(ApiError.notFound('User not found'));
     }
     const isMatch = await comparePassword(oldPassword, user.password);
     if (!isMatch) {
-      return next(ApiError.badRequest("Old password is incorrect"));
+      return next(ApiError.badRequest('Old password is incorrect'));
     }
     const hashedPassword = await hashPassword(newPassword);
     const updatedUser = await prisma.user.update({
@@ -543,16 +550,15 @@ console.log(user)
     });
     // Return the updated user with a success message
     return new ApiResponse(
-      200, updatedUser,
-      "Password changed successfully"
-    ).send(
-      res);
-
+      200,
+      updatedUser,
+      'Password changed successfully'
+    ).send(res);
   } catch (error) {
     console.error(error);
-    next(ApiError.internal("Internal Server Error"));
+    next(ApiError.internal('Internal Server Error'));
   }
-}
+};
 export {
   registerCustomerController,
   logoutController,
@@ -571,7 +577,8 @@ export interface UserRequest {
   phoneNumber: string;
   password: string;
   username: string;
-  gender: Gender; // Assuming an enum-like structure for gender
+  gender: number; // Assuming an enum-like structure for gender
+  countryId: string;
+  role: UserRoles;
   country: string;
-  role: 'ADMIN' | 'AGENT' | 'CUSTOMER';
 }

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { ChatType, PrismaClient, User, UserRoles } from '@prisma/client';
+import { ChatType, InAppNotificationType, PrismaClient, User, UserRoles } from '@prisma/client';
 import ApiError from '../utils/ApiError';
 import ApiResponse from '../utils/ApiResponse';
 import { getAgentOrAdminSocketId, io } from '../socketConfig';
@@ -57,7 +57,15 @@ export const sendMessageToTeamController = async (
             : null,
       },
     });
-
+//create in app notification
+const notification=await prisma.inAppNotification.create({
+  data: {
+    userId: chat.participants?.[0].userId,
+    description: `${_user.username} sent you a message`,
+    title: `${_user.username} sent you a message`,
+    type: InAppNotificationType.team,
+  }
+})
     if (chat.chatType === ChatType.team_chat) {
       const recieverSocketId = getAgentOrAdminSocketId(newMessage.receiverId!);
       if (recieverSocketId) {

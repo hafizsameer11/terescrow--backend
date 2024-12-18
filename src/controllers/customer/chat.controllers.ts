@@ -326,4 +326,3 @@ export {
   getAllChatsController,
   sendMessageController,
 };
-

@@ -82,6 +82,11 @@ io.on('connection', async (socket) => {
 
       console.log('admin connected');
 
+      socket.emit('onlineUsers', {
+        agents: onlineAgents,
+        admin: isAdminOnline,
+      });
+
       socket.broadcast.emit('adminJoined', {
         userId: userId,
         socketId: socket.id,
@@ -109,7 +114,7 @@ io.on('connection', async (socket) => {
               assignedDepartments: res.assignedDepartments,
             });
 
-            socket.to(socket.id).emit('onlineUsers', {
+            socket.emit('onlineUsers', {
               customers: onlineCustomers,
               agents: onlineAgents,
               admin: isAdminOnline,
@@ -168,7 +173,7 @@ io.on('connection', async (socket) => {
         socketId: socket.id,
       });
 
-      socket.to(socket.id).emit('onlineUsers', {
+      socket.emit('onlineUsers', {
         agents: onlineAgents,
         admin: isAdminOnline,
       });
