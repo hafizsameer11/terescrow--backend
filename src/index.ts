@@ -96,3 +96,13 @@ app.get('/', (req: Request, res: Response) => {
 httpServer.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
+
+app.get('/.well-known/pki-validation/47895BDD2089A962BA5A725A31134A7C.txt', (req, res) => {
+  const filePath = path.join(__dirname, '../uploads/47895BDD2089A962BA5A725A31134A7C.txt');
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      console.error('File not found:', err);
+      res.status(404).send('File not found');
+    }
+  });
+});
