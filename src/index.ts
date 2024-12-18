@@ -60,6 +60,8 @@ app.use('/api', adminAgentRouter);
 app.use('/api/admin', adminAuthRouter);
 app.use('/api/admin', adminChatRouter);
 app.use('/api/admin/operations', operationsRouter);
+app.use('/.well-known', express.static(path.join(__dirname, '../public/.well-known')));
+
 app.post('/api/file', upload.single('file'), (req: Request, res: Response) => {
   if (req?.file) {
     return res.status(201).json({
