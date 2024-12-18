@@ -149,7 +149,7 @@ export const getCategoriesFromDepartment = async (
       category: {
         ...cat.category,
         image: cat.category.image
-          ? `${req.protocol}://${req.get('host')}/uploads/${cat.category.image}`
+          ? `https://${req.get('host')}/uploads/${cat.category.image}`
           : null, // Handle cases where image is null
       },
     }));
