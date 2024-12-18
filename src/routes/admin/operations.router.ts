@@ -56,7 +56,7 @@ operationsRouter.post(
   createDepartment
 );
 operationsRouter.get('/get-department/:id', getDepartment);
-operationsRouter.get('/get-all-department/', getAlldepartments);
+operationsRouter.get('/get-all-department', getAlldepartments);
 operationsRouter.post(
   '/update-department/:id',
   upload.single('icon'),

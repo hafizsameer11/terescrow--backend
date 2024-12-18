@@ -296,7 +296,7 @@ model Message {
   attachments Attachment[]
   chatId      Int
   chat        Chat         @relation(fields: [chatId], references: [id])
-  message     String       @db.VarChar(255)
+  message     String?       @db.VarChar(255)
   image       String?
   isRead      Boolean      @default(false)
   createdAt   DateTime     @default(now())

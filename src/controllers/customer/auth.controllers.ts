@@ -20,6 +20,8 @@ const registerCustomerController = async (
   next: NextFunction
 ) => {
   try {
+    console.log(req.body);
+    console.log(req.file);
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       throw ApiError.badRequest(
@@ -36,9 +38,9 @@ const registerCustomerController = async (
       username,
       gender,
       countryId,
-      country,
+      country
     }: UserRequest = req.body;
-
+const profilePicture=req.file?req.file.filename:''
     const isUser = await prisma.user.findFirst({
       where: {
         OR: [{ email }, { username }, { phoneNumber }],
@@ -62,6 +64,7 @@ const registerCustomerController = async (
         gender: gender == 1 ? 'male' : 'female',
         // countryId: +countryId,
         country,
+        profilePicture,
         role: UserRoles.customer,
       },
     });

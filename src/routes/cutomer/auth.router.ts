@@ -14,10 +14,11 @@ import { editCustomer } from '../../controllers/admin/admin.operation.controller
 // import { kycTierTwoRequest } from '../../controllers/customer/utilities.controller';
 // import { editCustomer } from '../../controllers/admin/admin.operation.controller';
 import { kycTierTwoRequest } from '../../controllers/customer/utilities.controller';
+import upload from '../../middlewares/multer.middleware';
 // import authController from '../controllers/auth.controller';
 const authRouter = express.Router();
 
-authRouter.post('/customer/register', registerCustomerController);
+authRouter.post('/customer/register', upload.single('profilePicture'),registerCustomerController);
 authRouter.post('/logout', logoutController);
 authRouter.post('/verify-email-otp', authenticateUser, verifyUserController);
 authRouter.post('/verify-forgot-password-otp', verifyForgotPasswordOtp);

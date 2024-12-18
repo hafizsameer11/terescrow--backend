@@ -20,20 +20,28 @@ const sendMessageController = async (
 ) => {
   try {
     const {
-      message,
+      message = '', // Default to empty string
       chatId,
       _user: sender,
-    } = req.body as { message: string; chatId: string; _user: User };
+    } = req.body as { message?: string; chatId: string; _user: User };
 
+    console.log(req.file);
+    console.log(req.body);
 
+    // Check authorization
     if (sender.role !== UserRoles.customer) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
-    if (!message.trim() || !chatId) {
+    // Validate input
+    if (!chatId || (!message.trim() && !req.file)) {
       return next(ApiError.badRequest('Invalid request credentials'));
     }
 
+    // Extract image filename if present
+    const image = req.file?.filename || '';
+
+    // Find chat
     const chat = await prisma.chat.findFirst({
       where: {
         AND: [
@@ -63,62 +71,65 @@ const sendMessageController = async (
     });
 
     if (!chat) {
-      return next(ApiError.notFound('this chat does not exist'));
+      return next(ApiError.notFound('This chat does not exist'));
     }
 
+    // Create new message
     const newMessage = await prisma.message.create({
       data: {
         chatId: chat.id,
         senderId: sender.id,
         receiverId: chat.participants[0].userId,
-        message,
+        image: image || undefined, // Include only if exists
+        message: message.trim() || '', // Include only if exists
       },
-    });
-    //update chat updatedAt to current time
-    const updatedChat = await prisma.chat.update({
-      where: {
-        id: chat.id
-      },
-      data: {
-        updatedAt: new Date()
-      }
     });
 
-    //create nofiticaion for the receiver
-    const notification = await prisma.inAppNotification.create({
+    // Update chat `updatedAt`
+    await prisma.chat.update({
+      where: {
+        id: chat.id,
+      },
+      data: {
+        updatedAt: new Date(),
+      },
+    });
+
+    // Create in-app notification
+    await prisma.inAppNotification.create({
       data: {
         userId: chat.participants[0].userId,
-        title: "New Message",
+        title: 'New Message',
         description: `You have a new message from ${sender.firstname} ${sender.lastname}`,
-      }
+      },
     });
 
     if (!newMessage) {
-      return next(ApiError.internal('Message Sending Failed'));
+      return next(ApiError.internal('Message sending failed'));
     }
 
-    console.log(chat.participants[0].userId);
-    const recieverSocketId = getAgentSocketId(chat.participants[0].userId);
-    if (recieverSocketId) {
-      console.log('reached');
-      io.to(recieverSocketId).emit('message', {
+    // Emit socket event
+    const receiverSocketId = getAgentSocketId(chat.participants[0].userId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit('message', {
         from: sender.id,
         message: newMessage,
       });
-      console.log('emitted');
     }
 
     return new ApiResponse(201, newMessage, 'Message sent successfully').send(
       res
     );
   } catch (error) {
-    console.log(error);
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    return next(ApiError.internal('Server Error Occured!'));
+    console.error(error);
+    return next(
+      error instanceof ApiError
+        ? error
+        : ApiError.internal('Server Error Occurred!')
+    );
   }
 };
+
 
 const getChatDetailsController = async (
   req: Request,
@@ -188,10 +199,10 @@ const getChatDetailsController = async (
           ]
         },
         data: {
-          isRead: true, 
+          isRead: true,
         },
       });
-      
+
       if (updatedMessages) {
         console.log("messages updated");
       }
@@ -260,16 +271,16 @@ const getAllChatsController = async (
           },
         },
         _count: {
-        
-          select: {      
+
+          select: {
             messages: {
               where: {
                 isRead: false,
-              receiverId:user.id
+                receiverId: user.id
               },
 
             },
-            
+
           },
         },
         messages: {
