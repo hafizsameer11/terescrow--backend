@@ -26,9 +26,9 @@ export const sendToCustomerController = async (
       _user: sender,
     } = req.body as { message: string; chatId: string; _user: User };
 
-    if (sender.role !== UserRoles.agent) {
-      return next(ApiError.unauthorized('You are not authorized'));
-    }
+    // if (sender.role !== UserRoles.agent) {
+    //   return next(ApiError.unauthorized('You are not authorized'));
+    // }
 
     if (!message.trim() || !chatId) {
       return next(ApiError.badRequest('Invalid request credentials'));
