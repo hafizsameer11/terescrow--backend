@@ -461,9 +461,10 @@ export const setNewPasswordController = async (
   next: NextFunction
 ) => {
   try {
+    console.log(req.body);
     //get the userId and new passowrd
-    const { userId, newPassword } = req.body;
-    const hashedPassword = await hashPassword(newPassword);
+    const { userId, password } = req.body;
+    const hashedPassword = await hashPassword(password);
     //first check if user exists
     const user = await prisma.user.findUnique({
       where: {
