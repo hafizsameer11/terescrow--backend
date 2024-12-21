@@ -7,6 +7,7 @@ import {
   registerCustomerController,
   resendOtpController,
   sendPasswordOtpController,
+  setNewPasswordController,
   verifyForgotPasswordOtp,
   verifyUserController,
 } from '../../controllers/customer/auth.controllers';
@@ -29,4 +30,5 @@ authRouter.post('/edit-profile',authenticateUser,editProfileController)
 authRouter.post('/change-password',authenticateUser,changePasswordController)
 authRouter.post('/kyc-request',authenticateUser,kycTierTwoRequest);
 authRouter.get('/get-all-notifications',authenticateUser,getAllNotifcications);
+authRouter.post('/set-new-password',setNewPasswordController);
 export default authRouter;
