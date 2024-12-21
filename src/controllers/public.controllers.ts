@@ -105,7 +105,11 @@ export const getAllDepartmentsController = async (
     if (!user) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
-    const departments = await prisma.department.findMany();
+    const departments = await prisma.department.findMany({
+      orderBy:{
+        createdAt:'desc'
+      }
+    });
     if (!departments) {
       return next(ApiError.notFound('Departments not found'));
     }
