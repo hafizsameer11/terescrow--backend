@@ -615,7 +615,7 @@ export const getAllNotifcications = async (req: Request, res: Response, next: Ne
       return next(ApiError.unauthorized('You are not authorized'));
     }
     const notifications = await prisma.inAppNotification.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id,isRead:false },
       orderBy:{
         createdAt:'desc'
       }
