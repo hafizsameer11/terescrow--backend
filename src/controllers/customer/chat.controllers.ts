@@ -313,6 +313,9 @@ const getAllChatsController = async (
       const agent = chat.participants?.[0]?.user || null;
       const chatStatus = chat.chatDetails?.status || null;
       const messagesCount = chat._count?.messages || 0;
+      const department = chat.chatDetails?.department || null;
+      const transaction = chat.transactions || null;
+      const category = chat.chatDetails?.category || null;
       return {
         id: chat.id,
         agent, // Ensure customer is not undefined
@@ -320,6 +323,9 @@ const getAllChatsController = async (
         recentMessageTimestamp,
         chatStatus,
         messagesCount,
+        department,
+        transaction,
+        category
       };
     });
 
