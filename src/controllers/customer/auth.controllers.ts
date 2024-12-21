@@ -435,7 +435,7 @@ const sendPasswordOtpController = async (
     return next(ApiError.internal('Internal Server Error!'));
   }
 };
-const setNewPasswordController = async (
+export const setNewPasswordController = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -607,6 +607,27 @@ export const changePasswordController = async (
     next(ApiError.internal('Internal Server Error'));
   }
 };
+
+export const getAllNotifcications = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.body._user;
+    if (!user) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+    const notifications = await prisma.inAppNotification.findMany({
+      where: { userId: user.id },
+    });
+    return new ApiResponse(
+      200,
+      notifications,
+      'Notifications fetched successfully'
+    ).send(res);
+  } catch (error) {
+    console.error(error);
+    next(ApiError.internal('Internal Server Error'));
+  }
+}
+
 export {
   registerCustomerController,
   logoutController,

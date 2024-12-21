@@ -2,6 +2,7 @@ import express from 'express';
 import {
   changePasswordController,
   editProfileController,
+  getAllNotifcications,
   logoutController,
   registerCustomerController,
   resendOtpController,
@@ -27,4 +28,5 @@ authRouter.post('/forgot-password', sendPasswordOtpController);
 authRouter.post('/edit-profile',authenticateUser,editProfileController)
 authRouter.post('/change-password',authenticateUser,changePasswordController)
 authRouter.post('/kyc-request',authenticateUser,kycTierTwoRequest);
+authRouter.get('/get-all-notifications',authenticateUser,getAllNotifcications);
 export default authRouter;
