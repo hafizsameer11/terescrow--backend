@@ -314,7 +314,7 @@ const getAllChatsController = async (
       const chatStatus = chat.chatDetails?.status || null;
       const messagesCount = chat._count?.messages || 0;
       const department = chat.chatDetails?.department || null;
-      const transaction = chat.transactions || null;
+      const transaction = chat.transactions?.[0] || null;
       const category = chat.chatDetails?.category || null;
       return {
         id: chat.id,
