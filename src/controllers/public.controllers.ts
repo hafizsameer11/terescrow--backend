@@ -41,9 +41,10 @@ export const loginController = async (
     });
     if (!isUser) {
       return next(ApiError.badRequest('This email is not registerd'));
-    } if(isUser.isVerified===false){
-      return next(ApiError.badRequest('Your account is not verified. Please chceck your email'))
-    }
+    } 
+    // if(isUser.isVerified===false){
+    //   return next(ApiError.badRequest('Your account is not verified. Please chceck your email'))
+    // }
     const isMatch = await comparePassword(password, isUser.password);
     if (!isMatch) {
       return next(ApiError.badRequest('Your password is not correct'));
