@@ -616,6 +616,9 @@ export const getAllNotifcications = async (req: Request, res: Response, next: Ne
     }
     const notifications = await prisma.inAppNotification.findMany({
       where: { userId: user.id },
+      orderBy:{
+        createdAt:'desc'
+      }
     });
     return new ApiResponse(
       200,
