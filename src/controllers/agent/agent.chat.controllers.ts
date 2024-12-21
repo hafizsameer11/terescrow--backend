@@ -97,13 +97,6 @@ export const sendToCustomerController = async (
       return next(ApiError.internal('Message Sending Failed'));
     }
 
-    // if (!chat.messages.includes(newMessage._id)) {
-    //   chat.messages.push(newMessage._id);
-    //   await chat.save();
-    // }
-
-    // its to check whether the user is online or offline now
-    //io.to is used to send message to a particular user
 
     const recieverSocketId = getCustomerSocketId(newMessage.receiverId!);
     if (recieverSocketId) {

@@ -87,6 +87,29 @@ export const createTransactionCard = async (
         status: TransactionStatus.pending,
       },
     });
+    //create notification for customer
+    const customer = currChat.participants.find(
+      (participant) => participant.user.id !== agent.id
+    )?.user;
+    if (customer) {
+      const notification = await prisma.inAppNotification.create({
+        data: {
+          userId: customer.id,
+          title: 'Transaction created',
+          description: 'Your transaction has been created',
+          type: InAppNotificationType.customeer
+        },
+      });
+    }
+    //create notification for agent
+    const agentNotification = await prisma.inAppNotification.create({
+      data: {
+        userId: agent.id,
+        title: 'Transaction created',
+        description: 'Transaction created successfully',
+        type: InAppNotificationType.customeer
+      },
+    });
     if (!transaction) {
       return next(ApiError.badRequest('Transaction not created'));
     }
@@ -199,6 +222,29 @@ export const createTransactionCrypto = async (
             },
           },
         },
+      },
+    });
+
+    const customer = currChat?.participants.find(
+      (participant) => participant.user.id !== agent.id
+    )?.user;
+    if (customer) {
+      const notification = await prisma.inAppNotification.create({
+        data: {
+          userId: customer.id,
+          title: 'Transaction created',
+          description: 'Your transaction has been created',
+          type: InAppNotificationType.customeer
+        },
+      });
+    }
+    //create notification for agent
+    const agentNotification = await prisma.inAppNotification.create({
+      data: {
+        userId: agent.id,
+        title: 'Transaction created',
+        description: 'Transaction created successfully',
+        type: InAppNotificationType.customeer
       },
     });
 
@@ -648,7 +694,7 @@ export const getTransactionsForAgent = async (req: Request, res: Response, next:
 };
 
 
-export const editProfile=async(req:Request,res:Response,next:NextFunction)=>{
+export const editProfile = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const agentId = req.body._user.id;
     if (!agentId) {
@@ -663,7 +709,7 @@ export const editProfile=async(req:Request,res:Response,next:NextFunction)=>{
       return next(ApiError.notFound('Agent not found'));
     }
     //check if password is not null or mepty
-    const profilePicture=req.file?req.file.filename:agent.profilePicture
+    const profilePicture = req.file ? req.file.filename : agent.profilePicture
     const hasshedPassword = await hashPassword(req.body.password);
     const updatedAgent = await prisma.agent.update({
       where: {
@@ -679,8 +725,8 @@ export const editProfile=async(req:Request,res:Response,next:NextFunction)=>{
             username: req.body.username,
             gender: req.body.gender,
             country: req.body.country,
-            password: hasshedPassword||agent.password,
-            profilePicture:profilePicture
+            password: hasshedPassword || agent.password,
+            profilePicture: profilePicture
           }
         }
       }
@@ -693,11 +739,152 @@ export const editProfile=async(req:Request,res:Response,next:NextFunction)=>{
       200,
       updatedAgent,
       'Agent updated successfully',
-      );
+    );
   } catch (error) {
     console.error(error);
     if (error instanceof ApiError) {
       return next(error);
     }
     return next(ApiError.internal('Internal Server Error'));
-  }}
+  }
+}
+
+
+
+export const createNote = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    //create note
+    const agentId = req.body._user.id;
+    const { note, title = '', userId } = req.body;
+    if (!agentId) {
+      return next(ApiError.notFound('Agent not found'));
+    }
+    //get agentId from agent table
+    const agent = await prisma.agent.findFirst({
+      where: {
+        userId: agentId
+      }
+    });
+    if (!agent) {
+      return next(ApiError.notFound('Agent not found'));
+    }
+    const newNote = await prisma.notes.create({
+      data: {
+        title: title,
+        note: note,
+        userId: userId,
+        agentId: agent.id
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}
+
+export const getAllNotes = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const agentId = req.body._user.id;
+    if (!agentId) {
+      return next(ApiError.notFound('Agent not found'));
+    }
+    const { userId } = req.body;
+    const notes = await prisma.notes.findMany({
+      where: {
+        userId: userId
+      }
+    });
+    if (!notes) {
+      return next(ApiError.notFound('Notes not found'));
+    }
+    return new ApiResponse(
+      200,
+      notes,
+      'Notes found successfully',
+    ).send(res);
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}
+export const updateNote = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const agentId = req.body._user.id;
+    if (!agentId) {
+      return next(ApiError.notFound('Agent not found'));
+    }
+    const { note, title = '', userId } = req.body;
+    const noteId = req.params.id;
+    const notes = await prisma.notes.findFirst({
+      where: {
+        id: parseInt(noteId)
+      }
+    })
+    const updatedNote = await prisma.notes.update({
+      where: {
+        id: parseInt(noteId)
+      },
+      data: {
+        title: title,
+        note: note,
+        userId: userId,
+        agentId: agentId
+      }
+    });
+    if (!updatedNote) {
+      return next(ApiError.notFound('Note not found'));
+    }
+    return new ApiResponse(
+      200,
+      updatedNote,
+      'Note updated successfully',
+    ).send(res);
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}
+export const deleteNote = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const agentId = req.body._user.id;
+    if (!agentId) {
+      return next(ApiError.notFound('Agent not found'));
+    }
+    const noteId = req.params.id;
+    const notes = await prisma.notes.findFirst({
+      where: {
+        id: parseInt(noteId)
+      }
+    })
+    const deletedNote = await prisma.notes.delete({
+      where: {
+        id: parseInt(noteId)
+      }
+    }); if (!deletedNote) {
+      return next(ApiError.notFound('Note not found'));
+    }
+    return new ApiResponse(
+      200,
+      deletedNote,
+      'Note deleted successfully',
+    ).send(res);
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}
