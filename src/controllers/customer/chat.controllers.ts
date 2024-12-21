@@ -247,9 +247,13 @@ const getAllChatsController = async (
       },
       select: {
         id: true,
+    
         chatDetails: {
+          
           select: {
             status: true,
+            category: true,
+            department: true,
           },
         },
         participants: {
@@ -270,6 +274,7 @@ const getAllChatsController = async (
             },
           },
         },
+        transactions:true,
         _count: {
 
           select: {
