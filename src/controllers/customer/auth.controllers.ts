@@ -40,7 +40,7 @@ const registerCustomerController = async (
       countryId,
       country
     }: UserRequest = req.body;
-const profilePicture=req.file?req.file.filename:''
+    const profilePicture = req.file ? req.file.filename : ''
     const isUser = await prisma.user.findFirst({
       where: {
         OR: [{ email }, { username }, { phoneNumber }],
@@ -272,7 +272,11 @@ const verifyForgotPasswordOtp = async (
       },
     });
     // console.log('fulfilled');
-    return new ApiResponse(200, null, 'Otp verified successfully.').send(res);
+    //return userId
+const resData={
+  userId:user.id
+}
+    return new ApiResponse(200, resData, 'Otp verified successfully.').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -431,6 +435,21 @@ const sendPasswordOtpController = async (
     return next(ApiError.internal('Internal Server Error!'));
   }
 };
+const setNewPasswordController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+
+
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error!'));
+  }
+}
 export const editProfileController = async (
   req: Request,
   res: Response,
