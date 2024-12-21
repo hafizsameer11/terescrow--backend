@@ -22,6 +22,7 @@ const registerCustomerController = async (
   try {
     console.log(req.body);
     console.log(req.file);
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       throw ApiError.badRequest(
@@ -29,6 +30,7 @@ const registerCustomerController = async (
         errors.array()
       );
     }
+
     const {
       firstName,
       lastName,
@@ -38,18 +40,33 @@ const registerCustomerController = async (
       username,
       gender,
       countryId,
-      country
+      country,
     }: UserRequest = req.body;
-    const profilePicture = req.file ? req.file.filename : ''
-    const isUser = await prisma.user.findFirst({
+    const profilePicture = req.file ? req.file.filename : '';
+
+    // Check if any attribute already exists
+    const existingUser = await prisma.user.findFirst({
       where: {
         OR: [{ email }, { username }, { phoneNumber }],
       },
     });
 
-    if (isUser) {
-      throw ApiError.badRequest('This user is already registerd');
+    if (existingUser) {
+      let conflictField = '';
+      if (existingUser.email === email) {
+        conflictField = 'email';
+      } else if (existingUser.username === username) {
+        conflictField = 'username';
+      } else if (existingUser.phoneNumber === phoneNumber) {
+        conflictField = 'phoneNumber';
+      }
+
+      throw ApiError.badRequest(
+        `This ${conflictField} is already registered.`,
+        { conflictField }
+      );
     }
+
     console.log(req.body);
     const hashedPassword = await hashPassword(password);
 
@@ -70,7 +87,7 @@ const registerCustomerController = async (
     });
 
     if (!newUser) {
-      throw ApiError.internal('User creation Failed');
+      throw ApiError.internal('User creation failed');
     }
 
     const otp = generateOTP(4);
@@ -90,8 +107,9 @@ const registerCustomerController = async (
           username: newUser.username,
         },
       });
-      throw ApiError.internal('User OTP creation Failed');
+      throw ApiError.internal('User OTP creation failed');
     }
+
     await sendVerificationEmail(email, otp);
     const token = generateToken(newUser.id, newUser.username, newUser.role);
     res.cookie('token', token, {
@@ -99,6 +117,7 @@ const registerCustomerController = async (
       httpOnly: true,
       sameSite: 'lax',
     });
+
     return new ApiResponse(
       200,
       undefined,
@@ -114,6 +133,7 @@ const registerCustomerController = async (
     next(ApiError.internal('Internal Server Error'));
   }
 };
+
 
 const logoutController = async (
   req: Request,
@@ -615,9 +635,9 @@ export const getAllNotifcications = async (req: Request, res: Response, next: Ne
       return next(ApiError.unauthorized('You are not authorized'));
     }
     const notifications = await prisma.inAppNotification.findMany({
-      where: { userId: user.id,isRead:false },
-      orderBy:{
-        createdAt:'desc'
+      where: { userId: user.id, isRead: false },
+      orderBy: {
+        createdAt: 'desc'
       }
     });
     return new ApiResponse(
