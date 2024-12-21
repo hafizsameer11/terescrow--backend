@@ -490,6 +490,7 @@ export const setNewPasswordController = async (
 
 
   } catch (error) {
+    console.log(error);
     if (error instanceof ApiError) {
       return next(error);
     }
