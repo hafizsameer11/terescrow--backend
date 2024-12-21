@@ -27,7 +27,6 @@ const getAgentDepartments = async (
 
     if (!isAgent || !isAgent.agent) return null;
 
-    // Map assignedDepartments and rename `departmentId` to `id`
     const transformedDepartments = isAgent.agent.assignedDepartments.map((dept) => ({
       id: dept.departmentId, // Alias transformation
     }));

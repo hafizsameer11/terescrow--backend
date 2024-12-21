@@ -41,11 +41,11 @@ export const loginController = async (
     });
     if (!isUser) {
       return next(ApiError.badRequest('This email is not registerd'));
+    } if(isUser.isVerified===false){
+      return next(ApiError.badRequest('Your account is not verified. Please chceck your email'))
     }
-    // console.log(password);
     const isMatch = await comparePassword(password, isUser.password);
     if (!isMatch) {
-      return next(ApiError.badRequest('Your password is not correct'));
       return next(ApiError.badRequest('Your password is not correct'));
     }
     const token = generateToken(isUser.id, isUser.username, isUser.role);
@@ -242,28 +242,36 @@ export const readAllMessagesControllers = async (
   next: NextFunction
 ) => {
   try {
-    const { _user, chatId }: { _user: User; chatId: number } = req.body;
+    const { _user, chatId }: { _user: User; chatId: number | string } = req.body;
 
+    // Check if _user and chatId exist
     if (!_user || !chatId) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
+    // Ensure chatId is a number
+    const parsedChatId = typeof chatId === 'number' ? chatId : parseInt(chatId, 10);
+
+    if (isNaN(parsedChatId)) {
+      return next(ApiError.badRequest('Invalid chatId'));
+    }
+
+    // Update messages
     const messages = await prisma.message.updateMany({
       where: {
-        chatId,
+        chatId: parsedChatId,
       },
       data: {
         isRead: true,
       },
     });
 
+    // Check if messages were updated
     if (!messages) {
       return next(ApiError.notFound('No messages were found'));
     }
 
-    return new ApiResponse(201, undefined, 'Messages read successfully').send(
-      res
-    );
+    return new ApiResponse(201, undefined, 'Messages read successfully').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -271,6 +279,7 @@ export const readAllMessagesControllers = async (
     next(error);
   }
 };
+
 
 // export const readAllMessagesControllers = async (
 //   req: Request,
