@@ -273,9 +273,9 @@ const verifyForgotPasswordOtp = async (
     });
     // console.log('fulfilled');
     //return userId
-const resData={
-  userId:user.id
-}
+    const resData = {
+      userId: user.id
+    }
     return new ApiResponse(200, resData, 'Otp verified successfully.').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
@@ -441,6 +441,32 @@ const setNewPasswordController = async (
   next: NextFunction
 ) => {
   try {
+    //get the userId and new passowrd
+    const { userId, newPassword } = req.body;
+    const hashedPassword = await hashPassword(newPassword);
+    //first check if user exists
+    const user = await prisma.user.findUnique({
+      where: {
+        id: userId,
+      },
+    });
+    if (!user) {
+      return next(ApiError.badRequest('User not found'));
+    }
+    const updatedUser = await prisma.user.update({
+      where: {
+        id: userId,
+      },
+      data: {
+        password: hashedPassword,
+      },
+    });
+    //send success message
+    return new ApiResponse(
+      200,
+      updatedUser,
+      'Password changed successfully'
+    ).send(res);
 
 
   } catch (error) {

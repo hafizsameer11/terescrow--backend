@@ -109,7 +109,7 @@ model User {
   AccountActivity   AccountActivity[]
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
-  
+
 }
 
 model UserOTP {
@@ -344,6 +344,7 @@ model Notes {
   userId         Int
   agentId        Int
   isHighlighited Boolean?
+  note           String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   agent          Agent    @relation(fields: [agentId], references: [id])
