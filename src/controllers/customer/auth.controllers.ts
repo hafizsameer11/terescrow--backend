@@ -30,7 +30,12 @@ const registerCustomerController = async (
         errors.array()
       );
     }
-
+    const { termsAccepted = false } = req.body;
+    if (termsAccepted) {
+      if (termsAccepted === false) {
+        return next(ApiError.badRequest('Please accept terms and conditions'))
+      }
+    }
     const {
       firstName,
       lastName,
