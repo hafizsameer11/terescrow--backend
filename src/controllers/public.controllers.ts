@@ -28,6 +28,12 @@ export const loginController = async (
         errors.array()
       );
     }
+    const { termsAccepted = false } = req.body;
+    if (termsAccepted) {
+      if (termsAccepted === false) {
+        return next(ApiError.badRequest('Please accept terms and conditions'))
+      }
+    }
     const { email, password }: { email: string; password: string } = req.body;
     console.log(email);
     if (!email || !password) {
@@ -41,7 +47,7 @@ export const loginController = async (
     });
     if (!isUser) {
       return next(ApiError.badRequest('This email is not registerd'));
-    } 
+    }
     // if(isUser.isVerified===false){
     //   return next(ApiError.badRequest('Your account is not verified. Please chceck your email'))
     // }
@@ -106,8 +112,8 @@ export const getAllDepartmentsController = async (
       return next(ApiError.unauthorized('You are not authorized'));
     }
     const departments = await prisma.department.findMany({
-      orderBy:{
-        createdAt:'desc'
+      orderBy: {
+        createdAt: 'desc'
       }
     });
     if (!departments) {
@@ -366,9 +372,10 @@ export const getNotificationController = async (req: Request, res: Response, nex
       return next(ApiError.unauthorized('You are not authorized'));
     }
     const notifications = await prisma.inAppNotification.findMany({
-      where: { userId: user.id,
-        isRead:false
-       },
+      where: {
+        userId: user.id,
+        isRead: false
+      },
       orderBy: { id: 'desc' }
     });
     if (!notifications) {
