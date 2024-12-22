@@ -31,9 +31,13 @@ const registerCustomerController = async (
       );
     }
     console.log(req.body);
-    const { termsAccepted = false } = req.body;
-    if (termsAccepted==false) {
-      return next(ApiError.badRequest('Please accept terms and conditions'))
+    const { termsAccepted = 'false' } = req.body;
+
+    // Convert 'false'/'true' strings to actual boolean values
+    const isTermsAccepted = termsAccepted === 'true';
+    
+    if (!isTermsAccepted) {
+      return next(ApiError.badRequest('Please accept terms and conditions'));
     }
     const {
       firstName,
