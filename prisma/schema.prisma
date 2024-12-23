@@ -82,6 +82,7 @@ enum InAppNotificationType {
   customeer
   team
 }
+
 model User {
   id                Int                 @id @default(autoincrement())
   username          String              @unique @db.VarChar(255)
@@ -109,7 +110,6 @@ model User {
   AccountActivity   AccountActivity[]
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
-
 }
 
 model UserOTP {
@@ -133,6 +133,7 @@ model Agent {
   updatedAt           DateTime             @updatedAt
   notes               Notes[]
   rate                Rate[]
+  isDefault           Boolean              @default(false)
 }
 
 model Department {
@@ -295,7 +296,7 @@ model Message {
   attachments Attachment[]
   chatId      Int
   chat        Chat         @relation(fields: [chatId], references: [id])
-  message     String?       @db.VarChar(255)
+  message     String?      @db.VarChar(255)
   image       String?
   isRead      Boolean      @default(false)
   createdAt   DateTime     @default(now())
@@ -382,14 +383,14 @@ model NotificationAttachment {
 }
 
 model InAppNotification {
-  id          Int      @id @default(autoincrement())
+  id          Int                   @id @default(autoincrement())
   title       String
   description String
   userId      Int
-  isRead      Boolean  @default(false)
-  user        User     @relation(fields: [userId], references: [id])
-  createdAt   DateTime @default(now())
-  type      InAppNotificationType     @default(customeer)
+  isRead      Boolean               @default(false)
+  user        User                  @relation(fields: [userId], references: [id])
+  createdAt   DateTime              @default(now())
+  type        InAppNotificationType @default(customeer)
 }
 
 model Chatdeclined {

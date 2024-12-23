@@ -111,10 +111,67 @@ const checkPendingChat = async (
     return null;
   }
 };
+const getDefaultAgent = async () => {
+  try {
+    const agent = await primsa.user.findFirst({
+      where: {
+        role: UserRoles.agent,
+        agent: {
+          isDefault: true
+        }
+      }
+    });
+    if (agent) {
+      return agent;
+    }
+    return null;
+  }
+  catch (error) {
+    console.log(error);
+    return null;
+  }
+}
+const sendDefaultMessageFromDefaultAgent = async (chatId: Number, agentId: Number) => {
+  try {
+    const chat = await primsa.chat.findFirst({
+      where: {
+        id: parseInt(chatId.toString()),
+        participants: {
+          some: {
+            userId: parseInt(agentId.toString())
+          }
+        }
+      },
+      include: {
+        participants: {
+          where: {
+            NOT: {
+              userId: parseInt(agentId.toString())
+            }
+          }
+        }
+      }
+    });
+    if (chat) {
+      const message = await primsa.message.create({
+        data: {
+          message: "All our agents are currently busy. Please wait for a moment.",
+          chatId: parseInt(chatId.toString()),
+          senderId: parseInt(agentId.toString()),
+          receiverId: chat.participants[0].userId
+        }
+      });
+      return message;
+    }
 
+  } catch (error) {
+    console.log(error);
+  }
+}
 export {
   getAgentDepartments,
   createCustomerToAgentChat,
   checkPendingChat,
+  getDefaultAgent
   // getDepartmentFromCategory,
 };

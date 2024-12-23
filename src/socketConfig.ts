@@ -6,6 +6,7 @@ import {
   checkPendingChat,
   createCustomerToAgentChat,
   getAgentDepartments,
+  getDefaultAgent,
 } from './utils/socketUtils';
 import { PrismaClient, UserRoles } from '@prisma/client';
 
@@ -27,9 +28,9 @@ let onlineAgents: {
 
 let isAdminOnline:
   | {
-      socketId: string;
-      userId: number;
-    }
+    socketId: string;
+    userId: number;
+  }
   | false = false;
 
 let onlineCustomers: {
@@ -191,6 +192,7 @@ io.on('connection', async (socket) => {
             Number(data.departmentId),
             Number(data.categoryId)
           );
+
           if (isPendingChat) {
             io.to(socket.id).emit('alreadyPendingChat', isPendingChat);
           } else {
@@ -199,6 +201,7 @@ io.on('connection', async (socket) => {
                 (department) => department.id == Number(data.departmentId)
               )
             );
+
             if (availableAgents.length > 0) {
               const newChat = await createCustomerToAgentChat(
                 availableAgents[0].agentId,
@@ -206,6 +209,7 @@ io.on('connection', async (socket) => {
                 Number(data.departmentId),
                 Number(data.categoryId)
               );
+
               if (newChat) {
                 io.to(socket.id).emit('agentAssigned', newChat);
                 io.to(availableAgents[0].socketId).emit(
@@ -221,16 +225,43 @@ io.on('connection', async (socket) => {
                 });
               }
             } else {
-              pendingAssignments.push({
-                customerId: userId,
-                socketId: socket.id,
-                departmentId: Number(data.departmentId),
-                categoryId: Number(data.categoryId),
-              });
+              // No agents available, assign default agent
+              const defaultAgent = await getDefaultAgent();
+
+              if (defaultAgent) {
+                const newChat = await createCustomerToAgentChat(
+                  defaultAgent.id,
+                  userId,
+                  Number(data.departmentId),
+                  Number(data.categoryId)
+                );
+
+                if (newChat) {
+                  io.to(socket.id).emit('agentAssigned', newChat);
+                  console.log('Default agent assigned:', defaultAgent.id);
+                } else {
+                  pendingAssignments.push({
+                    customerId: userId,
+                    socketId: socket.id,
+                    departmentId: Number(data.departmentId),
+                    categoryId: Number(data.categoryId),
+                  });
+                }
+              } else {
+                // No default agent found, add to pending assignments
+                pendingAssignments.push({
+                  customerId: userId,
+                  socketId: socket.id,
+                  departmentId: Number(data.departmentId),
+                  categoryId: Number(data.categoryId),
+                });
+                console.log('No default agent found. Added to pending assignments.');
+              }
             }
           }
         }
       );
+
     }
   } catch (error) {
     console.error('Token verification failed:', error);
