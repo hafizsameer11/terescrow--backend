@@ -131,7 +131,7 @@ const getDefaultAgent = async () => {
     return null;
   }
 }
-const sendDefaultMessageFromDefaultAgent = async (chatId: Number, agentId: Number) => {
+export const sendDefaultMessageFromDefaultAgent = async (chatId: Number, agentId: Number) => {
   try {
     const chat = await primsa.chat.findFirst({
       where: {

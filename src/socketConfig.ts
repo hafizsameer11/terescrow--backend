@@ -7,6 +7,7 @@ import {
   createCustomerToAgentChat,
   getAgentDepartments,
   getDefaultAgent,
+  sendDefaultMessageFromDefaultAgent,
 } from './utils/socketUtils';
 import { PrismaClient, UserRoles } from '@prisma/client';
 
@@ -238,6 +239,7 @@ io.on('connection', async (socket) => {
 
                 if (newChat) {
                   io.to(socket.id).emit('agentAssigned', newChat);
+                  const message=await sendDefaultMessageFromDefaultAgent(defaultAgent.id,parseInt(newChat));
                   console.log('Default agent assigned:', defaultAgent.id);
                 } else {
                   pendingAssignments.push({
