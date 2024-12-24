@@ -452,7 +452,7 @@ export const getDefaultAgentChatsController = async (
         participants: {
           where: {
             userId: {
-              not: user.id,
+              not: defaultAgent?.userId,
             },
           },
           select: {
