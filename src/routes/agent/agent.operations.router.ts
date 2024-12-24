@@ -16,6 +16,7 @@ import {
   updateNote,
 } from '../../controllers/agent/agent.operations.controllers';
 import upload from '../../middlewares/multer.middleware';
+import { getDefaultAgentChatsController, takeOverDefaultAgentChatController } from '../../controllers/agent/agent.chat.controllers';
 
 const agentOperationsRouter = express.Router();
 
@@ -43,4 +44,6 @@ agentOperationsRouter.post('/create-note', authenticateUser, createNote);
 agentOperationsRouter.post('/update-note/:id', authenticateUser, updateNote);
 agentOperationsRouter.get('/get-notes', authenticateUser, getAllNotes);
 agentOperationsRouter.delete('/delete-note/:id', authenticateUser, deleteNote);
+agentOperationsRouter.get('/get-all-default-chats', authenticateUser, getDefaultAgentChatsController);
+agentOperationsRouter.post('/take-over-chat/:chatId', authenticateUser, takeOverDefaultAgentChatController);
 export default agentOperationsRouter;

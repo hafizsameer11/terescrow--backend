@@ -398,3 +398,178 @@ export const getCustomerChatDetailsController = async (
     return next(ApiError.internal('Server Error Occured!'));
   }
 };
+
+export const getDefaultAgentChatsController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction) => {
+  try {
+    const user = req.body._user;
+    if (!user) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+    const defaultAgent = await prisma.agent.findFirst({
+      where: {
+        isDefault: true
+      },
+    })
+    const chats = await prisma.chat.findMany({
+      where: {
+        AND: [
+          {
+            participants: {
+              some: {
+                userId: defaultAgent?.userId,
+              },
+            },
+          },
+          { chatType: ChatType.customer_to_agent },
+
+        ],
+      },
+      select: {
+        id: true,
+        chatType: true,
+        _count: {
+          select: {
+            messages: {
+              where: {
+                isRead: false,
+                receiverId: user.id
+              },
+
+            },
+
+          },
+        },
+        chatDetails: {
+          select: {
+            status: true,
+          },
+        },
+        participants: {
+          where: {
+            userId: {
+              not: user.id,
+            },
+          },
+          select: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                firstname: true,
+                lastname: true,
+                profilePicture: true,
+              },
+            },
+          },
+        },
+        messages: {
+          take: 1,
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
+      },
+      orderBy: {
+        messages: {
+
+          _count: 'desc',
+        },
+      },
+    });
+
+    if (!chats) {
+      return next(ApiError.notFound('Chats not found'));
+    }
+    return new ApiResponse(200, chats, 'Chats found').send(res);
+
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(ApiError.internal('Server Error Occured!'));
+  }
+}
+
+export const takeOverDefaultAgentChatController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const user = req.body._user;
+    const { chatId } = req.params;
+
+    if (!user) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+
+    // Find the default agent
+    const defaultAgent = await prisma.agent.findFirst({
+      where: {
+        isDefault: true,
+      },
+    });
+
+    if (!defaultAgent) {
+      return next(ApiError.notFound('Default agent not found'));
+    }
+
+    // Find the chat involving the default agent
+    const chat = await prisma.chat.findFirst({
+      where: {
+        id: parseInt(chatId),
+        chatType: ChatType.customer_to_agent,
+        participants: {
+          some: {
+            userId: defaultAgent.userId, // Ensure defaultAgent.userId is not undefined
+          },
+        },
+      },
+    });
+
+    if (!chat) {
+      return next(ApiError.notFound('Chat not found or does not involve the default agent'));
+    }
+
+    // Update the chat participants to replace the default agent with the current user
+    const updatedChat = await prisma.chat.update({
+      where: {
+        id: parseInt(chatId),
+      },
+      data: {
+        participants: {
+          updateMany: {
+            where: {
+              userId: defaultAgent.userId,
+            },
+            data: {
+              userId: user.id,
+            },
+          },
+        },
+      },
+    });
+
+    if (!updatedChat) {
+      return next(ApiError.internal('Failed to update chat participants'));
+    }
+
+    // Respond with the updated chat details
+    return res.status(200).json({
+      message: 'Chat successfully taken over from the default agent',
+      chat: updatedChat,
+    });
+  } catch (error) {
+    console.error('Error in takeOverDefaultAgentChatController:', error);
+
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+
+    return next(ApiError.internal('An unexpected error occurred!'));
+  }
+};
