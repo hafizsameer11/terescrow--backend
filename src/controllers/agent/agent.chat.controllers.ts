@@ -405,6 +405,7 @@ export const getDefaultAgentChatsController = async (
   next: NextFunction) => {
   try {
     const user = req.body._user;
+    const hostUrl = `${req.protocol}://${req.get('host')}`;
     if (!user) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
@@ -479,11 +480,32 @@ export const getDefaultAgentChatsController = async (
         },
       },
     });
+    const resData = chats.map((chat) => {
+      const recentMessage = chat.messages?.[0] || null;
+      const recentMessageTimestamp = chat.messages?.[0]?.createdAt || null;
+      const customer = chat.participants?.[0]?.user || null;
+      const chatStatus = chat.chatDetails?.status || null;
+      const messagesCount = chat._count?.messages || 0;
+
+      // Construct full profile picture URL
+      if (customer && customer.profilePicture) {
+        customer.profilePicture = `${hostUrl}/uploads/${customer.profilePicture}`;
+      }
+
+      return {
+        id: chat.id,
+        customer,
+        recentMessage,
+        recentMessageTimestamp,
+        chatStatus,
+        messagesCount,
+      };
+    });
 
     if (!chats) {
       return next(ApiError.notFound('Chats not found'));
     }
-    return new ApiResponse(200, chats, 'Chats found').send(res);
+    return new ApiResponse(200, resData, 'Chats found').send(res);
 
   } catch (error) {
     console.log(error);
