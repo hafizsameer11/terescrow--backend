@@ -447,6 +447,9 @@ export const getDefaultAgentChatsController = async (
           select: {
             status: true,
           },
+          include:{
+            department:true,
+          }
         },
         participants: {
           where: {
@@ -486,7 +489,7 @@ export const getDefaultAgentChatsController = async (
       const customer = chat.participants?.[0]?.user || null;
       const chatStatus = chat.chatDetails?.status || null;
       const messagesCount = chat._count?.messages || 0;
-
+      const department = chat.chatDetails?.department || null;
       // Construct full profile picture URL
       if (customer && customer.profilePicture) {
         customer.profilePicture = `${hostUrl}/uploads/${customer.profilePicture}`;
@@ -499,6 +502,7 @@ export const getDefaultAgentChatsController = async (
         recentMessageTimestamp,
         chatStatus,
         messagesCount,
+        department
       };
     });
 
