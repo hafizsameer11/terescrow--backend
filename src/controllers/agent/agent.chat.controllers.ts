@@ -446,9 +446,7 @@ export const getDefaultAgentChatsController = async (
         chatDetails: {
           select: {
             status: true,
-          },
-          include:{
-            department:true,
+            department: true
           }
         },
         participants: {
