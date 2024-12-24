@@ -424,7 +424,12 @@ export const getDefaultAgentChatsController = async (
               },
             },
           },
-          { chatType: ChatType.customer_to_agent },
+          { chatType: ChatType.customer_to_agent, },
+          {
+            chatDetails:{
+              status: ChatStatus.pending
+            }
+          }
 
         ],
       },
