@@ -230,6 +230,7 @@ export const getAllChatsWithCustomerController = async (
         chatDetails: {
           select: {
             status: true,
+            department: true,
           },
         },
         participants: {
@@ -275,7 +276,7 @@ export const getAllChatsWithCustomerController = async (
       const customer = chat.participants?.[0]?.user || null;
       const chatStatus = chat.chatDetails?.status || null;
       const messagesCount = chat._count?.messages || 0;
-
+      const department = chat.chatDetails?.department || null;
       // Construct full profile picture URL
       if (customer && customer.profilePicture) {
         customer.profilePicture = `${hostUrl}/uploads/${customer.profilePicture}`;
@@ -288,6 +289,7 @@ export const getAllChatsWithCustomerController = async (
         recentMessageTimestamp,
         chatStatus,
         messagesCount,
+        department
       };
     });
 
