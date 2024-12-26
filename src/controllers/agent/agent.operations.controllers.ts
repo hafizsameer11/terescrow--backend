@@ -740,11 +740,14 @@ export const getTransactionsStatesForAgent = async (
     const transactionAmountTotal = transactions.reduce((acc, transaction) => {
       return acc + (transaction.amount || 0); // Use 0 if amount is undefined
     }, 0);
+    const transactionAmountTotalNaira = transactions.reduce((acc, transaction) => {
+      return acc + (transaction.amountNaira || 0); // Use 0 if amount is undefined
+    }, 0);
 
     // Send the response
     return res.status(200).json({
       status: 200,
-    transactionAmountTotal,
+      data: { transactionAmountTotal, transactionAmountTotalNaira },
       message: 'Transaction states retrieved successfully',
     });
   } catch (error) {
