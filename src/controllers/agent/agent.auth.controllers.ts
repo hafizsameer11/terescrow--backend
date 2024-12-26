@@ -58,7 +58,7 @@ export const loginController = async (
             },
         });
         //check if not agent than show error
-        if (isUser && !isUser.agent) {
+        if (isUser && isUser.role === UserRoles.customer) {
             return next(ApiError.badRequest('You are not an agent'));
             // return next(ApiError.badRequest('You are an agent, please login as a user'));
         }
