@@ -268,6 +268,86 @@ export const getAllTrsansactions = async (req: Request, res: Response, next: Nex
     return next(ApiError.internal('Internal Server Error'));
   }
 };
+export const getTransactionForCustomer = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.body._user.id;
+    const customerId = req.params.id;
+    if (!userId) {
+      return next(ApiError.notFound('Agent not found'));
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        chat: {
+          participants: {
+            some: {
+              userId: parseInt(customerId)
+            }
+          }
+        }
+      },
+      include: {
+        department: true,
+        category: true,
+        chat: {
+          select: {
+            participants: {
+              where: {
+                NOT: {
+                  user: {
+                    role: UserRoles.agent
+                  }
+                }
+              },
+              select: {
+                user: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 10
+    });
+
+    // Base URL for profile picture
+    const BASE_URL = `${req.protocol}://${req.get('host')}/uploads/`;
+
+    // Map customer and add profile picture URL
+    const mappedTransactions = transactions.map(transaction => {
+      const customer = transaction.chat?.participants?.[0]?.user || null;
+
+      if (customer && customer.profilePicture) {
+        customer.profilePicture = `${BASE_URL}${customer.profilePicture}`;
+      }
+
+      const { chat, ...rest } = transaction;
+      return {
+        ...rest,
+        customer,
+      };
+    });
+
+    if (!mappedTransactions.length) {
+      return next(ApiError.notFound('Transactions not found'));
+    }
+
+    return new ApiResponse(
+      200,
+      mappedTransactions,
+      'Transactions found successfully',
+    ).send(res);
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+};
 
 /*
 Agent COntroller

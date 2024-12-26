@@ -103,7 +103,6 @@ operationsRouter.get(
   getCustomerDetails
 );
 operationsRouter.get('/get-all-customers', authenticateUser, getAllCustomers);
-// operationsRouter.get('/get-customer-transactions/:id', authenticateUser, getTransactionForCustomer);
 operationsRouter.get(
   '/get-agent-by-department/:id',
   authenticateUser,
@@ -170,4 +169,5 @@ operationsRouter.get(
 
 operationsRouter.get('/get-all-transactions', authenticateUser,getAllTrsansactions);
 operationsRouter.get('/get-dashboard-stats', authenticateUser,getAdminDashboardStats);
+operationsRouter.get('/get-customer-transactions/:id', authenticateUser);
 export default operationsRouter;
