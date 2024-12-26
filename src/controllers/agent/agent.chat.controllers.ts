@@ -25,6 +25,7 @@ export const sendToCustomerController = async (
       chatId,
       _user: sender,
     } = req.body as { message: string; chatId: string; _user: User };
+    console.log(req.body);
 
     // if (sender.role !== UserRoles.agent) {
     //   return next(ApiError.unauthorized('You are not authorized'));
