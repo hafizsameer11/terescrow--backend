@@ -89,8 +89,8 @@ export const createAgentController = async (
       password,
       username,
       gender,
-      countryId=1,
-      countr='',
+      countryId = 1,
+      countr = '',
       departmentIds = [], // Default to empty array if not provided
     }: AgentRequest = req.body;
 
@@ -125,9 +125,9 @@ export const createAgentController = async (
         phoneNumber,
         password: hashedPassword,
         username,
-        country:countr,
+        country: countr,
         gender,
-        countryId:1,
+        countryId: 1,
         role: UserRoles.agent,
         profilePicture,
       },
@@ -180,7 +180,7 @@ export const createAgentController = async (
           select: {
             id: true,
             chatType: true,
-            createdAt: true, // Include other fields as needed
+            createdAt: true,
           },
         })
       )
@@ -397,7 +397,7 @@ export const getAllAgents = async (
             departmentId: true,
           },
         },
-        
+
       },
     });
 

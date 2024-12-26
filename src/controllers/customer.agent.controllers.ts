@@ -13,13 +13,14 @@ export const getAllChatsWithTeamController = async (
   try {
     const _user: User = req.body._user;
 
-    if (_user.role == UserRoles.customer) {
-      return ApiError.unauthorized('You are not authorized');
+    if (_user.role === UserRoles.customer) {
+      return next(ApiError.unauthorized('You are not authorized'));
     }
 
     let allChats;
 
-    if (_user.role == UserRoles.admin) {
+    if (_user.role === UserRoles.admin) {
+      // Admin logic remains unchanged
       allChats = await prisma.chat.findMany({
         where: {
           OR: [
@@ -84,20 +85,21 @@ export const getAllChatsWithTeamController = async (
         },
       });
     } else {
+      // Agent-specific logic
       allChats = await prisma.chat.findMany({
         where: {
           AND: [
             {
               participants: {
                 some: {
-                  userId: _user.id,
+                  userId: _user.id, // Current user participates in the chat
                 },
               },
             },
             {
               OR: [
-                { chatType: ChatType.team_chat },
-                { chatType: ChatType.group_chat },
+                { chatType: ChatType.team_chat }, // Include team chats
+                { chatType: ChatType.group_chat }, // Include group chats
               ],
             },
           ],
@@ -117,7 +119,7 @@ export const getAllChatsWithTeamController = async (
           participants: {
             where: {
               userId: {
-                not: _user.id,
+                not: _user.id, // Exclude the current user
               },
             },
             select: {
@@ -147,17 +149,32 @@ export const getAllChatsWithTeamController = async (
           },
         },
       });
+
+      // Remove duplicate participants manually
+      allChats = allChats.map((chat) => {
+        const uniqueParticipants = Array.from(
+          new Map(
+            chat.participants.map((participant) => [participant.user.id, participant])
+          ).values()
+        );
+
+        return {
+          ...chat,
+          participants: uniqueParticipants,
+        };
+      });
     }
 
-    if (!allChats) {
+    if (!allChats || allChats.length === 0) {
       return next(ApiError.notFound('Chats not found'));
     }
 
     return new ApiResponse(200, allChats, 'Chats found').send(res);
   } catch (error) {
+    console.error('Error in getAllChatsWithTeamController:', error);
     if (error instanceof ApiError) {
       return next(error);
     }
-    return next(ApiError.internal('Server Error Occured!'));
+    return next(ApiError.internal('Server Error Occurred!'));
   }
 };
