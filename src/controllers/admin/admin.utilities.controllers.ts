@@ -215,7 +215,7 @@ export const getAllTrsansactions = async (req: Request, res: Response, next: Nex
               where: {
                 NOT: {
                   user: {
-                    role: UserRoles.customer
+                    role: UserRoles.agent
                   }
                 }
               },
