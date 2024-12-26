@@ -44,7 +44,7 @@ agentOperationsRouter.post('/edit-agent-profile', upload.single('profilePicture'
 
 agentOperationsRouter.post('/create-note', authenticateUser, createNote);
 agentOperationsRouter.post('/update-note/:id', authenticateUser, updateNote);
-agentOperationsRouter.get('/get-notes', authenticateUser, getAllNotes);
+agentOperationsRouter.get('/get-notes/:id', authenticateUser, getAllNotes);
 agentOperationsRouter.get('/delete-note/:id', authenticateUser, deleteNote);
 agentOperationsRouter.get('/get-all-default-chats', authenticateUser, getDefaultAgentChatsController);
 agentOperationsRouter.post('/take-over-chat/:chatId', authenticateUser, takeOverDefaultAgentChatController);

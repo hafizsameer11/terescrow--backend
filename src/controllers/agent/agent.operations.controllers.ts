@@ -855,10 +855,11 @@ export const getAllNotes = async (req: Request, res: Response, next: NextFunctio
     if (!agentId) {
       return next(ApiError.notFound('Agent not found'));
     }
-    const { userId } = req.body;
+    // const { userId } = req.body;
+    const userId=req.params.id
     const notes = await prisma.notes.findMany({
       where: {
-        userId: userId
+        userId: parseInt(userId)
       }
     });
     if (!notes) {
