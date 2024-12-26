@@ -41,7 +41,20 @@ export const loginController = async (
             where: { email },
             include: {
                 KycStateTwo: true,
-                agent: true
+                agent: {
+                    include: {
+                        assignedDepartments: {
+                            select: {
+                                department: {
+                                    select: {
+                                        id: true,
+                                        title: true,
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             },
         });
         //check if not agent than show error
@@ -52,9 +65,6 @@ export const loginController = async (
         if (!isUser) {
             return next(ApiError.badRequest('This email is not registerd'));
         }
-        // if(isUser.isVerified===false){
-        //   return next(ApiError.badRequest('Your account is not verified. Please chceck your email'))
-        // }
         const isMatch = await comparePassword(password, isUser.password);
         if (!isMatch) {
             return next(ApiError.badRequest('Your password is not correct'));
@@ -86,6 +96,7 @@ export const loginController = async (
             gender: isUser.gender,
             isVerified: isUser.isVerified,
             KycStateTwo: isUser.KycStateTwo,
+            assignedDepartments: isUser.agent?.assignedDepartments,
             unReadNotification: getNotificationCount.length
         };
 
