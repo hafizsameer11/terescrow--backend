@@ -484,7 +484,7 @@ export const createNotification = async (req: Request, res: Response, next: Next
                 message: req.body.message,
                 type: req.body.type,
                 title: req.body.title,
-                image:image
+                image: image
             }
         })
         if (!notification) {
@@ -551,9 +551,9 @@ export const updateNotification = async (req: Request, res: Response, next: Next
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const image = req.file?.filename || '';
-        const oldnotification =await prisma.notification.findUnique({
-            where:{
-                id:parseInt(req.params.id)
+        const oldnotification = await prisma.notification.findUnique({
+            where: {
+                id: parseInt(req.params.id)
             }
         })
 
@@ -565,7 +565,7 @@ export const updateNotification = async (req: Request, res: Response, next: Next
                 message: req.body.message,
                 type: req.body.type,
                 title: req.body.title,
-                image:image || oldnotification?.image
+                image: image || oldnotification?.image
             }
         })
         if (!notification) {
@@ -581,7 +581,37 @@ export const updateNotification = async (req: Request, res: Response, next: Next
         next(ApiError.internal('Failed to update notification'));
     }
 }
+export const getAdminDashboardStats = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const users = await prisma.user.count()
+        const agents = await prisma.user.count({
+            where: {
+                role: UserRoles.agent
+            }
+        })
+        const transactions = await prisma.transaction.count()
+        const categories = await prisma.category.count()
+        const departments = await prisma.department.count()
+        //get tranactionAmountSum
+        const transactionAmountSum = await prisma.transaction.aggregate({
+            _sum: {
+                amount: true
+            }
+        })
+        return new ApiResponse(200, { users, agents, transactions, categories, departments,transactionAmountSum }, 'Dashboard stats fetched successfully').send(res);
 
+    } catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to get admin dashboard stats'));
+    }
+}
 
 
 

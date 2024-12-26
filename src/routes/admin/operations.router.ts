@@ -33,6 +33,7 @@ import {
   deleteBanner,
   deleteNotification,
   editCustomer,
+  getAdminDashboardStats,
   getAgents,
   getAllCustomers,
   getAllUsers,
@@ -168,4 +169,5 @@ operationsRouter.get(
 );
 
 operationsRouter.get('/get-all-transactions', authenticateUser,getAllTrsansactions);
+operationsRouter.get('/get-dashboard-stats', authenticateUser,getAdminDashboardStats);
 export default operationsRouter;
