@@ -33,6 +33,7 @@ export const sendToCustomerController = async (
     if (!message.trim() || !chatId) {
       return next(ApiError.badRequest('Invalid request credentials'));
     }
+    const image = req.file?.filename || '';
 
     const chat = await prisma.chat.findFirst({
       where: {
@@ -89,7 +90,8 @@ export const sendToCustomerController = async (
         chatId: chat.id,
         senderId: sender.id,
         receiverId: chat.participants[0].userId,
-        message,
+        message: message || '',
+        image: image || undefined,
       },
     });
 
@@ -428,7 +430,7 @@ export const getDefaultAgentChatsController = async (
           },
           { chatType: ChatType.customer_to_agent, },
           {
-            chatDetails:{
+            chatDetails: {
               status: ChatStatus.pending
             }
           }

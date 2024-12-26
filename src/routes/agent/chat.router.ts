@@ -6,11 +6,13 @@ import {
   changeChatStatusController,
   getCustomerChatDetailsController,
 } from '../../controllers/agent/agent.chat.controllers';
+import upload from '../../middlewares/multer.middleware';
 
 const agentChatRouter = express.Router();
 
 agentChatRouter.post(
   '/send-to-customer',
+  upload.single('image'),
   authenticateUser,
   sendToCustomerController
 );
