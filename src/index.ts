@@ -22,6 +22,7 @@ import adminAgentRouter from './routes/admin.agent.router';
 import agentOperationsRouter from './routes/agent/agent.operations.router';
 import adminAuthRouter from './routes/admin/auth.router';
 import customerUtilityrouter from './routes/cutomer/utilities.router';
+import agentauthRouter from './routes/agent/auth.router';
 const bodyParser = require('body-parser')
 
 const port = process.env.PORT || 8000;
@@ -51,6 +52,7 @@ app.use('/api/customer/utilities', customerUtilityrouter);
 app.use('/api/agent', agentChatRouter);
 app.use('/api/agent/utilities', agentOperationsRouter);
 app.use('/api/agent', agentOperationsRouter);
+app.use('/api/agent/auth',agentauthRouter);
 app.use('/api/public', publicRouter);
 app.use('/api', adminAgentRouter);
 app.use('/api/admin', adminAuthRouter);
