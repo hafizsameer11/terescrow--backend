@@ -94,8 +94,9 @@ export const createAgentController = async (
       departmentIds = [], // Default to empty array if not provided
     }: AgentRequest = req.body;
 
-    // Check if user already exists
     const profilePicture = req.file ? req.file.filename : '';
+
+    // Check if user already exists
     const isUser = await prisma.user.findFirst({
       where: {
         OR: [{ email }, { username }, { phoneNumber }],
@@ -106,16 +107,7 @@ export const createAgentController = async (
       return next(ApiError.badRequest('This user is already registered'));
     }
 
-    // const country = await prisma.country.findUnique({
-    //   where: {
-    //     id: +countryId,
-    //   },
-    // });
-
-    // if (!country) {
-    //   return next(ApiError.badRequest('Country not found'));
-    // }
-
+    // Create user
     const hashedPassword = await hashPassword(password);
     const newUser = await prisma.user.create({
       data: {
@@ -137,6 +129,7 @@ export const createAgentController = async (
       return next(ApiError.internal('User creation failed'));
     }
 
+    // Create agent with assigned departments
     const newAgent = await prisma.agent.create({
       data: {
         userId: newUser.id,
@@ -154,6 +147,7 @@ export const createAgentController = async (
       return next(ApiError.internal('Agent creation failed'));
     }
 
+    // Fetch all users (excluding customers and the new user)
     const allUsers = await prisma.user.findMany({
       where: {
         AND: [
@@ -171,49 +165,30 @@ export const createAgentController = async (
       },
     });
 
-    const createdChats = await Promise.all(
-      [...allUsers].map((user) =>
-        prisma.chat.create({
+    // Create a single chat for each user pair
+    await Promise.all(
+      allUsers.map(async (user) => {
+        const newChat = await prisma.chat.create({
           data: {
             chatType: ChatType.team_chat,
           },
-          select: {
-            id: true,
-            chatType: true,
-            createdAt: true,
-          },
-        })
-      )
+        });
+
+        // Add participants to the chat
+        await prisma.chatParticipant.createMany({
+          data: [
+            { chatId: newChat.id, userId: user.id },
+            { chatId: newChat.id, userId: newUser.id },
+          ],
+        });
+      })
     );
-
-    if (!createdChats) {
-      return next(ApiError.internal('Chat creation failed'));
-    }
-
-    for (const newChat of createdChats) {
-      await Promise.all(
-        [...allUsers].map(async (user) => {
-          await prisma.chatParticipant.createMany({
-            data: [
-              {
-                chatId: newChat.id,
-                userId: user.id,
-              },
-              {
-                chatId: newChat.id,
-                userId: newUser.id,
-              },
-            ],
-          });
-        })
-      );
-    }
 
     return new ApiResponse(201, undefined, 'User created successfully').send(
       res
     );
   } catch (error) {
-    console.log(error);
+    console.error(error);
     if (error instanceof ApiError) {
       next(error);
       return;
@@ -221,6 +196,7 @@ export const createAgentController = async (
     next(ApiError.internal('Internal Server Error'));
   }
 };
+
 export const getAllTransactions = async (
   req: Request,
   res: Response,
