@@ -31,9 +31,9 @@ export const sendToCustomerController = async (
     //   return next(ApiError.unauthorized('You are not authorized'));
     // }
 
-    if (!message.trim() || !chatId) {
-      return next(ApiError.badRequest('Invalid request credentials'));
-    }
+    // if (!message.trim() || !chatId) {
+    //   return next(ApiError.badRequest('Invalid request credentials'));
+    // }
     const image = req.file?.filename || '';
 
     const chat = await prisma.chat.findFirst({
