@@ -709,9 +709,7 @@ export const editProfile = async (req: Request, res: Response, next: NextFunctio
     if (!agent) {
       return next(ApiError.notFound('Agent not found'));
     }
-    //check if password is not null or mepty
     const profilePicture = req.file ? req.file.filename : agent.profilePicture
-    const hasshedPassword = await hashPassword(req.body.password);
     const updatedAgent = await prisma.agent.update({
       where: {
         userId: agentId
@@ -726,7 +724,6 @@ export const editProfile = async (req: Request, res: Response, next: NextFunctio
             username: req.body.username,
             gender: req.body.gender,
             country: req.body.country,
-            password: hasshedPassword || agent.password,
             profilePicture: profilePicture
           }
         }
