@@ -860,6 +860,17 @@ export const getAllNotes = async (req: Request, res: Response, next: NextFunctio
     const notes = await prisma.notes.findMany({
       where: {
         userId: parseInt(userId)
+      },
+      include:{
+        agent: {
+          select:{
+            user:{
+              select:{
+                username: true
+              }
+            }
+          }
+        }
       }
     });
     if (!notes) {
