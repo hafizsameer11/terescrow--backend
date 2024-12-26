@@ -700,6 +700,7 @@ export const editProfile = async (req: Request, res: Response, next: NextFunctio
     if (!agentId) {
       return next(ApiError.notFound('Agent not found'));
     }
+    console.log(req.body)
     const agent = await prisma.user.findFirst({
       where: {
         id: agentId
