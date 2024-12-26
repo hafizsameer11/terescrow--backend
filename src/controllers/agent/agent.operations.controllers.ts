@@ -692,6 +692,72 @@ export const getTransactionsForAgent = async (req: Request, res: Response, next:
     return next(ApiError.internal('Internal Server Error'));
   }
 };
+export const getTransactionsStatesForAgent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const agentId = req.body._user.id;
+    if (!agentId) {
+      return next(ApiError.notFound('Agent not found'));
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        chat: {
+          participants: {
+            some: {
+              userId: agentId,
+            },
+          },
+        },
+      },
+      include: {
+        department: true,
+        category: true,
+        chat: {
+          select: {
+            participants: {
+              where: {
+                NOT: {
+                  userId: agentId,
+                },
+              },
+              select: {
+                user: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    // Calculate total transaction amount
+    const transactionAmountTotal = transactions.reduce((acc, transaction) => {
+      return acc + (transaction.amount || 0); // Use 0 if amount is undefined
+    }, 0);
+
+    // Send the response
+    return res.status(200).json({
+      status: 200,
+      data: {
+        transactionAmountTotal, // Include the total amount
+        transactions, // Optionally include the full transactions for reference
+      },
+      message: 'Transaction states retrieved successfully',
+    });
+  } catch (error) {
+    console.error('Error retrieving transaction states:', error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+};
 
 
 export const editProfile = async (req: Request, res: Response, next: NextFunction) => {

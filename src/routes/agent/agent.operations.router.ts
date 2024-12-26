@@ -13,6 +13,7 @@ import {
   getCustomerNotifications,
   getTeamNotification,
   getTransactionsForAgent,
+  getTransactionsStatesForAgent,
   updateNote,
 } from '../../controllers/agent/agent.operations.controllers';
 import upload from '../../middlewares/multer.middleware';
@@ -37,6 +38,7 @@ agentOperationsRouter.get('/get-team-notifications', authenticateUser, getTeamNo
 agentOperationsRouter.get('/get-customer-notifications', authenticateUser, getCustomerNotifications);
 agentOperationsRouter.get('/get-all-notifications', authenticateUser, getAllNotifications);
 agentOperationsRouter.get('/get-transactions-for-agent', authenticateUser, getTransactionsForAgent);
+agentOperationsRouter.get('/get-transaction-stats-for-agent', authenticateUser, getTransactionsStatesForAgent);
 agentOperationsRouter.post('/edit-agent-profile', upload.single('profilePicture'), authenticateUser, editProfile);
 
 
