@@ -627,10 +627,10 @@ export const getTransactionsForAgent = async (req: Request, res: Response, next:
         chat: {
           participants: {
             some: {
-              userId: agentId,
-            },
-          },
-        },
+              userId: agentId
+            }
+          }
+        }
       },
       include: {
         department: true,
@@ -640,27 +640,27 @@ export const getTransactionsForAgent = async (req: Request, res: Response, next:
             participants: {
               where: {
                 NOT: {
-                  userId: agentId,
-                },
+                  userId: agentId
+                }
               },
               select: {
-                user: true,
-              },
-            },
-          },
-        },
+                user: true
+              }
+            }
+          }
+        }
       },
       orderBy: {
         createdAt: 'desc',
       },
-      take: 10,
+      take: 10
     });
 
     // Base URL for profile picture
     const BASE_URL = `${req.protocol}://${req.get('host')}/uploads/`;
 
     // Map customer and add profile picture URL
-    const mappedTransactions = transactions.map((transaction) => {
+    const mappedTransactions = transactions.map(transaction => {
       const customer = transaction.chat?.participants?.[0]?.user || null;
 
       if (customer && customer.profilePicture) {
@@ -678,18 +678,9 @@ export const getTransactionsForAgent = async (req: Request, res: Response, next:
       return next(ApiError.notFound('Transactions not found'));
     }
 
-    // Calculate the sum of total transaction amounts
-    const totalTransactionAmount = transactions.reduce(
-      (sum, transaction) => sum + (transaction.amount || 0),
-      0
-    );
-
     return new ApiResponse(
       200,
-      {
-        transactions: mappedTransactions,
-        totalTransactionAmount, // Add the total transaction amount here
-      },
+      mappedTransactions,
       'Transactions found successfully',
     ).send(res);
 
@@ -701,7 +692,6 @@ export const getTransactionsForAgent = async (req: Request, res: Response, next:
     return next(ApiError.internal('Internal Server Error'));
   }
 };
-
 
 
 export const editProfile = async (req: Request, res: Response, next: NextFunction) => {
