@@ -48,7 +48,7 @@ export const loginController = async (
         if (isUser && !isUser.agent) {
             return next(ApiError.badRequest('You are not an agent'));
             // return next(ApiError.badRequest('You are an agent, please login as a user'));
-            }
+        }
         if (!isUser) {
             return next(ApiError.badRequest('This email is not registerd'));
         }
@@ -77,7 +77,8 @@ export const loginController = async (
             lastname: isUser.lastname,
 
             username: isUser.username,
-            profilePicture: isUser.profilePicture,
+            // profilePicture: isUser.profilePicture,
+            profilePicture: `https://${req.get('host')}/uploads/${isUser.profilePicture}`,
             email: isUser.email,
             role: isUser.role,
             phoneNumber: isUser.phoneNumber,
