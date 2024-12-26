@@ -24,6 +24,7 @@ import {
   getAllTrsansactions,
   getDepartment,
   getSingleCategory,
+  getTransactionForCustomer,
 } from '../../controllers/admin/admin.utilities.controllers';
 import upload from '../../middlewares/multer.middleware';
 import {
@@ -169,5 +170,5 @@ operationsRouter.get(
 
 operationsRouter.get('/get-all-transactions', authenticateUser,getAllTrsansactions);
 operationsRouter.get('/get-dashboard-stats', authenticateUser,getAdminDashboardStats);
-operationsRouter.get('/get-customer-transactions/:id', authenticateUser);
+operationsRouter.get('/get-customer-transactions/:id', authenticateUser,getTransactionForCustomer);
 export default operationsRouter;
