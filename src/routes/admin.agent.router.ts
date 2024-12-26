@@ -5,6 +5,7 @@ import {
   sendMessageToTeamController,
   getTeamChatDetailsController,
 } from '../controllers/agent.admin.controllers';
+import upload from '../middlewares/multer.middleware';
 
 const adminAgentRouter = express.Router();
 
@@ -22,6 +23,7 @@ adminAgentRouter.get(
 
 adminAgentRouter.post(
   '/send-message-to-team',
+  upload.single('image'),
   authenticateUser,
   sendMessageToTeamController
 );

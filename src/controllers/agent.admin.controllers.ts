@@ -14,6 +14,7 @@ export const sendMessageToTeamController = async (
   try {
     const { _user, message, chatId } = req.body as TeamMessageReq;
     console.log(_user, message, chatId);
+    const image = req.file?.filename || '';
 
     if (!_user || _user.role === UserRoles.customer) {
       return ApiError.unauthorized('You are not authorized');
@@ -50,22 +51,23 @@ export const sendMessageToTeamController = async (
       data: {
         senderId: _user.id,
         chatId: chat.id,
-        message: message,
+        message: message || '',
+        image: image || '',
         receiverId:
           chat.chatType === ChatType.team_chat
             ? chat.participants?.[0].userId
             : null,
       },
     });
-//create in app notification
-const notification=await prisma.inAppNotification.create({
-  data: {
-    userId: chat.participants?.[0].userId,
-    description: `${_user.username} sent you a message`,
-    title: `${_user.username} sent you a message`,
-    type: InAppNotificationType.team,
-  }
-})
+    //create in app notification
+    const notification = await prisma.inAppNotification.create({
+      data: {
+        userId: chat.participants?.[0].userId,
+        description: `${_user.username} sent you a message`,
+        title: `${_user.username} sent you a message`,
+        type: InAppNotificationType.team,
+      }
+    })
     if (chat.chatType === ChatType.team_chat) {
       const recieverSocketId = getAgentOrAdminSocketId(newMessage.receiverId!);
       if (recieverSocketId) {
