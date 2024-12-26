@@ -197,90 +197,75 @@ export const createAgentController = async (
   }
 };
 
-export const getAllTransactions = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+
+export const getAllTrsansactions = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const admin: User = req.body._user;
-    if (admin?.role !== UserRoles.admin) {
-      return next(ApiError.unauthorized('You are not authorized'));
+    const userId = req.body._user.id;
+    if (!userId) {
+      return next(ApiError.notFound('Agent not found'));
     }
-    // Extract query params for pagination, default to latest 10 transactions
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
-    const latestOnly = !req.query.page && !req.query.limit;
 
-    // Calculate the offset for pagination
-    const skip = latestOnly ? 0 : (page - 1) * limit;
-    const take = latestOnly ? 10 : limit;
-
-    // Fetch transactions
     const transactions = await prisma.transaction.findMany({
-      skip, // Skip records for pagination
-      take, // Limit records returned
-      orderBy: {
-        createdAt: 'desc', // Sort by creation date
-      },
-      select: {
-        id: true,
-        status: true,
-        amount: true,
-        amountNaira: true,
+      include: {
+        department: true,
+        category: true,
         chat: {
           select: {
             participants: {
               where: {
-                user: {
-                  role: UserRoles.customer,
-                },
+                NOT: {
+                  user: {
+                    role: UserRoles.customer
+                  }
+                }
               },
               select: {
-                user: {
-                  select: {
-                    id: true,
-                    username: true,
-                    firstname: true,
-                    lastname: true,
-                    profilePicture: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-        createdAt: true,
-        updatedAt: true,
+                user: true
+              }
+            }
+          }
+        }
       },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 10
     });
 
-    // Count total records for pagination
-    const totalRecords = await prisma.transaction.count();
+    // Base URL for profile picture
+    const BASE_URL = `${req.protocol}://${req.get('host')}/uploads/`;
 
-    // Build response based on mode
-    const response = {
-      currentPage: latestOnly ? 1 : page,
-      totalPages: latestOnly ? 1 : Math.ceil(totalRecords / limit),
-      totalRecords,
-      transactionsData: transactions,
-    };
+    // Map customer and add profile picture URL
+    const mappedTransactions = transactions.map(transaction => {
+      const customer = transaction.chat?.participants?.[0]?.user || null;
 
-    let message = latestOnly
-      ? 'Latest 10 transactions fetched successfully'
-      : 'Paginated transactions fetched successfully';
+      if (customer && customer.profilePicture) {
+        customer.profilePicture = `${BASE_URL}${customer.profilePicture}`;
+      }
 
-    if (transactions.length === 0) {
-      message = 'No transactions found';
+      const { chat, ...rest } = transaction;
+      return {
+        ...rest,
+        customer,
+      };
+    });
+
+    if (!mappedTransactions.length) {
+      return next(ApiError.notFound('Transactions not found'));
     }
 
-    return new ApiResponse(200, response, message).send(res);
+    return new ApiResponse(
+      200,
+      mappedTransactions,
+      'Transactions found successfully',
+    ).send(res);
+
   } catch (error) {
+    console.error(error);
     if (error instanceof ApiError) {
       return next(error);
     }
-    console.error(error);
-    next(ApiError.internal('Internal Server Error'));
+    return next(ApiError.internal('Internal Server Error'));
   }
 };
 

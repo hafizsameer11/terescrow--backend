@@ -21,6 +21,7 @@ import {
   getallCategories,
   getAlldepartments,
   getallSubCategories,
+  getAllTrsansactions,
   getDepartment,
   getSingleCategory,
 } from '../../controllers/admin/admin.utilities.controllers';
@@ -165,4 +166,6 @@ operationsRouter.get(
   authenticateUser,
   getAccountActivityofUser
 );
+
+operationsRouter.get('/get-all-transactions', authenticateUser,getAllTrsansactions);
 export default operationsRouter;
