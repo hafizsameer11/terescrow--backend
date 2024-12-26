@@ -745,8 +745,7 @@ export const getTransactionsStatesForAgent = async (
     return res.status(200).json({
       status: 200,
       data: {
-        transactionAmountTotal, // Include the total amount
-        transactions, // Optionally include the full transactions for reference
+        transactionAmountTotal
       },
       message: 'Transaction states retrieved successfully',
     });
