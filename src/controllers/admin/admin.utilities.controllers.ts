@@ -1306,16 +1306,13 @@ export const getallSubCategories = async (req: Request, res: Response, next: Nex
 export const getAccountActivityofUser = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    return new ApiResponse(200, id, 'AccountActivites retrieved successfully').send(res);
-    const accountActivites = prisma.accountActivity.findMany({
-      where: {
-        userId: parseInt(id)
-      }
-    })
-    if (!accountActivites) {
-      return new ApiResponse(201, [], 'No accountActivites found').send(res);
+    // return new ApiResponse(200, id, 'AccountActivites retrieved successfully').send(res);
+   const accitivities=await prisma.accountActivity.findMany({
+    where:{
+      userId:parseInt(id,10)
     }
-    return new ApiResponse(200, accountActivites, 'AccountActivites retrieved successfully').send(res);
+   })
+   return new ApiResponse(200, accitivities, 'AccountActivites retrieved successfully').send(res);
   } catch (error) {
     console.log(error);
     if (error instanceof ApiError) {
