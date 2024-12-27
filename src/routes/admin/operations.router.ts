@@ -79,7 +79,7 @@ operationsRouter.post(
   upload.single('image'),
   createCategory
 );
-operationsRouter.post('/update-category', upload.single('image'), editCategory);
+operationsRouter.post('/update-category/:id', upload.single('image'), editCategory);
 operationsRouter.get('/delete-category/:id', deleteCategory);
 operationsRouter.get('/get-all-categories', getallCategories);
 operationsRouter.get('/get-single-category/:id', getSingleCategory);
