@@ -602,7 +602,7 @@ export const getAdminDashboardStats = async (req: Request, res: Response, next: 
                 amount: true
             }
         })
-        return new ApiResponse(200, { users, agents, transactions, categories, departments,transactionAmountSum }, 'Dashboard stats fetched successfully').send(res);
+        return new ApiResponse(200, { users, agents, transactions, categories, departments, transactionAmountSum }, 'Dashboard stats fetched successfully').send(res);
 
     } catch (error) {
         console.log(error);
@@ -612,9 +612,30 @@ export const getAdminDashboardStats = async (req: Request, res: Response, next: 
         next(ApiError.internal('Failed to get admin dashboard stats'));
     }
 }
+export const getCustomerStats = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const users = await prisma.user.count()
+        const verifiedUser = await prisma.user.count({
+            where: {
+               KycStateTwo:{
+                
+               }
+            }
+        })
+        return new ApiResponse(200, { users, verifiedUser }, 'Customer stats fetched successfully').send(res);
+    } catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to get customer stats'));
+    }
 
-
-
+}
 /**
  * 
  * 
