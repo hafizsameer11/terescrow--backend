@@ -138,6 +138,7 @@ export const getAllCustomerWithAgentsChats = async (
             },
           },
         },
+        transactions:true
       },
     });
 
