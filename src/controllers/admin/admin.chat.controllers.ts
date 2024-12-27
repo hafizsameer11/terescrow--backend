@@ -138,7 +138,13 @@ export const getAllCustomerWithAgentsChats = async (
             },
           },
         },
-        transactions:true
+        transactions: true,
+        messages: {
+          take: 1,
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
       },
     });
 
