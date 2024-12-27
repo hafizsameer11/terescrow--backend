@@ -918,6 +918,7 @@ export const editCategory = async (req: Request, res: Response, next: NextFuncti
     const { id } = req.params;
     const { title, departmentIds = [], subtitle = '' } = req.body;
     const image = req.file?.filename || '';
+    console.log(req.body);
     const category = await prisma.category.update({
       where: {
         id: parseInt(id, 10)
