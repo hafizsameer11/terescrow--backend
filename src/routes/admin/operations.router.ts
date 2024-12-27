@@ -14,6 +14,7 @@ import {
   editAgent,
   editCategory,
   editDepartment,
+  editSubCategory,
   getAccountActivityofUser,
   getAgent,
   getAgentsByDepartment,
@@ -85,6 +86,7 @@ operationsRouter.get('/get-all-categories', getallCategories);
 operationsRouter.get('/get-single-category/:id', getSingleCategory);
 
 operationsRouter.post('/create-subcategory', createSubCategory);
+operationsRouter.post('/update-subcategory/:id', editSubCategory);
 
 /*
 

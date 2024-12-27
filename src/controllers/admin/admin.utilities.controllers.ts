@@ -1198,6 +1198,65 @@ export const createSubCategory = async (req: Request, res: Response, next: NextF
     next(ApiError.internal('Internal Server Error'));
   }
 }
+export const editSubCategory = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { title, price, categories = [] } = req.body;
+
+    // Update the subcategory
+    const updatedSubCategory = await prisma.subcategory.update({
+      where: { id: parseInt(id, 10) },
+      data: { title, price },
+    });
+
+    if (!updatedSubCategory) {
+      return next(ApiError.badRequest('SubCategory not found'));
+    }
+
+    // Fetch existing category associations for this subcategory
+    const existingAssociations = await prisma.catSubcat.findMany({
+      where: { subCategoryId: updatedSubCategory.id },
+      select: { categoryId: true },
+    });
+
+    const existingCategoryIds = existingAssociations.map((assoc) => assoc.categoryId);
+
+    // Find categories to add and remove
+    const categoriesToAdd = categories.filter((id: number) => !existingCategoryIds.includes(id));
+    const categoriesToRemove = existingCategoryIds.filter((id) => !categories.includes(id));
+
+    // Remove associations no longer needed
+    if (categoriesToRemove.length > 0) {
+      await prisma.catSubcat.deleteMany({
+        where: {
+          subCategoryId: updatedSubCategory.id,
+          categoryId: { in: categoriesToRemove },
+        },
+      });
+    }
+
+    // Add new associations
+    if (categoriesToAdd.length > 0) {
+      await Promise.all(
+        categoriesToAdd.map(async (categoryId: number) => {
+          await prisma.catSubcat.create({
+            data: { subCategoryId: updatedSubCategory.id, categoryId },
+          });
+        })
+      );
+    }
+
+    return new ApiResponse(200, updatedSubCategory, 'SubCategory updated successfully').send(res);
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+};
+
 export const getallSubCategories = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const subCategories = await prisma.subcategory.findMany({
