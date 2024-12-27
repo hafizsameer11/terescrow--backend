@@ -98,17 +98,21 @@ export const createChatGroupController = async (
   }
 };
 
+
 export const getAllCustomerWithAgentsChats = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const admin: User = req.body._user;
+    const admin = req.body._user;
+
+    // Check if the requesting user is an admin
     if (admin?.role !== UserRoles.admin) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
+    // Fetch chats of type 'customer_to_agent'
     const agentCustomerChats = await prisma.chat.findMany({
       where: {
         chatType: ChatType.customer_to_agent,
@@ -123,6 +127,7 @@ export const getAllCustomerWithAgentsChats = async (
                 firstname: true,
                 lastname: true,
                 role: true,
+                profilePicture: true, // Add this if needed
               },
             },
           },
@@ -136,28 +141,72 @@ export const getAllCustomerWithAgentsChats = async (
                 title: true,
               },
             },
+            department: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
           },
         },
-        transactions: true,
+        transactions: {
+          select: {
+            id: true,
+            amount: true,
+            amountNaira: true,
+          },
+        },
         messages: {
           take: 1,
           orderBy: {
             createdAt: 'desc',
           },
+          select: {
+            id: true,
+            message: true,
+            createdAt: true,
+          },
         },
       },
     });
 
-    if (!agentCustomerChats) {
+    if (!agentCustomerChats.length) {
       return next(ApiError.notFound('No chats found'));
     }
 
-    return new ApiResponse(200, agentCustomerChats, 'Chats found').send(res);
+    const resData = agentCustomerChats.map((chat) => {
+      const recentMessage = chat.messages?.[0] || null;
+      const recentMessageTimestamp = recentMessage?.createdAt || null;
+
+      // Find the customer participant
+      const customer = chat.participants.find(
+        (participant) => participant.user.role === UserRoles.customer
+      )?.user;
+
+      // Append profile picture URL if available
+      if (customer?.profilePicture) {
+        customer.profilePicture = `${process.env.HOST_URL}/uploads/${customer.profilePicture}`;
+      }
+
+      return {
+        id: chat.id,
+        customer,
+        recentMessage,
+        recentMessageTimestamp,
+        chatStatus: chat.chatDetails?.status || null,
+        department: chat.chatDetails?.department || null,
+        messagesCount: chat.messages?.length || 0,
+        transactions: chat.transactions,
+      };
+    });
+
+    return new ApiResponse(200, resData, 'Chats retrieved successfully').send(res);
   } catch (error) {
+    console.error('Error fetching chats:', error);
     if (error instanceof ApiError) {
       return next(error);
     }
-    return next(ApiError.internal('Failed to create chat group'));
+    return next(ApiError.internal('An unexpected error occurred while fetching chats'));
   }
 };
 
