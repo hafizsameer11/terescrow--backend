@@ -41,7 +41,8 @@ import {
   getBanners,
   getCustomerDetails,
   getCustomerStats,
-  getdepartmentStatsByTransaction,
+  getDepartmentStatsByTransaction,
+
   getNotifications,
   getRates,
   updateBanner,
@@ -175,5 +176,5 @@ operationsRouter.get('/get-dashboard-stats', authenticateUser,getAdminDashboardS
 // operationsRouter.get('/get-customer-stats', authenticateUser,getAdminDashboardStats);
 operationsRouter.get('/get-customer-transactions/:id', authenticateUser,getTransactionForCustomer);
 operationsRouter.get('/get-customer-stats', authenticateUser,getCustomerStats);
-operationsRouter.get('/get-department-transaction',authenticateUser,getdepartmentStatsByTransaction);
+operationsRouter.get('/get-department-transaction',authenticateUser,getDepartmentStatsByTransaction);
 export default operationsRouter;

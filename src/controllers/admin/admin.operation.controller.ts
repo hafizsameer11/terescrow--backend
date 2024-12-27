@@ -642,31 +642,59 @@ export const getCustomerStats = async (req: Request, res: Response, next: NextFu
     }
 
 }
-export const getdepartmentStatsByTransaction = async (req: Request, res: Response, next: NextFunction) => {
+export const getDepartmentStatsByTransaction = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
     try {
-        const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        const user = req.body._user;
+        if (!user || user.role !== UserRoles.admin) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
+
         const transactions = await prisma.transaction.groupBy({
             by: ['departmentId'],
-            _count: {
-                departmentId: true
+            _sum: {
+                amount: true,
             },
-            _sum:{
-                amount: true
-            }
-        })
-        return new ApiResponse(200, transactions, 'Department stats by transaction fetched successfully').send(res);
+            _count: {
+                departmentId: true,
+            },
+        });
 
+        // Fetch department names for the department IDs
+        const departmentIds = transactions
+            .map((t) => t.departmentId)
+            .filter((id): id is number => id !== null); // Filter out null values
+        const departments = await prisma.department.findMany({
+            where: { id: { in: departmentIds } },
+            select: { id: true, title: true },
+        });
+
+        // Map department names to transactions
+        const result = transactions.map((transaction) => {
+            const department = departments.find((d) => d.id === transaction.departmentId);
+            return {
+                departmentName: department?.title || 'Unknown',
+                amount: transaction._sum.amount || 0,
+            };
+        });
+
+        return new ApiResponse(
+            200,
+            result,
+            'Department stats by transaction fetched successfully'
+        ).send(res);
     } catch (error) {
-        console.log(error);
+        console.error(error);
         if (error instanceof ApiError) {
             return next(error);
         }
         next(ApiError.internal('Failed to get department stats by transaction'));
     }
-}
+};
+
 /**
  * 
  * 
