@@ -642,6 +642,28 @@ export const getCustomerStats = async (req: Request, res: Response, next: NextFu
     }
 
 }
+export const getdepartmentStatsByTransaction = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const transactions = await prisma.transaction.groupBy({
+            by: ['departmentId'],
+            _count: {
+                departmentId: true
+            }
+        })
+        return new ApiResponse(200, transactions, 'Department stats by transaction fetched successfully').send(res);
+
+    } catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to get department stats by transaction'));
+    }
+}
 /**
  * 
  * 
