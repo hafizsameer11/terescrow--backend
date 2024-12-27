@@ -1016,9 +1016,7 @@ export const getallCategories = async (req: Request, res: Response, next: NextFu
       id: category.id,
       title: category.title,
       subTitle: category.subTitle,
-      image: category.image
-        ? `${req.protocol}://${req.get('host')}/uploads/${category.image}`
-        : null,
+      image: category.image,
       departments: category.departments.map((dept) => ({
         id: dept.id,
         departmentId: dept.departmentId,
