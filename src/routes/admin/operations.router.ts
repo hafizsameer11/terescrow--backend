@@ -171,7 +171,7 @@ operationsRouter.get(
 
 operationsRouter.get('/get-all-transactions', authenticateUser,getAllTrsansactions);
 operationsRouter.get('/get-dashboard-stats', authenticateUser,getAdminDashboardStats);
-operationsRouter.get('/get-customer-stats', authenticateUser,getAdminDashboardStats);
+// operationsRouter.get('/get-customer-stats', authenticateUser,getAdminDashboardStats);
 operationsRouter.get('/get-customer-transactions/:id', authenticateUser,getTransactionForCustomer);
 operationsRouter.get('/get-customer-stats', authenticateUser,getCustomerStats);
 export default operationsRouter;
