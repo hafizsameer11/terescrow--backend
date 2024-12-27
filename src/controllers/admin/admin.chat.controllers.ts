@@ -107,12 +107,12 @@ export const getAllCustomerWithAgentsChats = async (
   try {
     const admin = req.body._user;
 
-    // Check if the requesting user is an admin
+    // Verify admin authorization
     if (admin?.role !== UserRoles.admin) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
-    // Fetch chats of type 'customer_to_agent'
+    // Fetch chats with the required details
     const agentCustomerChats = await prisma.chat.findMany({
       where: {
         chatType: ChatType.customer_to_agent,
@@ -127,7 +127,7 @@ export const getAllCustomerWithAgentsChats = async (
                 firstname: true,
                 lastname: true,
                 role: true,
-                profilePicture: true, // Add this if needed
+                profilePicture: true,
               },
             },
           },
@@ -174,32 +174,39 @@ export const getAllCustomerWithAgentsChats = async (
       return next(ApiError.notFound('No chats found'));
     }
 
+    // Flatten and simplify the response structure
     const resData = agentCustomerChats.map((chat) => {
       const recentMessage = chat.messages?.[0] || null;
-      const recentMessageTimestamp = recentMessage?.createdAt || null;
 
-      // Find the customer participant
+      // Identify the customer
       const customer = chat.participants.find(
         (participant) => participant.user.role === UserRoles.customer
       )?.user;
 
-      // Append profile picture URL if available
-      if (customer?.profilePicture) {
-        customer.profilePicture = `${process.env.HOST_URL}/uploads/${customer.profilePicture}`;
-      }
-
+      // Build simplified response
       return {
-        id: chat.id,
-        customer,
-        recentMessage,
-        recentMessageTimestamp,
-        chatStatus: chat.chatDetails?.status || null,
-        department: chat.chatDetails?.department || null,
+        chatId: chat.id,
+        customerId: customer?.id || null,
+        customerUsername: customer?.username || '',
+        customerName: `${customer?.firstname || ''} ${customer?.lastname || ''}`.trim(),
+        customerProfilePicture: customer?.profilePicture
+          ? `${process.env.HOST_URL}/uploads/${customer.profilePicture}`
+          : null,
+        recentMessage: recentMessage?.message || '',
+        recentMessageTimestamp: recentMessage?.createdAt || null,
+        chatStatus: chat.chatDetails?.status || '',
+        department: chat.chatDetails?.department?.title || '',
+        category: chat.chatDetails?.category?.title || '',
         messagesCount: chat.messages?.length || 0,
-        transactions: chat.transactions,
+        transactions: chat.transactions.map((transaction) => ({
+          transactionId: transaction.id,
+          amount: transaction.amount,
+          amountNaira: transaction.amountNaira,
+        })),
       };
     });
 
+    // Return the simplified data
     return new ApiResponse(200, resData, 'Chats retrieved successfully').send(res);
   } catch (error) {
     console.error('Error fetching chats:', error);
@@ -209,6 +216,7 @@ export const getAllCustomerWithAgentsChats = async (
     return next(ApiError.internal('An unexpected error occurred while fetching chats'));
   }
 };
+
 
 export const getAllAdminTeamChats = async (
   req: Request,
