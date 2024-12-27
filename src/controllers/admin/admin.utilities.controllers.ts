@@ -916,52 +916,78 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
 export const editCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { title, departmentIds = [], subtitle = '' } = req.body;
+    const { title, departmentIds = '[]', subtitle = '' } = req.body;
     const image = req.file?.filename || '';
-    console.log(req.body);
+
+    // Parse `departmentIds` into an array
+    let departmentIdsArray: number[] = [];
+    try {
+      departmentIdsArray = JSON.parse(departmentIds);
+    } catch (error) {
+      console.error('Failed to parse departmentIds:', error);
+      return next(ApiError.badRequest('Invalid departmentIds format'));
+    }
+
+    // Validate that `departmentIds` is an array of numbers
+    if (!Array.isArray(departmentIdsArray) || !departmentIdsArray.every((id) => typeof id === 'number')) {
+      return next(ApiError.badRequest('departmentIds must be an array of numbers'));
+    }
+
+    console.log('Parsed departmentIds:', departmentIdsArray);
+
+    // Update the category
     const category = await prisma.category.update({
       where: {
-        id: parseInt(id, 10)
+        id: parseInt(id, 10),
       },
       data: {
         title,
         subTitle: subtitle,
-        image
-      }
-    })
+        image,
+      },
+    });
+
     if (!category) {
       return next(ApiError.badRequest('Category not found'));
     }
-    if (departmentIds.length > 0) {
+
+    // Assign departments to the category
+    if (departmentIdsArray.length > 0) {
       let assignedCount = 0;
+
       await Promise.all(
-        departmentIds.map(async (departmentId: number) => {
-          const result = await prisma.catDepart.create({
-            data: {
-              categoryId: category.id,
-              departmentId: departmentId
+        departmentIdsArray.map(async (departmentId: number) => {
+          try {
+            const result = await prisma.catDepart.create({
+              data: {
+                categoryId: category.id,
+                departmentId: departmentId,
+              },
+            });
+            if (result) {
+              assignedCount++;
             }
-          })
-          if (result) {
-            assignedCount++;
+          } catch (error) {
+            console.error(`Failed to assign departmentId ${departmentId} to categoryId ${category.id}`, error);
           }
         })
-      )
-      if (assignedCount !== departmentIds.length) {
-        return next(ApiError.internal('Internal Server Error'));
+      );
+
+      if (assignedCount !== departmentIdsArray.length) {
+        return next(ApiError.internal('Failed to assign some departments to the category'));
       }
     }
+
     return new ApiResponse(200, category, 'Category updated successfully').send(res);
   } catch (error) {
-    console.log(error);
+    console.error(error);
     if (error instanceof ApiError) {
       next(error);
       return;
     }
     next(ApiError.internal('Internal Server Error'));
-
   }
-}
+};
 export const deleteCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
