@@ -917,7 +917,7 @@ export const editCategory = async (req: Request, res: Response, next: NextFuncti
   try {
     const { id } = req.params;
     const { title, departmentIds = '[]', subtitle = '' } = req.body;
-    const image = req.file?.filename || '';
+    // const image = req.file?.filename || '';
 
     // Parse `departmentIds` into an array
     let departmentIdsArray: number[] = [];
@@ -936,6 +936,12 @@ export const editCategory = async (req: Request, res: Response, next: NextFuncti
     console.log('Parsed departmentIds:', departmentIdsArray);
 
     // Update the category
+const oldCateogry = await prisma.category.findUnique({
+  where: {
+    id: parseInt(id, 10),
+  },
+})
+    const image = req.file?.filename || oldCateogry?.image;
     const category = await prisma.category.update({
       where: {
         id: parseInt(id, 10),
