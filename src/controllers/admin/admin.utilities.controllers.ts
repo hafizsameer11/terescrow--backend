@@ -1306,6 +1306,7 @@ export const getallSubCategories = async (req: Request, res: Response, next: Nex
 export const getAccountActivityofUser = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
+    return new ApiResponse(200, id, 'AccountActivites retrieved successfully').send(res);
     const accountActivites = prisma.accountActivity.findMany({
       where: {
         userId: parseInt(id)
@@ -1324,6 +1325,8 @@ export const getAccountActivityofUser = async (req: Request, res: Response, next
     next(ApiError.internal('Internal Server Error'));
   }
 }
+
+
 interface AgentRequest {
   firstName: string;
   lastName: string;
