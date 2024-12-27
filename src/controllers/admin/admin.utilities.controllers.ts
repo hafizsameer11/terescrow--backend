@@ -766,7 +766,7 @@ export const getDepartment = async (req: Request, res: Response, next: NextFunct
       icon: department.icon,
       niche: department.niche,
       status: department.status,
-      createdAt : department.createdAt,
+      createdAt: department.createdAt,
     };
     return new ApiResponse(200, response, 'Department fetched successfully').send(res);
   } catch (error) {
@@ -936,11 +936,11 @@ export const editCategory = async (req: Request, res: Response, next: NextFuncti
     console.log('Parsed departmentIds:', departmentIdsArray);
 
     // Update the category
-const oldCateogry = await prisma.category.findUnique({
-  where: {
-    id: parseInt(id, 10),
-  },
-})
+    const oldCateogry = await prisma.category.findUnique({
+      where: {
+        id: parseInt(id, 10),
+      },
+    })
     const image = req.file?.filename || oldCateogry?.image;
     const category = await prisma.category.update({
       where: {

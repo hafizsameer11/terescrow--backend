@@ -72,6 +72,7 @@ export const createTransactionCard = async (
     if (!currChat || currChat.participants.length === 0) {
       return next(ApiError.notFound('Chat not found'));
     }
+    const transactionId = 'TRSC' + Math.floor(Math.random() * 1000000000);
 
     const transaction = await prisma.transaction.create({
       data: {
@@ -110,6 +111,12 @@ export const createTransactionCard = async (
         type: InAppNotificationType.customeer
       },
     });
+    const accountActivity = await prisma.accountActivity.create({
+      data: {
+        userId: agent.id,
+        description: 'Create a transaction for customer',
+      }
+    })
     if (!transaction) {
       return next(ApiError.badRequest('Transaction not created'));
     }
@@ -288,6 +295,12 @@ export const createTransactionCrypto = async (
     if (!updatedChat) {
       return next(ApiError.badRequest('Chat not updated'));
     }
+    const accountActivity = await prisma.accountActivity.create({
+      data: {
+        userId: agent.id,
+        description: 'Create a transaction for customer',
+      }
+    })
 
     const currCustomer = currChat.participants.find(
       (participant) => participant.user.id !== agent.id
@@ -840,6 +853,12 @@ export const createNote = async (req: Request, res: Response, next: NextFunction
         agentId: agent.id
       }
     });
+    const accountActivites = await prisma.accountActivity.create({
+      data: {
+        userId: agentId,
+        description: `Created a new note : ${note} `
+      }
+    })
   } catch (error) {
     console.error(error);
     if (error instanceof ApiError) {
@@ -856,16 +875,16 @@ export const getAllNotes = async (req: Request, res: Response, next: NextFunctio
       return next(ApiError.notFound('Agent not found'));
     }
     // const { userId } = req.body;
-    const userId=req.params.id
+    const userId = req.params.id
     const notes = await prisma.notes.findMany({
       where: {
         userId: parseInt(userId)
       },
-      include:{
+      include: {
         agent: {
-          select:{
-            user:{
-              select:{
+          select: {
+            user: {
+              select: {
                 username: true
               }
             }

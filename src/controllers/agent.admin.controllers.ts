@@ -68,6 +68,12 @@ export const sendMessageToTeamController = async (
         type: InAppNotificationType.team,
       }
     })
+    const accountActivity = await prisma.accountActivity.create({
+      data: {
+        userId: _user.id,
+        description: `${_user.username} Sent a message to ${chat.participants?.[0].userId}`,
+      }
+    })
     if (chat.chatType === ChatType.team_chat) {
       const recieverSocketId = getAgentOrAdminSocketId(newMessage.receiverId!);
       if (recieverSocketId) {

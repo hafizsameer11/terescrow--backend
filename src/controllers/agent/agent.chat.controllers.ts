@@ -58,7 +58,12 @@ export const sendToCustomerController = async (
           where: {
             userId: {
               not: sender.id,
+
             },
+          },
+          select: {
+            userId: true,
+            user: true
           },
         },
       },
@@ -81,6 +86,13 @@ export const sendToCustomerController = async (
         description: `You have a new message from ${sender.firstname} ${sender.lastname}`,
       }
     });
+    const userActivity = await prisma.accountActivity.create({
+      data: {
+        userId: sender.id,
+        description: `${sender.firstname} ${sender.lastname} sent a message to ${chat?.participants[0].user?.firstname} ${chat?.participants[0].user?.lastname}`,
+
+      }
+    })
 
     if (!chat) {
       return next(ApiError.notFound('this chat does not exist'));
@@ -564,7 +576,12 @@ export const takeOverDefaultAgentChatController = async (
         },
       },
     });
-
+    const accountActivites = await prisma.accountActivity.create({
+      data: {
+        userId: user.id,
+        description: `${user.username} have taken over a chat from the default agent`,
+      }
+    })
     if (!chat) {
       return next(ApiError.notFound('Chat not found or does not involve the default agent'));
     }
