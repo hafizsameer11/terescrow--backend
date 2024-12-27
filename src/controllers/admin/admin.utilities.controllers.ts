@@ -689,7 +689,7 @@ export const createDepartment = async (req: Request, res: Response, next: NextFu
   try {
     const { title, description, status, Type = '', niche = '' } = req.body;
 
-    const icon = req.file?.fieldname || '';
+    const icon = req.file?.filename || '';
     const department = await prisma.department.create({
       data: {
         title,
