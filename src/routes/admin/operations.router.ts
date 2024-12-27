@@ -113,7 +113,7 @@ operationsRouter.get(
   getAgentsByDepartment
 );
 // operationsRouter.get('/get-all-agents', authenticateUser, getAllAgents);
-operationsRouter.get('/get-all-agent', authenticateUser, getAllAgents);
+operationsRouter.get('/get-all-agents', authenticateUser, getAllAgents);
 operationsRouter.get('/get-all-users', authenticateUser, getAllUsers);
 operationsRouter.get('/get-team-members', authenticateUser, getAgents);
 
