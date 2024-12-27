@@ -762,6 +762,11 @@ export const getDepartment = async (req: Request, res: Response, next: NextFunct
       title: department.title,
       description: department.description,
       noOfAgents: department._count?.assignedDepartments || 0,
+      type: department.Type,
+      icon: department.icon,
+      niche: department.niche,
+      status: department.status,
+      createdAt : department.createdAt,
     };
     return new ApiResponse(200, response, 'Department fetched successfully').send(res);
   } catch (error) {
