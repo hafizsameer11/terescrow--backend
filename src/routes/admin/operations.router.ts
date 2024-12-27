@@ -49,6 +49,7 @@ import {
   updateBanner,
   updateNotification,
 } from '../../controllers/admin/admin.operation.controller';
+import { getAllCustomerWithAgentsChats } from '../../controllers/admin/admin.chat.controllers';
 
 const operationsRouter = express.Router();
 
@@ -180,4 +181,5 @@ operationsRouter.get('/get-dashboard-stats', authenticateUser,getAdminDashboardS
 operationsRouter.get('/get-customer-transactions/:id', authenticateUser,getTransactionForCustomer);
 operationsRouter.get('/get-customer-stats', authenticateUser,getCustomerStats);
 operationsRouter.get('/get-department-transaction',authenticateUser,getDepartmentStatsByTransaction);
+operationsRouter.get('/get-all-agent-to-admin-chats',authenticateUser,getAllCustomerWithAgentsChats);
 export default operationsRouter;
