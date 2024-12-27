@@ -652,6 +652,9 @@ export const getdepartmentStatsByTransaction = async (req: Request, res: Respons
             by: ['departmentId'],
             _count: {
                 departmentId: true
+            },
+            _sum:{
+                amount: true
             }
         })
         return new ApiResponse(200, transactions, 'Department stats by transaction fetched successfully').send(res);
