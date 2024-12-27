@@ -951,12 +951,32 @@ export const editCategory = async (req: Request, res: Response, next: NextFuncti
       return next(ApiError.badRequest('Category not found'));
     }
 
-    // Assign departments to the category
-    if (departmentIdsArray.length > 0) {
+    // Fetch existing department associations for this category
+    const existingDepartmentAssociations = await prisma.catDepart.findMany({
+      where: {
+        categoryId: category.id,
+      },
+      select: {
+        departmentId: true,
+      },
+    });
+
+    // Extract existing department IDs
+    const existingDepartmentIds = existingDepartmentAssociations.map(
+      (assoc) => assoc.departmentId
+    );
+
+    // Filter out departments that are already associated
+    const newDepartments = departmentIdsArray.filter(
+      (departmentId) => !existingDepartmentIds.includes(departmentId)
+    );
+
+    // Assign new departments to the category
+    if (newDepartments.length > 0) {
       let assignedCount = 0;
 
       await Promise.all(
-        departmentIdsArray.map(async (departmentId: number) => {
+        newDepartments.map(async (departmentId: number) => {
           try {
             const result = await prisma.catDepart.create({
               data: {
@@ -968,13 +988,18 @@ export const editCategory = async (req: Request, res: Response, next: NextFuncti
               assignedCount++;
             }
           } catch (error) {
-            console.error(`Failed to assign departmentId ${departmentId} to categoryId ${category.id}`, error);
+            console.error(
+              `Failed to assign departmentId ${departmentId} to categoryId ${category.id}`,
+              error
+            );
           }
         })
       );
 
-      if (assignedCount !== departmentIdsArray.length) {
-        return next(ApiError.internal('Failed to assign some departments to the category'));
+      if (assignedCount !== newDepartments.length) {
+        return next(
+          ApiError.internal('Failed to assign some departments to the category')
+        );
       }
     }
 
@@ -988,6 +1013,7 @@ export const editCategory = async (req: Request, res: Response, next: NextFuncti
     next(ApiError.internal('Internal Server Error'));
   }
 };
+
 export const deleteCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
