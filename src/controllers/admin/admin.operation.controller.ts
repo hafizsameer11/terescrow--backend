@@ -618,12 +618,18 @@ export const getCustomerStats = async (req: Request, res: Response, next: NextFu
         if (!user || (user.role !== UserRoles.admin)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
-        const users = await prisma.user.count()
+        const users = await prisma.user.count({
+            where: {
+                role: UserRoles.customer
+            }
+        })
         const verifiedUser = await prisma.user.count({
             where: {
-               KycStateTwo:{
-                
-               }
+                role: UserRoles.customer,
+                KycStateTwo: {
+                    some: {}, // Ensures that at least one related KycStateTwo record exists
+
+                }
             }
         })
         return new ApiResponse(200, { users, verifiedUser }, 'Customer stats fetched successfully').send(res);
