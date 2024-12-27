@@ -157,6 +157,11 @@ export const getAllCustomerWithAgentsChats = async (
           },
         },
         messages: {
+          where: {
+            message: {
+              not: ''
+            }
+          },
           take: 1,
           orderBy: {
             createdAt: 'desc',
@@ -167,6 +172,7 @@ export const getAllCustomerWithAgentsChats = async (
             createdAt: true,
           },
         },
+
       },
     });
 
