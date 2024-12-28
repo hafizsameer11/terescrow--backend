@@ -20,6 +20,7 @@ export const createChatGroupController = async (
       participants: { id: number }[];
       groupName: string;
     };
+    console.log("admin", admin);
 
     console.log(participants, groupName);
 
@@ -532,19 +533,7 @@ export const getAgentCustomerChatDetails = async (
     }
 
     // Mark messages as read if applicable
-    const updatedMessages = await prisma.message.updateMany({
-      where: {
-        chatId: chat.id,
-        receiverId: admin.id, // Optional: Use if admin has specific messages marked as unread
-      },
-      data: {
-        isRead: true,
-      },
-    });
-
-    if (updatedMessages) {
-      console.log('Messages marked as read');
-    }
+   
 
     // Prepare the response data
     const {
