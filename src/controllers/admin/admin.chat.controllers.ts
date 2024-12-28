@@ -118,6 +118,7 @@ export const getAllCustomerWithAgentsChats = async (
         chatType: ChatType.customer_to_agent,
       },
       include: {
+      
         participants: {
           select: {
             user: {
@@ -135,6 +136,7 @@ export const getAllCustomerWithAgentsChats = async (
         chatDetails: {
           select: {
             status: true,
+            createdAt: true,
             category: {
               select: {
                 id: true,
@@ -203,7 +205,8 @@ export const getAllCustomerWithAgentsChats = async (
         department: chat.chatDetails?.department || null,
         messagesCount: chat.messages?.length || 0,
         transactions: chat.transactions,
-        agent
+        agent,
+        createdAt: chat.chatDetails?.createdAt || null,
       };
     });
 
