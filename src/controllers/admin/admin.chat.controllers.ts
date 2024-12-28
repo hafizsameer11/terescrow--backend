@@ -468,6 +468,222 @@ export const getSingleAgentWithTeam = async (
   }
 };
 
+
+export const getAgentCustomerChatDetails = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { chatId } = req.params;
+    const admin: User = req.body._user;
+
+    // Verify if the user is an admin
+    if (!admin || admin.role !== UserRoles.admin) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+
+    // Fetch the chat details
+    const chat = await prisma.chat.findUnique({
+      where: {
+        id: Number(chatId),
+      },
+      include: {
+        participants: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                firstname: true,
+                lastname: true,
+                profilePicture: true,
+                role: true,
+              },
+            },
+          },
+        },
+        chatDetails: {
+          include: {
+            category: true,
+            department: true,
+          },
+        },
+        chatGroup: true,
+        messages: {
+          orderBy: {
+            createdAt: 'asc', // Ensure messages are in chronological order
+          },
+        },
+      },
+    });
+
+    // Validate chat and ensure it's the correct type
+    if (!chat || chat.chatType !== ChatType.customer_to_agent) {
+      return next(ApiError.notFound('Chat does not exist'));
+    }
+
+    // Extract participants and identify the agent and customer
+    const customer = chat.participants.find((p) => p.user.role === UserRoles.customer)?.user || null;
+    const agent = chat.participants.find((p) => p.user.role === UserRoles.agent)?.user || null;
+
+    if (!customer || !agent) {
+      return next(ApiError.notFound('Chat participants not found'));
+    }
+
+    // Mark messages as read if applicable
+    const updatedMessages = await prisma.message.updateMany({
+      where: {
+        chatId: chat.id,
+        receiverId: admin.id, // Optional: Use if admin has specific messages marked as unread
+      },
+      data: {
+        isRead: true,
+      },
+    });
+
+    if (updatedMessages) {
+      console.log('Messages marked as read');
+    }
+
+    // Prepare the response data
+    const {
+      messages,
+      chatDetails,
+      id,
+      chatType,
+      createdAt,
+      updatedAt,
+    } = chat;
+
+    const resData = {
+      id,
+      customer,
+      agent,
+      messages,
+      chatDetails,
+      chatType,
+      createdAt,
+      updatedAt,
+    };
+
+    return new ApiResponse(200, resData, 'Chat details retrieved successfully').send(res);
+  } catch (error) {
+    console.error('Error fetching chat details for admin:', error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Server error occurred!'));
+  }
+};
+export const getAgentTeamChatDetailsController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { chatId } = req.params;
+    const admin: User = req.body._user;
+
+    // Verify if the user is an admin
+    if (!admin || admin.role !== UserRoles.admin) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+
+    // Fetch the chat details
+    const chat = await prisma.chat.findUnique({
+      where: {
+        id: Number(chatId),
+      },
+      include: {
+        participants: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                firstname: true,
+                lastname: true,
+                profilePicture: true,
+                role: true,
+              },
+            },
+          },
+        },
+        chatDetails: {
+          include: {
+            category: true,
+            department: true,
+          },
+        },
+        chatGroup: true,
+        messages: {
+          orderBy: {
+            createdAt: 'asc', // Ensure messages are in chronological order
+          },
+        },
+      },
+    });
+
+    // Validate chat and ensure it's the correct type
+    if (!chat || chat.chatType !== ChatType.team_chat) {
+      return next(ApiError.notFound('Chat does not exist or is not a team chat'));
+    }
+
+    // Extract participants and assign to agent1 and agent2
+    const [agent1, agent2] = chat.participants.map((p) => p.user);
+
+    if (!agent1 || !agent2) {
+      return next(ApiError.notFound('Team chat participants not found'));
+    }
+
+    // Mark messages as read if applicable
+    const updatedMessages = await prisma.message.updateMany({
+      where: {
+        chatId: chat.id,
+        receiverId: admin.id, // Optional: Mark messages for admin as read
+      },
+      data: {
+        isRead: true,
+      },
+    });
+
+    if (updatedMessages) {
+      console.log('Messages marked as read');
+    }
+
+    // Prepare the response data
+    const {
+      messages,
+      chatDetails,
+      id,
+      chatType,
+      createdAt,
+      updatedAt,
+    } = chat;
+
+    const resData = {
+      id,
+      agent1,
+      agent2,
+      messages,
+      chatDetails,
+      chatType,
+      createdAt,
+      updatedAt,
+    };
+
+    return new ApiResponse(200, resData, 'Team chat details retrieved successfully').send(res);
+  } catch (error) {
+    console.error('Error fetching team chat details:', error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Server error occurred!'));
+  }
+};
+
+
 export const getAllAdminTeamChats = async (
   req: Request,
   res: Response,
@@ -539,12 +755,3 @@ export const getAllAdminTeamChats = async (
     return next(ApiError.internal('Failed to fetch chats'));
   }
 };
-
-// export const getChatDetails = async (req: Request, res: Response,  next: NextFunction) => {
-//     try {
-//         const admin: User = req.body._user;
-
-//     } catch (error) {
-
-//     }
-// }

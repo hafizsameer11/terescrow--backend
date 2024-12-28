@@ -49,7 +49,7 @@ import {
   updateBanner,
   updateNotification,
 } from '../../controllers/admin/admin.operation.controller';
-import { getAllCustomerWithAgentsChats, getSingleAgentWithCustomerChats, getSingleAgentWithTeam } from '../../controllers/admin/admin.chat.controllers';
+import { getAgentCustomerChatDetails, getAgentTeamChatDetailsController, getAllCustomerWithAgentsChats, getSingleAgentWithCustomerChats, getSingleAgentWithTeam } from '../../controllers/admin/admin.chat.controllers';
 
 const operationsRouter = express.Router();
 
@@ -184,4 +184,6 @@ operationsRouter.get('/get-department-transaction', authenticateUser, getDepartm
 operationsRouter.get('/get-all-agent-to-admin-chats', authenticateUser, getAllCustomerWithAgentsChats); //all chats
 operationsRouter.get('/get-agent-customer-chats/:agentId', authenticateUser, getSingleAgentWithCustomerChats); //agent with customer chats
 operationsRouter.get('/get-agent-team-chats/:agentId', authenticateUser, getSingleAgentWithTeam); //agent with team chats
+operationsRouter.get('/get-agent-customer-chatdetails/:chatId', authenticateUser, getAgentCustomerChatDetails);
+operationsRouter.get('/get-agent-agent-chatdetails/:chatId', authenticateUser, getAgentTeamChatDetailsController);
 export default operationsRouter;
