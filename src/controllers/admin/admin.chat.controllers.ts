@@ -359,17 +359,18 @@ export const getSingleAgentWithTeam = async (
     if (admin?.role !== UserRoles.admin) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
+
     const agentId = parseInt(req.params.agentId);
 
-    // Fetch chats of type 'customer_to_agent'
+    // Fetch chats of type 'team_chat' ensuring at least one message exists
     const agentCustomerChats = await prisma.chat.findMany({
       where: {
         chatType: ChatType.team_chat,
         participants: {
           some: {
-            userId: agentId
-          }
-        }
+            userId: agentId,
+          },
+        },
       },
       include: {
         participants: {
@@ -381,7 +382,7 @@ export const getSingleAgentWithTeam = async (
                 firstname: true,
                 lastname: true,
                 role: true,
-                profilePicture: true, // Add this if needed
+                profilePicture: true,
               },
             },
           },
@@ -413,8 +414,8 @@ export const getSingleAgentWithTeam = async (
         messages: {
           where: {
             message: {
-              not: ''
-            }
+              not: '',
+            },
           },
           take: 1,
           orderBy: {
@@ -426,34 +427,34 @@ export const getSingleAgentWithTeam = async (
             createdAt: true,
           },
         },
-
       },
     });
 
-    if (!agentCustomerChats.length) {
+    // Filter chats to ensure at least one message exists
+    const filteredChats = agentCustomerChats.filter((chat) => chat.messages.length > 0);
+
+    if (!filteredChats.length) {
       return next(ApiError.notFound('No chats found'));
     }
 
-    const resData = agentCustomerChats.map((chat) => {
+    const resData = filteredChats.map((chat) => {
       const recentMessage = chat.messages?.[0] || null;
       const recentMessageTimestamp = recentMessage?.createdAt || null;
 
-      // Find the customer participant
-
-
-      // Append profile picture URL if available
-      const otherParticipants = chat.participants.filter((participant) => participant.user.id !== agentId);
+      // Filter participants to exclude the agent
+      const otherParticipants = chat.participants.filter(
+        (participant) => participant.user.id !== agentId
+      );
 
       return {
         id: chat.id,
-
         recentMessage,
         recentMessageTimestamp,
         chatStatus: chat.chatDetails?.status || null,
         department: chat.chatDetails?.department || null,
         messagesCount: chat.messages?.length || 0,
         transactions: chat.transactions,
-        otherParticipants
+        otherParticipants,
       };
     });
 
@@ -465,9 +466,8 @@ export const getSingleAgentWithTeam = async (
     }
     return next(ApiError.internal('An unexpected error occurred while fetching chats'));
   }
+};
 
-
-}
 export const getAllAdminTeamChats = async (
   req: Request,
   res: Response,
