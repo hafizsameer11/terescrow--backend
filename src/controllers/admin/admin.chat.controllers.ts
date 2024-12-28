@@ -219,7 +219,255 @@ export const getAllCustomerWithAgentsChats = async (
     return next(ApiError.internal('An unexpected error occurred while fetching chats'));
   }
 };
+export const getSingleAgentWithCustomerChats = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const admin = req.body._user;
 
+    // Check if the requesting user is an admin
+    if (admin?.role !== UserRoles.admin) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+    const agentId = parseInt(req.params.agentId);
+
+    // Fetch chats of type 'customer_to_agent'
+    const agentCustomerChats = await prisma.chat.findMany({
+      where: {
+        chatType: ChatType.customer_to_agent,
+        participants: {
+          some: {
+            userId: agentId
+          }
+        }
+      },
+      include: {
+        participants: {
+          select: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                firstname: true,
+                lastname: true,
+                role: true,
+                profilePicture: true, // Add this if needed
+              },
+            },
+          },
+        },
+        chatDetails: {
+          select: {
+            status: true,
+            category: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
+            department: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
+          },
+        },
+        transactions: {
+          select: {
+            id: true,
+            amount: true,
+            amountNaira: true,
+          },
+        },
+        messages: {
+          where: {
+            message: {
+              not: ''
+            }
+          },
+          take: 1,
+          orderBy: {
+            createdAt: 'desc',
+          },
+          select: {
+            id: true,
+            message: true,
+            createdAt: true,
+          },
+        },
+
+      },
+    });
+
+    if (!agentCustomerChats.length) {
+      return next(ApiError.notFound('No chats found'));
+    }
+
+    const resData = agentCustomerChats.map((chat) => {
+      const recentMessage = chat.messages?.[0] || null;
+      const recentMessageTimestamp = recentMessage?.createdAt || null;
+
+      // Find the customer participant
+      const customer = chat.participants.find(
+        (participant) => participant.user.role === UserRoles.customer
+      )?.user;
+      const agent = chat.participants.find(
+        (participant) => participant.user.role === UserRoles.agent
+      )?.user;
+
+      // Append profile picture URL if available
+      if (customer?.profilePicture) {
+        customer.profilePicture = `${process.env.HOST_URL}/uploads/${customer.profilePicture}`;
+      }
+
+      return {
+        id: chat.id,
+        customer,
+        recentMessage,
+        recentMessageTimestamp,
+        chatStatus: chat.chatDetails?.status || null,
+        department: chat.chatDetails?.department || null,
+        messagesCount: chat.messages?.length || 0,
+        transactions: chat.transactions,
+        agent
+      };
+    });
+
+    return new ApiResponse(200, resData, 'Chats retrieved successfully').send(res);
+  } catch (error) {
+    console.error('Error fetching chats:', error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('An unexpected error occurred while fetching chats'));
+  }
+
+
+}
+export const getSingleAgentWithTeam = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const admin = req.body._user;
+
+    // Check if the requesting user is an admin
+    if (admin?.role !== UserRoles.admin) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+    const agentId = parseInt(req.params.agentId);
+
+    // Fetch chats of type 'customer_to_agent'
+    const agentCustomerChats = await prisma.chat.findMany({
+      where: {
+        chatType: ChatType.team_chat,
+        participants: {
+          some: {
+            userId: agentId
+          }
+        }
+      },
+      include: {
+        participants: {
+          select: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                firstname: true,
+                lastname: true,
+                role: true,
+                profilePicture: true, // Add this if needed
+              },
+            },
+          },
+        },
+        chatDetails: {
+          select: {
+            status: true,
+            category: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
+            department: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
+          },
+        },
+        transactions: {
+          select: {
+            id: true,
+            amount: true,
+            amountNaira: true,
+          },
+        },
+        messages: {
+          where: {
+            message: {
+              not: ''
+            }
+          },
+          take: 1,
+          orderBy: {
+            createdAt: 'desc',
+          },
+          select: {
+            id: true,
+            message: true,
+            createdAt: true,
+          },
+        },
+
+      },
+    });
+
+    if (!agentCustomerChats.length) {
+      return next(ApiError.notFound('No chats found'));
+    }
+
+    const resData = agentCustomerChats.map((chat) => {
+      const recentMessage = chat.messages?.[0] || null;
+      const recentMessageTimestamp = recentMessage?.createdAt || null;
+
+      // Find the customer participant
+
+
+      // Append profile picture URL if available
+      const otherParticipants = chat.participants.filter((participant) => participant.user.id !== agentId);
+
+      return {
+        id: chat.id,
+
+        recentMessage,
+        recentMessageTimestamp,
+        chatStatus: chat.chatDetails?.status || null,
+        department: chat.chatDetails?.department || null,
+        messagesCount: chat.messages?.length || 0,
+        transactions: chat.transactions,
+        otherParticipants
+      };
+    });
+
+    return new ApiResponse(200, resData, 'Chats retrieved successfully').send(res);
+  } catch (error) {
+    console.error('Error fetching chats:', error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('An unexpected error occurred while fetching chats'));
+  }
+
+
+}
 export const getAllAdminTeamChats = async (
   req: Request,
   res: Response,
