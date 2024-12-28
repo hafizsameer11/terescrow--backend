@@ -195,9 +195,9 @@ export const getAllCustomerWithAgentsChats = async (
       )?.user;
 
       // Append profile picture URL if available
-      if (customer?.profilePicture) {
-        customer.profilePicture = `${process.env.HOST_URL}/uploads/${customer.profilePicture}`;
-      }
+      // if (customer?.profilePicture) {
+      //   customer.profilePicture = `${process.env.HOST_URL}/uploads/${customer.profilePicture}`;
+      // }
 
       return {
         id: chat.id,
