@@ -261,7 +261,7 @@ model ChatGroup {
   groupProfile String?
   chatId       Int     @unique
   chat         Chat    @relation(fields: [chatId], references: [id])
-  adminId      Int     @unique
+  adminId      Int     
   admin        User    @relation(fields: [adminId], references: [id])
 }
 
