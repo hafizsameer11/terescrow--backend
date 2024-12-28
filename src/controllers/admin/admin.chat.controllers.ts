@@ -145,6 +145,8 @@ export const getAllCustomerWithAgentsChats = async (
               select: {
                 id: true,
                 title: true,
+                Type: true,
+                niche: true,
               },
             },
           },
