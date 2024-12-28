@@ -50,7 +50,7 @@ import {
   updateNotification,
 } from '../../controllers/admin/admin.operation.controller';
 import { getAgentCustomerChatDetails, getAgentTeamChatDetailsController, getAllCustomerWithAgentsChats, getSingleAgentWithCustomerChats, getSingleAgentWithTeam } from '../../controllers/admin/admin.chat.controllers';
-import { getChatStats } from '../../controllers/admin/admin.stats.controller';
+import { getChatStats, getDashBoardStats, teamStats, transactionStats } from '../../controllers/admin/admin.stats.controller';
 
 const operationsRouter = express.Router();
 
@@ -187,5 +187,9 @@ operationsRouter.get('/get-agent-customer-chats/:agentId', authenticateUser, get
 operationsRouter.get('/get-agent-team-chats/:agentId', authenticateUser, getSingleAgentWithTeam); //agent with team chats
 operationsRouter.get('/get-agent-customer-chatdetails/:chatId', authenticateUser, getAgentCustomerChatDetails);
 operationsRouter.get('/get-agent-agent-chatdetails/:chatId', authenticateUser, getAgentTeamChatDetailsController);
-operationsRouter.get('/get-chat-stats',getChatStats);
+operationsRouter.get('/get-chat-stats', getChatStats);
+operationsRouter.get('/get-dashboard-stats', getDashBoardStats);
+operationsRouter.get('/get-customer-stats', getCustomerStats);
+operationsRouter.get('/get-team-stats', teamStats);
+operationsRouter.get('/get-transaction-stats', transactionStats);
 export default operationsRouter;
