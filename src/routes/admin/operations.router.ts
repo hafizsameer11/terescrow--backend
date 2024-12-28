@@ -183,5 +183,5 @@ operationsRouter.get('/get-customer-stats', authenticateUser, getCustomerStats);
 operationsRouter.get('/get-department-transaction', authenticateUser, getDepartmentStatsByTransaction);
 operationsRouter.get('/get-all-agent-to-admin-chats', authenticateUser, getAllCustomerWithAgentsChats); //all chats
 operationsRouter.get('/get-agent-customer-chats/:agentId', authenticateUser, getSingleAgentWithCustomerChats); //agent with customer chats
-operationsRouter.get('get-agent-team-chats/:agentId', authenticateUser, getSingleAgentWithTeam); //agent with team chats
+operationsRouter.get('/get-agent-team-chats/:agentId', authenticateUser, getSingleAgentWithTeam); //agent with team chats
 export default operationsRouter;
