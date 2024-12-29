@@ -415,7 +415,7 @@ export const getAllAgents = async (
 ) => {
   try {
     const admin: User = req.body._user;
-    if (admin?.role !== UserRoles.admin) {
+    if (admin?.role !== UserRoles.admin && admin?.role!==UserRoles.agent) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
