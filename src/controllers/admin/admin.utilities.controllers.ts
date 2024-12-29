@@ -593,7 +593,7 @@ export const editAgent = async (req: Request, res: Response, next: NextFunction)
     if (assignedDepartments.length > 0) {
    const newDepartments=   await prisma.assignedDepartment.createMany({
         data: assignedDepartments.map((departmentId: number) => ({
-          agentId,
+       agentId:   parseInt(agentId),
           departmentId,
         })),
         skipDuplicates: true,
