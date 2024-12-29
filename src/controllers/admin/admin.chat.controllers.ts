@@ -495,7 +495,7 @@ export const getAgentCustomerChatDetails = async (
     const admin: User = req.body._user;
 
     // Verify if the user is an admin
-    if (!admin || admin.role !== UserRoles.admin) {
+    if (!admin ) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
