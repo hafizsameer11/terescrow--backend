@@ -517,7 +517,7 @@ export const editProfileController = async (
     if (!user) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
-
+const profilePicture=req.file?.filename;
     const {
       firstName,
       lastName,
@@ -578,6 +578,7 @@ export const editProfileController = async (
         username: userName || existingUser.username,
         gender: gender || existingUser.gender,
         countryId: countryId || existingUser.countryId,
+        profilePicture:profilePicture || existingUser.profilePicture,
       },
     });
 
