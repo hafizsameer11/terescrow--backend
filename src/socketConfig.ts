@@ -238,12 +238,12 @@ io.on('connection', async (socket) => {
                 );
 
                 if (newChat) {
+                  console.log('Default agent assigned:', defaultAgent.id);
                   const message = await sendDefaultMessageFromDefaultAgent(defaultAgent.id, parseInt(newChat));
                   if (message) {
-                    console.log('Default agent assigned:', defaultAgent.id);
-                    io.to(socket.id).emit('agentAssigned', newChat);
 
                   }
+                  io.to(socket.id).emit('agentAssigned', newChat);
                 } else {
                   pendingAssignments.push({
                     customerId: userId,
