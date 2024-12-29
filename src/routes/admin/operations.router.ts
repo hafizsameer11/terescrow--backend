@@ -191,5 +191,5 @@ operationsRouter.get('/get-chat-stats',authenticateUser, getChatStats);
 operationsRouter.get('/get-dashboard-stats', getDashBoardStats);
 operationsRouter.get('/get-customer-stats', getCustomerStats);
 operationsRouter.get('/get-team-stats', teamStats);
-operationsRouter.get('/get-transaction-stats', transactionStats);
+operationsRouter.get('/get-transaction-stats',authenticateUser, transactionStats);
 export default operationsRouter;
