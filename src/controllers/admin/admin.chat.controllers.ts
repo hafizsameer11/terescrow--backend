@@ -106,20 +106,34 @@ export const getAllCustomerWithAgentsChats = async (
   next: NextFunction
 ) => {
   try {
-    const admin = req.body._user;
+    const user = req.body._user;
 
-    // Check if the requesting user is an admin
-    if (admin?.role !== UserRoles.admin) {
-      return next(ApiError.unauthorized('You are not authorized'));
-    }
+    // Determine role-based access
+    const isAdmin = user?.role === UserRoles.admin;
+
+    // Common filters applied to all roles
+    const baseFilter = {
+      chatType: ChatType.customer_to_agent,
+    };
+
+    // Additional filtering for non-admins
+    const roleSpecificFilter = !isAdmin
+      ? {
+          participants: {
+            some: {
+              userId: user.id,
+            },
+          },
+        }
+      : {};
 
     // Fetch chats of type 'customer_to_agent'
     const agentCustomerChats = await prisma.chat.findMany({
       where: {
-        chatType: ChatType.customer_to_agent,
+        ...baseFilter,
+        ...roleSpecificFilter,
       },
       include: {
-      
         participants: {
           select: {
             user: {
@@ -129,7 +143,7 @@ export const getAllCustomerWithAgentsChats = async (
                 firstname: true,
                 lastname: true,
                 role: true,
-                profilePicture: true, // Add this if needed
+                profilePicture: true,
               },
             },
           },
@@ -164,8 +178,8 @@ export const getAllCustomerWithAgentsChats = async (
         messages: {
           where: {
             message: {
-              not: ''
-            }
+              not: '',
+            },
           },
           take: 1,
           orderBy: {
@@ -177,7 +191,6 @@ export const getAllCustomerWithAgentsChats = async (
             createdAt: true,
           },
         },
-
       },
     });
 
@@ -185,11 +198,12 @@ export const getAllCustomerWithAgentsChats = async (
       return next(ApiError.notFound('No chats found'));
     }
 
+    // Process chat data
     const resData = agentCustomerChats.map((chat) => {
       const recentMessage = chat.messages?.[0] || null;
       const recentMessageTimestamp = recentMessage?.createdAt || null;
 
-      // Find the customer participant
+      // Identify customer and agent participants
       const customer = chat.participants.find(
         (participant) => participant.user.role === UserRoles.customer
       )?.user;
@@ -220,6 +234,7 @@ export const getAllCustomerWithAgentsChats = async (
     return next(ApiError.internal('An unexpected error occurred while fetching chats'));
   }
 };
+
 export const getSingleAgentWithCustomerChats = async (
   req: Request,
   res: Response,
