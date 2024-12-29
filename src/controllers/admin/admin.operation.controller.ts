@@ -373,10 +373,10 @@ export const getBanners = async (req: Request, res: Response, next: NextFunction
         if (!banners) {
             return next(ApiError.notFound('Banners not found'));
         }
-        const modifiedBanner = banners.map((banner) => {
-            return { ...banner, image: `${process.env.SERVER_URL}/uploads/${banner.image}` }
-        })
-        return new ApiResponse(200, modifiedBanner, 'Banners fetched successfully').send(res);
+        // const modifiedBanner = banners.map((banner) => {
+        //     return { ...banner, image: `${process.env.SERVER_URL}/uploads/${banner.image}` }
+        // })
+        return new ApiResponse(200, banners, 'Banners fetched successfully').send(res);
     }
     catch (error) {
         console.log(error);
