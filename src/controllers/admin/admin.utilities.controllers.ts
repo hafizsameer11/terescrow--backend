@@ -591,14 +591,18 @@ export const editAgent = async (req: Request, res: Response, next: NextFunction)
     });
 
     if (departmentIds.length > 0) {
-      await prisma.assignedDepartment.createMany({
+   const newDepartments=   await prisma.assignedDepartment.createMany({
         data: departmentIds.map((departmentId: number) => ({
           agentId,
           departmentId,
         })),
         skipDuplicates: true,
       });
+      if(!newDepartments){
+        return next(ApiError.badRequest('Failed to assign departments'))
+      }
     }
+
 
     return new ApiResponse(200, updatedAgent, 'Agent updated successfully').send(res);
   } catch (error) {
