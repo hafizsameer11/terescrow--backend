@@ -79,7 +79,7 @@ export const editCustomer = async (req: Request, res: Response, next: NextFuncti
         const {
             username,
             email,
-            password,
+           
             phoneNumber,
             gender,
             firstname,
@@ -87,7 +87,7 @@ export const editCustomer = async (req: Request, res: Response, next: NextFuncti
             country,
 
         } = req.body;
-        const hashedPassword = await hashPassword(password)
+        // const hashedPassword = await hashPassword(password)
         const customer = await prisma.user.update({
             where: {
                 id: parseInt(userId)
@@ -95,7 +95,6 @@ export const editCustomer = async (req: Request, res: Response, next: NextFuncti
             data: {
                 username: username,
                 email: email,
-                password: hashedPassword,
                 phoneNumber: phoneNumber,
                 gender: gender,
                 country: country,
