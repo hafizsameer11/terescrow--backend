@@ -103,7 +103,7 @@ operationsRouter.post(
   editCustomer
 );
 // operationsRouter.post('/create-agent', upload.single('profilepicture'), createAgent);
-operationsRouter.post('/update-agent/:id', editAgent);
+operationsRouter.post('/update-agent/:agentId', editAgent);
 operationsRouter.get('/get-agent/:agentId', getAgent);
 operationsRouter.get(
   '/get-customer-details/:id',
