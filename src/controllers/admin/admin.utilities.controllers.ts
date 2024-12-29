@@ -556,7 +556,7 @@ export const getAllAgents = async (
 export const editAgent = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { agentId } = req.params;
-    const { firstName, lastName, email, phoneNumber, username, gender, country, departmentIds = [], status } = req.body;
+    const { firstName, lastName, email, phoneNumber, username, gender, country, departmentIds = [], AgentStatus } = req.body;
 
     //check weather agent exists or not
     const agent = await prisma.agent.findUnique({
@@ -581,7 +581,7 @@ export const editAgent = async (req: Request, res: Response, next: NextFunction)
           },
         },
         AgentStatus: {
-          set: status
+          set: AgentStatus
         },
       },
     });
