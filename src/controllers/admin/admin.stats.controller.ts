@@ -5,48 +5,61 @@ import { io } from '../../socketConfig';
 import { Chat, ChatStatus, ChatType, PrismaClient, TransactionStatus, User, UserRoles } from '@prisma/client';
 const prisma = new PrismaClient();
 export const getChatStats = async (req: Request, res: Response, next: NextFunction) => {
-
     try {
         const user = req.body._user;
-        // const agentId = user.id;
+
+        // Conditions for filtering based on the user's role
+        const userFilter = user.role !== UserRoles.admin ? {
+            participants: { some: { userId: user.id } }
+        } : {};
+
+        // Count total chats
         const totalChats = await prisma.chat.count({
             where: {
                 chatType: ChatType.customer_to_agent,
-
-            }
-        })
-        const successfulllTransactions = await prisma.transaction.count({
-            where: {
-                status: TransactionStatus.successful,
+                ...userFilter, // Apply user filter if not admin
             },
         });
+
+        // Count successful transactions
+        const successfulTransactions = await prisma.transaction.count({
+            where: {
+                status: TransactionStatus.successful,
+                chat: {
+                    ...userFilter, // Apply user filter if not admin
+                },
+            },
+        });
+
+        // Count pending chats
         const pendingChats = await prisma.chat.count({
             where: {
                 chatDetails: {
                     status: ChatStatus.pending,
                 },
+                ...userFilter, // Apply user filter if not admin
             },
         });
+
+        // Count declined chats
         const declinedChats = await prisma.chat.count({
             where: {
                 chatDetails: {
                     status: ChatStatus.declined,
                 },
+                ...userFilter, // Apply user filter if not admin
             },
         });
+
+        // Combine results into a single object
         const data = {
-            totalChats: totalChats,
-            successfulllTransactions: successfulllTransactions,
-            pendingChats: pendingChats,
-            declinedChats: declinedChats
-        }
-        return new ApiResponse(
-            200,
-            data,
-            'Stats found successfully'
-        ).send(res);
+            totalChats,
+            successfulTransactions,
+            pendingChats,
+            declinedChats,
+        };
 
-
+        return new ApiResponse(200, data, 'Stats found successfully').send(res);
     } catch (error) {
         console.error(error);
         if (error instanceof ApiError) {
@@ -54,7 +67,8 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
         }
         return next(ApiError.internal('Internal Server Error'));
     }
-}
+};
+
 
 
 export const getDashBoardStats = async (req: Request, res: Response, next: NextFunction) => {
@@ -159,46 +173,74 @@ export const customerStats = async (req: Request, res: Response, next: NextFunct
 }
 export const transactionStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const totalTransactions = await prisma.transaction.count();
-        const totaltransactionAmountSum = await prisma.transaction.aggregate({
-            _sum: {
-                amount: true, amountNaira: true
+        const user = req.body._user;
+
+        // Apply filter if the user is not an admin
+        const userFilter = user.role !== UserRoles.admin ? {
+            department: {
+                assignedDepartments: {
+                    some: {
+                        agent: {
+                            userId: user.id
+                        }
+                    }
+                }
             }
-        })
+        } : {};
+
+        // Total Transactions
+        const totalTransactions = await prisma.transaction.count({
+            where: userFilter, // Apply filter for non-admins
+        });
+
+        // Total Transaction Amount Sum
+        const totaltransactionAmountSum = await prisma.transaction.aggregate({
+            where: userFilter, // Apply filter for non-admins
+            _sum: {
+                amount: true,
+                amountNaira: true,
+            },
+        });
+
+        // Crypto Transactions
         const cryptoTransactions = await prisma.transaction.aggregate({
             where: {
+                ...userFilter, // Apply filter for non-admins
                 department: {
-                    niche: 'crypto'
-                }
+                    niche: 'crypto',
+                },
             },
             _count: true,
             _sum: {
-                amount: true, amountNaira: true
-            }
-        })
+                amount: true,
+                amountNaira: true,
+            },
+        });
+
+        // Gift Card Transactions
         const giftCardTransactions = await prisma.transaction.aggregate({
             where: {
+                ...userFilter, // Apply filter for non-admins
                 department: {
-                    niche: 'giftCard'
-                }
+                    niche: 'giftCard',
+                },
             },
             _count: true,
             _sum: {
-                amount: true, amountNaira: true
-            }
-        })
-        const data = {
-            totalTransactions: totalTransactions,
-            totaltransactionAmountSum: totaltransactionAmountSum,
-            cryptoTransactions: cryptoTransactions,
-            giftCardTransactions: giftCardTransactions
-        }
-        return new ApiResponse(
-            200,
-            data,
-            'Stats found successfully'
-        ).send(res);
+                amount: true,
+                amountNaira: true,
+            },
+        });
 
+        // Combine data into a response object
+        const data = {
+            totalTransactions,
+            totaltransactionAmountSum,
+            cryptoTransactions,
+            giftCardTransactions,
+        };
+
+        return new ApiResponse(200, data, 'Stats found successfully').send(res);
     } catch (error) {
         console.error(error);
         if (error instanceof ApiError) {
@@ -206,7 +248,7 @@ export const transactionStats = async (req: Request, res: Response, next: NextFu
         }
         return next(ApiError.internal('Internal Server Error'));
     }
-}
+};
 
 
 export const teamStats = async (req: Request, res: Response, next: NextFunction) => {

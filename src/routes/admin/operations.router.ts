@@ -187,7 +187,7 @@ operationsRouter.get('/get-agent-customer-chats/:agentId', authenticateUser, get
 operationsRouter.get('/get-agent-team-chats/:agentId', authenticateUser, getSingleAgentWithTeam); //agent with team chats
 operationsRouter.get('/get-agent-customer-chatdetails/:chatId', authenticateUser, getAgentCustomerChatDetails);
 operationsRouter.get('/get-agent-agent-chatdetails/:chatId', authenticateUser, getAgentTeamChatDetailsController);
-operationsRouter.get('/get-chat-stats', getChatStats);
+operationsRouter.get('/get-chat-stats',authenticateUser, getChatStats);
 operationsRouter.get('/get-dashboard-stats', getDashBoardStats);
 operationsRouter.get('/get-customer-stats', getCustomerStats);
 operationsRouter.get('/get-team-stats', teamStats);
