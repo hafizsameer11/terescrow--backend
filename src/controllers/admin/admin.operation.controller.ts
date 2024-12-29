@@ -73,7 +73,7 @@ export const editCustomer = async (req: Request, res: Response, next: NextFuncti
         const userId = req.params.id;
         //get profile pictire
         const profilePicture = req.file ? req.file.filename : '';
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role !== UserRoles.admin && user.role !== UserRoles.agent)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const {
