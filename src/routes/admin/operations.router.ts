@@ -177,7 +177,7 @@ operationsRouter.get(
 );
 
 operationsRouter.get('/get-all-transactions', authenticateUser, getAllTrsansactions);
-operationsRouter.get('/get-dashboard-stats', authenticateUser, getAdminDashboardStats);
+// operationsRouter.get('/get-dashboard-stats', authenticateUser, getAdminDashboardStats);
 // operationsRouter.get('/get-customer-stats', authenticateUser,getAdminDashboardStats);
 operationsRouter.get('/get-customer-transactions/:id', authenticateUser, getTransactionForCustomer);
 operationsRouter.get('/get-customer-stats', authenticateUser, getCustomerStats);
@@ -187,9 +187,9 @@ operationsRouter.get('/get-agent-customer-chats/:agentId', authenticateUser, get
 operationsRouter.get('/get-agent-team-chats/:agentId', authenticateUser, getSingleAgentWithTeam); //agent with team chats
 operationsRouter.get('/get-agent-customer-chatdetails/:chatId', authenticateUser, getAgentCustomerChatDetails);
 operationsRouter.get('/get-agent-agent-chatdetails/:chatId', authenticateUser, getAgentTeamChatDetailsController);
-operationsRouter.get('/get-chat-stats',authenticateUser, getChatStats);
+operationsRouter.get('/get-chat-stats', authenticateUser, getChatStats);
 operationsRouter.get('/get-dashboard-stats', getDashBoardStats);
 operationsRouter.get('/get-customer-stats', getCustomerStats);
 operationsRouter.get('/get-team-stats', teamStats);
-operationsRouter.get('/get-transaction-stats',authenticateUser, transactionStats);
+operationsRouter.get('/get-transaction-stats', authenticateUser, transactionStats);
 export default operationsRouter;
