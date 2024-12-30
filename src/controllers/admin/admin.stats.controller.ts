@@ -77,7 +77,7 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
         const totalInflow = await prisma.transaction.aggregate({
             where: {
                 department: {
-                    Type: 'sell'
+                    Type: 'buy'
                 }
             },
             _sum: {
@@ -87,7 +87,7 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
         const totalOutflow = await prisma.transaction.aggregate({
             where: {
                 department: {
-                    Type: 'buy'
+                    Type: 'sell'
                 }
             },
             _sum: {
@@ -105,6 +105,15 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
                 role: UserRoles.agent
             }
         })
+        const verifiedCustomers = await prisma.user.count({
+            where: {
+                KycStateTwo: {
+                    some: {
+
+                    }
+                }
+            }
+        })
         const totalDepartments = await prisma.department.count();
         const data = {
             totalUsers: totalUsers,
@@ -113,7 +122,9 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
             totatlRevenew: totatlRevenew,
             totalTransactions: totalTransactions,
             totalDepartments: totalDepartments,
-            totalAgents: totalAgents
+            totalAgents: totalAgents,
+            totalVerifiedUsers: verifiedCustomers
+            // totalRevenue:totalInflow+totalOutflow
         }
         return new ApiResponse(
             200,
