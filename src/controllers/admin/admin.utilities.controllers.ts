@@ -209,6 +209,7 @@ export const getAllTrsansactions = async (req: Request, res: Response, next: Nex
       include: {
         department: true,
         category: true,
+        subCategory: true,
         chat: {
           select: {
             participants: {
