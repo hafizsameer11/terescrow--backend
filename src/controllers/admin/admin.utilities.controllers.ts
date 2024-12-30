@@ -231,13 +231,23 @@ export const getAllTrsansactions = async (req: Request, res: Response, next: Nex
 
     // Map customer and add profile picture URL
     const mappedTransactions = transactions.map(transaction => {
-      const customer = transaction.chat?.participants?.[0]?.user || null;
-      const agent = transaction.chat?.participants?.[1]?.user || null;
+      // Get participants
+      const participants = transaction.chat?.participants || [];
+
+      // Find customer and agent based on roles
+      const customer = participants.find(
+        participant => participant.user.role === UserRoles.customer
+      )?.user || null;
 
       if (customer && customer.profilePicture) {
         customer.profilePicture = `${BASE_URL}${customer.profilePicture}`;
       }
 
+      const agent = participants.find(
+        participant => participant.user.role === UserRoles.agent
+      )?.user || null;
+
+      // Destructure and return the updated transaction
       const { chat, ...rest } = transaction;
       return {
         ...rest,
@@ -307,13 +317,23 @@ export const getTransactionForCustomer = async (req: Request, res: Response, nex
 
     // Map customer and add profile picture URL
     const mappedTransactions = transactions.map(transaction => {
-      const customer = transaction.chat?.participants?.[0]?.user || null;
+      // Get participants
+      const participants = transaction.chat?.participants || [];
+
+      // Find customer and agent based on roles
+      const customer = participants.find(
+        participant => participant.user.role === UserRoles.customer
+      )?.user || null;
 
       if (customer && customer.profilePicture) {
         customer.profilePicture = `${BASE_URL}${customer.profilePicture}`;
       }
-      const agent = transaction.chat?.participants?.[1]?.user || null;
 
+      const agent = participants.find(
+        participant => participant.user.role === UserRoles.agent
+      )?.user || null;
+
+      // Destructure and return the updated transaction
       const { chat, ...rest } = transaction;
       return {
         ...rest,
