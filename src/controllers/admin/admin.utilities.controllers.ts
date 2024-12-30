@@ -285,16 +285,10 @@ export const getTransactionForCustomer = async (req: Request, res: Response, nex
       include: {
         department: true,
         category: true,
+        subCategory: true,
         chat: {
           select: {
             participants: {
-              where: {
-                NOT: {
-                  user: {
-                    role: UserRoles.agent
-                  }
-                }
-              },
               select: {
                 user: true
               }
@@ -318,11 +312,13 @@ export const getTransactionForCustomer = async (req: Request, res: Response, nex
       if (customer && customer.profilePicture) {
         customer.profilePicture = `${BASE_URL}${customer.profilePicture}`;
       }
+      const agent = transaction.chat?.participants?.[1]?.user || null;
 
       const { chat, ...rest } = transaction;
       return {
         ...rest,
         customer,
+        agent
       };
     });
 
