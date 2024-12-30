@@ -212,13 +212,6 @@ export const getAllTrsansactions = async (req: Request, res: Response, next: Nex
         chat: {
           select: {
             participants: {
-              where: {
-                NOT: {
-                  user: {
-                    role: UserRoles.agent
-                  }
-                }
-              },
               select: {
                 user: true
               }
@@ -415,7 +408,7 @@ export const getAllAgents = async (
 ) => {
   try {
     const admin: User = req.body._user;
-    if (admin?.role !== UserRoles.admin && admin?.role!==UserRoles.agent) {
+    if (admin?.role !== UserRoles.admin && admin?.role !== UserRoles.agent) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
@@ -591,14 +584,14 @@ export const editAgent = async (req: Request, res: Response, next: NextFunction)
     });
 
     if (assignedDepartments.length > 0) {
-   const newDepartments=   await prisma.assignedDepartment.createMany({
+      const newDepartments = await prisma.assignedDepartment.createMany({
         data: assignedDepartments.map((departmentId: number) => ({
-       agentId:   parseInt(agentId),
+          agentId: parseInt(agentId),
           departmentId,
         })),
         skipDuplicates: true,
       });
-      if(!newDepartments){
+      if (!newDepartments) {
         return next(ApiError.badRequest('Failed to assign departments'))
       }
     }
@@ -1311,12 +1304,12 @@ export const getAccountActivityofUser = async (req: Request, res: Response, next
   try {
     const { id } = req.params;
     // return new ApiResponse(200, id, 'AccountActivites retrieved successfully').send(res);
-   const accitivities=await prisma.accountActivity.findMany({
-    where:{
-      userId:parseInt(id,10)
-    }
-   })
-   return new ApiResponse(200, accitivities, 'AccountActivites retrieved successfully').send(res);
+    const accitivities = await prisma.accountActivity.findMany({
+      where: {
+        userId: parseInt(id, 10)
+      }
+    })
+    return new ApiResponse(200, accitivities, 'AccountActivites retrieved successfully').send(res);
   } catch (error) {
     console.log(error);
     if (error instanceof ApiError) {
