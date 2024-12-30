@@ -231,6 +231,7 @@ export const getAllTrsansactions = async (req: Request, res: Response, next: Nex
     // Map customer and add profile picture URL
     const mappedTransactions = transactions.map(transaction => {
       const customer = transaction.chat?.participants?.[0]?.user || null;
+      const agent = transaction.chat?.participants?.[1]?.user || null;
 
       if (customer && customer.profilePicture) {
         customer.profilePicture = `${BASE_URL}${customer.profilePicture}`;
@@ -240,6 +241,7 @@ export const getAllTrsansactions = async (req: Request, res: Response, next: Nex
       return {
         ...rest,
         customer,
+        agent
       };
     });
 
