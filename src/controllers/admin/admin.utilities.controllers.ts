@@ -183,6 +183,12 @@ export const createAgentController = async (
         });
       })
     );
+    const accountActivity = await prisma.accountActivity.create({
+      data: {
+        userId: newUser.id,
+        description: `Agent Joined`
+      }
+    })
 
     return new ApiResponse(201, undefined, 'User created successfully').send(
       res
@@ -225,29 +231,18 @@ export const getAllTrsansactions = async (req: Request, res: Response, next: Nex
       },
       take: 10
     });
-
-    // Base URL for profile picture
     const BASE_URL = `${req.protocol}://${req.get('host')}/uploads/`;
-
-    // Map customer and add profile picture URL
     const mappedTransactions = transactions.map(transaction => {
-      // Get participants
       const participants = transaction.chat?.participants || [];
-
-      // Find customer and agent based on roles
       const customer = participants.find(
         participant => participant.user.role === UserRoles.customer
       )?.user || null;
-
       if (customer && customer.profilePicture) {
         customer.profilePicture = `${BASE_URL}${customer.profilePicture}`;
       }
-
       const agent = participants.find(
         participant => participant.user.role === UserRoles.agent
       )?.user || null;
-
-      // Destructure and return the updated transaction
       const { chat, ...rest } = transaction;
       return {
         ...rest,

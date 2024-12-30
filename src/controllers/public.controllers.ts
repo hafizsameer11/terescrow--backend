@@ -78,6 +78,12 @@ export const loginController = async (
       KycStateTwo: isUser.KycStateTwo,
       unReadNotification: getNotificationCount.length
     };
+    const accountActivity = await prisma.accountActivity.create({
+      data: {
+          userId: isUser.id,
+          description: `User logged in successfully`,
+      },
+  })
 
     return new ApiResponse(
       200,

@@ -99,7 +99,12 @@ export const loginController = async (
             assignedDepartments: isUser.agent?.assignedDepartments,
             unReadNotification: getNotificationCount.length
         };
-
+        const accountActivity = await prisma.accountActivity.create({
+            data: {
+                userId: isUser.id,
+                description: `User logged in successfully`,
+            },
+        })
         return new ApiResponse(
             200,
             resData,

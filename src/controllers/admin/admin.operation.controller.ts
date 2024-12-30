@@ -79,7 +79,7 @@ export const editCustomer = async (req: Request, res: Response, next: NextFuncti
         const {
             username,
             email,
-           
+
             phoneNumber,
             gender,
             firstname,
@@ -107,6 +107,12 @@ export const editCustomer = async (req: Request, res: Response, next: NextFuncti
         if (!customer) {
             return next(ApiError.notFound('Customer not found'));
         }
+        const accountActivity = await prisma.accountActivity.create({
+            data: {
+                userId: parseInt(userId),
+                description: 'Profile updated'
+            }
+        })
         return new ApiResponse(200, customer, 'Customer updated successfully').send(res);
     } catch (error) {
         console.log(error);

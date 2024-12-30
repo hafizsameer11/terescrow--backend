@@ -40,6 +40,7 @@ export const sendMessageToTeamController = async (
             userId: {
               not: _user.id,
             },
+
           },
         },
       },
@@ -59,7 +60,6 @@ export const sendMessageToTeamController = async (
             : null,
       },
     });
-    //create in app notification
     const notification = await prisma.inAppNotification.create({
       data: {
         userId: chat.participants?.[0].userId,
@@ -71,7 +71,7 @@ export const sendMessageToTeamController = async (
     const accountActivity = await prisma.accountActivity.create({
       data: {
         userId: _user.id,
-        description: `${_user.username} Sent a message to ${chat.participants?.[0].userId}`,
+        description: `${_user.username} Sent a message to ${chat.participants?.[0].chatId}`,
       }
     })
     if (chat.chatType === ChatType.team_chat) {
