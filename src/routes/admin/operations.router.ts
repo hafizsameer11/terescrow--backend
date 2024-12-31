@@ -198,5 +198,5 @@ operationsRouter.get('/get-transaction-stats', authenticateUser, transactionStat
 
 operationsRouter.post('/update-kycstatus/:userId', authenticateUser, updateKycStatus);
 operationsRouter.get('/get-rates', authenticateUser, getRates);
-operationsRouter.get('/get-notification-for-users',authenticateUser, getNotificationForUsers);
+operationsRouter.get('/get-notification-for-users/:userId',authenticateUser, getNotificationForUsers);
 export default operationsRouter;
