@@ -78,7 +78,14 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
         const customers = await prisma.user.findMany({
             where: {
                 role: UserRoles.customer,
-            },
+            },include:{
+                inappNotification:{
+                    orderBy:{
+                        createdAt:'desc'
+                    },
+                    take:6
+                }
+            }
         });
         if (!customers) {
             return next(ApiError.notFound('Customers not found'));
