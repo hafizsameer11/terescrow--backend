@@ -206,5 +206,5 @@ operationsRouter.post('/create-role', createRoles);
 operationsRouter.get('/get-roles', getRoles);
 operationsRouter.get('/get-roles-list', getRolesList);
 operationsRouter.post('/create-permissions', addOrUpdateRolePermissions);
-operationsRouter.get('/change-status/:userId', changeUserStatus);
+operationsRouter.post('/change-status/:userId', changeUserStatus);
 export default operationsRouter;
