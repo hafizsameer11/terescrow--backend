@@ -12,6 +12,9 @@ export const createRoles = async (req: Request, res: Response, next: NextFunctio
         if (!name) {
             return next(ApiError.internal('Agent creation failed'));
         }
+        if (name == "admin" || name == "agent" || name == "customer" || name == "other") {
+            return next(ApiError.internal('You Cannot Create This Role'));
+        }
         const eixistingRole = await prisma.customRole.findUnique({
             where: {
                 name: name
