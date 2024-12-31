@@ -77,7 +77,11 @@ const registerCustomerController = async (
 
     console.log(req.body);
     const hashedPassword = await hashPassword(password);
-
+const selectCountry=await prisma.country.findUnique({
+  where: {
+    id:parseInt(country),
+  },
+})
     const newUser = await prisma.user.create({
       data: {
         firstname: firstName,
@@ -88,7 +92,7 @@ const registerCustomerController = async (
         username,
         gender: gender == 1 ? 'male' : 'female',
         // countryId: +countryId,
-        country,
+        country:selectCountry?.title || 'Nigeria',
         profilePicture,
         role: UserRoles.customer,
       },
