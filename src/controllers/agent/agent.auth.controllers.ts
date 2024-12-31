@@ -53,6 +53,13 @@ export const loginController = async (
                                 }
                             }
                         }
+
+                    }
+                }
+                ,
+                customRole: {
+                    include: {
+                        permissions: true
                     }
                 }
             },
@@ -98,6 +105,7 @@ export const loginController = async (
             KycStateTwo: isUser.KycStateTwo,
             assignedDepartments: isUser.agent?.assignedDepartments,
             unReadNotification: getNotificationCount.length
+
         };
         const accountActivity = await prisma.accountActivity.create({
             data: {
