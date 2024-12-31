@@ -29,8 +29,14 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
             },
             include: {
                 KycStateTwo: true,
-                AccountActivity: true
+                AccountActivity: {
+                    orderBy: {
+                        createdAt: 'desc'
+                    }
+
+                }
             },
+
         });
         if (!customer) {
             return next(ApiError.notFound('Customer not found'));
