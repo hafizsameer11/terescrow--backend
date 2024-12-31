@@ -48,6 +48,7 @@ import {
 
   getNotifications,
   getRates,
+  getTeamMembers,
   updateBanner,
   updateKycStatus,
   updateNotification,
@@ -124,6 +125,7 @@ operationsRouter.get(
 operationsRouter.get('/get-all-agents', authenticateUser, getAllAgents);
 operationsRouter.get('/get-all-users', authenticateUser, getAllUsers);
 operationsRouter.get('/get-team-members', authenticateUser, getAgents);
+operationsRouter.get('/get-team-members-2', authenticateUser, getTeamMembers);
 
 /*  operational routes for rates , sub categories */
 operationsRouter.post('/create-rate', authenticateUser, createRate);

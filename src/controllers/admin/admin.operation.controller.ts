@@ -78,12 +78,12 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
         const customers = await prisma.user.findMany({
             where: {
                 role: UserRoles.customer,
-            },include:{
-                inappNotification:{
-                    orderBy:{
-                        createdAt:'desc'
+            }, include: {
+                inappNotification: {
+                    orderBy: {
+                        createdAt: 'desc'
                     },
-                    take:6
+                    take: 6
                 }
             }
         });
@@ -328,6 +328,31 @@ export const getAgents = async (req: Request, res: Response, next: NextFunction)
                         createdAt: true
                     },
                 },
+            }
+        })
+        if (!agents) {
+            return next(ApiError.notFound('Agents not found'));
+        }
+        return new ApiResponse(200, agents, 'Agents fetched successfully').send(res);
+    } catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to get agents for customer'));
+    }
+}
+export const getTeamMembers = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const agents = await prisma.user.findMany({
+            include: {
+                customRole: true,
+                agent: true,
+
             }
         })
         if (!agents) {
@@ -783,7 +808,7 @@ export const getNotificationForUsers = async (req: Request, res: Response, next:
             where: {
                 userId: parseInt(userId)
             },
-            take:8,
+            take: 8,
             orderBy: {
                 createdAt: 'desc'
             }
