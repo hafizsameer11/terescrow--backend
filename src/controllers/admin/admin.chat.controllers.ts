@@ -110,14 +110,15 @@ export const getAllCustomerWithAgentsChats = async (
 
     // Determine role-based access
     const isAdmin = user?.role === UserRoles.admin;
+    const isAgent = user?.role === UserRoles.agent;
 
     // Common filters applied to all roles
     const baseFilter = {
       chatType: ChatType.customer_to_agent,
     };
 
-    // Additional filtering for non-admins
-    const roleSpecificFilter = !isAdmin
+    // Additional filtering for agents
+    const roleSpecificFilter = isAgent
       ? {
           participants: {
             some: {
@@ -127,7 +128,7 @@ export const getAllCustomerWithAgentsChats = async (
         }
       : {};
 
-    // Fetch chats of type 'customer_to_agent'
+    // Fetch chats with filters
     const agentCustomerChats = await prisma.chat.findMany({
       where: {
         ...baseFilter,
@@ -234,6 +235,7 @@ export const getAllCustomerWithAgentsChats = async (
     return next(ApiError.internal('An unexpected error occurred while fetching chats'));
   }
 };
+
 
 export const getSingleAgentWithCustomerChats = async (
   req: Request,
@@ -495,7 +497,7 @@ export const getAgentCustomerChatDetails = async (
     const admin: User = req.body._user;
 
     // Verify if the user is an admin
-    if (!admin ) {
+    if (!admin) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
@@ -548,7 +550,7 @@ export const getAgentCustomerChatDetails = async (
     }
 
     // Mark messages as read if applicable
-   
+
 
     // Prepare the response data
     const {
