@@ -150,10 +150,8 @@ export const customerStats = async (req: Request, res: Response, next: NextFunct
         const verifiedCustomers = await prisma.user.count({
             where: {
                 role: UserRoles.customer,
-                KycStateTwo: {
-                    some: {}
 
-                }
+                status: 'active'
             }
 
         })
