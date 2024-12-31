@@ -61,7 +61,8 @@ export const loginController = async (
                     include: {
                         permissions: true
                     }
-                }
+                },
+                AccountActivity: true
             },
         });
         //check if not agent than show error
@@ -105,7 +106,8 @@ export const loginController = async (
             KycStateTwo: isUser.KycStateTwo,
             assignedDepartments: isUser.agent?.assignedDepartments,
             unReadNotification: getNotificationCount.length,
-            customRole: isUser.customRole
+            customRole: isUser.customRole,
+            accountActivity: isUser.AccountActivity
 
         };
         const accountActivity = await prisma.accountActivity.create({
