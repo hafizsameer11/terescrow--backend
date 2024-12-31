@@ -828,6 +828,7 @@ export const changeUserStatus = async (req: Request, res: Response, next: NextFu
     try {
         const userId = req.params.userId;
         const { status } = req.body;
+        console.log(req.body);
         const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
         if (!user) {
             return next(ApiError.notFound('User not found'));
