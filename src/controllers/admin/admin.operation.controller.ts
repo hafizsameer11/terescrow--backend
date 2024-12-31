@@ -30,6 +30,7 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
             include: {
                 KycStateTwo: true,
                 AccountActivity: {
+                    take:6,
                     orderBy: {
                         createdAt: 'desc'
                     }
