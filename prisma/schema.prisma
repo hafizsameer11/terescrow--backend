@@ -15,6 +15,7 @@ enum UserRoles {
   admin
   agent
   customer
+  other
 }
 
 enum ChatStatus {
@@ -108,8 +109,31 @@ model User {
   notes             Notes[]
   KycStateTwo       KycStateTwo[]
   AccountActivity   AccountActivity[]
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  customRole        CustomRole?         @relation(fields: [customRoleId], references: [id])
+  customRoleId      Int? // Nullable for predefined roles (e.g., admin, agent)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CustomRole {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique // E.g., 'Manager', 'Accountant'
+  permissions RolePermission[] // Relation to RolePermission table
+  users       User[] // Users assigned to this role
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model RolePermission {
+  id         Int        @id @default(autoincrement())
+  roleId     Int
+  moduleName String // E.g., 'Customer', 'Chat', 'Transactions'
+  canCreate  Boolean    @default(false)
+  canUpdate  Boolean    @default(false)
+  canDelete  Boolean    @default(false)
+  canSee     Boolean    @default(false)
+  Role       CustomRole @relation(fields: [roleId], references: [id])
 }
 
 model UserOTP {
@@ -261,7 +285,7 @@ model ChatGroup {
   groupProfile String?
   chatId       Int     @unique
   chat         Chat    @relation(fields: [chatId], references: [id])
-  adminId      Int        @unique
+  adminId      Int     @unique
   admin        User    @relation(fields: [adminId], references: [id])
 }
 

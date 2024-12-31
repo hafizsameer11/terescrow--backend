@@ -35,7 +35,7 @@ const registerCustomerController = async (
 
     // Convert 'false'/'true' strings to actual boolean values
     const isTermsAccepted = termsAccepted === 'true';
-    
+
     if (!isTermsAccepted) {
       return next(ApiError.badRequest('Please accept terms and conditions'));
     }
@@ -517,7 +517,7 @@ export const editProfileController = async (
     if (!user) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
-const profilePicture=req.file?.filename;
+    const profilePicture = req.file?.filename;
     const {
       firstName,
       lastName,
@@ -578,7 +578,7 @@ const profilePicture=req.file?.filename;
         username: userName || existingUser.username,
         gender: gender || existingUser.gender,
         countryId: countryId || existingUser.countryId,
-        profilePicture:profilePicture || existingUser.profilePicture,
+        profilePicture: profilePicture || existingUser.profilePicture,
       },
     });
 
