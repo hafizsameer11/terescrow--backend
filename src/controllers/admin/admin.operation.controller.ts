@@ -17,40 +17,57 @@ Customer Controller
 */
 export const getCustomerDetails = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const user = req.body._user
-        // return new ApiResponse(201, user, 'Transaction created successfully').send(res);
-        if (!user || (user.role !== UserRoles.admin)) {
+        const user = req.body._user;
+        if (!user || user.role !== UserRoles.admin) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
+
         const userId = req.params.id;
         const customer = await prisma.user.findUnique({
             where: {
                 id: parseInt(userId),
             },
             include: {
-                KycStateTwo: true,
-                AccountActivity: {
-                    take:6,
+                KycStateTwo: {
+                    take: 1, // Limit to the first record
                     orderBy: {
-                        createdAt: 'desc'
-                    }
-
-                }
+                        createdAt: 'desc', // Sort by `createdAt` in descending order
+                    },
+                },
+                AccountActivity: {
+                    take: 6, // Fetch the latest 6 activities
+                    orderBy: {
+                        createdAt: 'desc', // Sort by `createdAt` in descending order
+                    },
+                },
             },
-
         });
+
         if (!customer) {
             return next(ApiError.notFound('Customer not found'));
         }
-        return new ApiResponse(200, customer, 'Customer details fetched successfully').send(res);
+
+        // Extract the first KycStateTwo object or return null if none exist
+        const kycStateTwo = customer.KycStateTwo.length > 0 ? customer.KycStateTwo[0] : null;
+
+        // Return the response with the single KycStateTwo object
+        return new ApiResponse(
+            200,
+            {
+                ...customer,
+                KycStateTwo: kycStateTwo, // Replace array with the single object
+            },
+            'Customer details fetched successfully'
+        ).send(res);
     } catch (error) {
         console.log(error);
         if (error instanceof ApiError) {
             return next(error);
         }
-        next(ApiError.internal('Failed to change department status'));
+        next(ApiError.internal('Failed to fetch customer details'));
     }
 };
+
 export const getAllCustomers = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
