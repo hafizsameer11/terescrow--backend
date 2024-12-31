@@ -37,7 +37,11 @@ export const loginController = async (
     const isUser = await prisma.user.findUnique({
       where: { email },
       include: {
-        KycStateTwo: true,
+        KycStateTwo: {
+          orderBy:{
+            createdAt:'desc'
+          }
+        },
       },
     });
     if (!isUser) {
@@ -75,7 +79,7 @@ export const loginController = async (
       country: isUser.country,
       gender: isUser.gender,
       isVerified: isUser.isVerified,
-      KycStateTwo: isUser.KycStateTwo,
+      KycStateTwo: isUser.KycStateTwo[0],
       unReadNotification: getNotificationCount.length
     };
     const accountActivity = await prisma.accountActivity.create({
