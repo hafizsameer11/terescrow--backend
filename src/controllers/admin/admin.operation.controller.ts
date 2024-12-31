@@ -28,7 +28,8 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
                 id: parseInt(userId),
             },
             include: {
-                KycStateTwo: true
+                KycStateTwo: true,
+                AccountActivity: true
             },
         });
         if (!customer) {
@@ -699,12 +700,32 @@ export const getDepartmentStatsByTransaction = async (
         next(ApiError.internal('Failed to get department stats by transaction'));
     }
 };
+export const updateKycStatus = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.params.userId;
+        const { kycStatus } = req.body;
+        const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
+        if (!user) {
+            return next(ApiError.notFound('User not found'));
+        }
+        // const updateKyc 
+        const updateKycStates = await prisma.kycStateTwo.updateMany({
+            where: {
+                userId: parseInt(userId)
+            }, data: {
+                state: kycStatus
+            }
+        })
+        if (!updateKycStates) {
+            return next(ApiError.badRequest('Failed to update kyc status'))
+        }
+        return new ApiResponse(200, updateKycStates, 'Kyc status updated successfully').send(res);
 
-/**
- * 
- * 
- * 
- * Transaction controller
- * 
- * 
- */
+    } catch (error) {
+        console.log(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to update kyc status'));
+    }
+}

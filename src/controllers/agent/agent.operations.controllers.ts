@@ -101,7 +101,19 @@ export const createTransactionCard = async (
           type: InAppNotificationType.customeer
         },
       });
+      const customerActivity = await prisma.accountActivity.create({
+        data: {
+          userId: customer.id,
+          description: 'Create a transaction for customer'
+        }
+      })
     }
+    const accountActivityy = await prisma.accountActivity.create({
+      data: {
+        userId: agent.id,
+        description: 'Create a transaction for customer'
+      }
+    });
     //create notification for agent
     const agentNotification = await prisma.inAppNotification.create({
       data: {
@@ -244,6 +256,12 @@ export const createTransactionCrypto = async (
           type: InAppNotificationType.customeer
         },
       });
+      const customerActivity = await prisma.accountActivity.create({
+        data: {
+          userId: customer.id,
+          description: 'Create a transaction for customer'
+        }
+      })
     }
     //create notification for agent
     const agentNotification = await prisma.inAppNotification.create({
@@ -258,6 +276,12 @@ export const createTransactionCrypto = async (
     if (!currChat || currChat.participants.length === 0) {
       return next(ApiError.notFound('Chat not found'));
     }
+    const accountActivityy = await prisma.accountActivity.create({
+      data: {
+        userId: agent.id,
+        description: 'Create a transaction for customer'
+      }
+    });
 
     // Create a new transaction
     const transaction = await prisma.transaction.create({

@@ -261,7 +261,7 @@ model ChatGroup {
   groupProfile String?
   chatId       Int     @unique
   chat         Chat    @relation(fields: [chatId], references: [id])
-  adminId      Int     
+  adminId      Int        @unique
   admin        User    @relation(fields: [adminId], references: [id])
 }
 
@@ -411,6 +411,7 @@ model KycStateTwo {
   status    KycTier
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
+  state     String   @default("pending")
 }
 
 model AccountActivity {

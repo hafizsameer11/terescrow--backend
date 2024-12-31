@@ -47,6 +47,7 @@ import {
   getNotifications,
   getRates,
   updateBanner,
+  updateKycStatus,
   updateNotification,
 } from '../../controllers/admin/admin.operation.controller';
 import { getAgentCustomerChatDetails, getAgentTeamChatDetailsController, getAllCustomerWithAgentsChats, getSingleAgentWithCustomerChats, getSingleAgentWithTeam } from '../../controllers/admin/admin.chat.controllers';
@@ -192,4 +193,6 @@ operationsRouter.get('/get-dashboard-stats', getDashBoardStats);
 operationsRouter.get('/get-customer-stats', getCustomerStats);
 operationsRouter.get('/get-team-stats', teamStats);
 operationsRouter.get('/get-transaction-stats', authenticateUser, transactionStats);
+
+operationsRouter.post('/update-kycstatus/:userId', authenticateUser, updateKycStatus);
 export default operationsRouter;
