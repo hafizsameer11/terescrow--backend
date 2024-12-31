@@ -776,6 +776,7 @@ export const getNotificationForUsers = async (req: Request, res: Response, next:
             where: {
                 userId: parseInt(userId)
             },
+            take:8,
             orderBy: {
                 createdAt: 'desc'
             }
