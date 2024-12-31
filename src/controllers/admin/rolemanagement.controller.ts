@@ -46,6 +46,8 @@ export const createRoles = async (req: Request, res: Response, next: NextFunctio
 export const addOrUpdateRolePermissions = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { roleName, permissions } = req.body;
+
+        // Validate input
         if (!roleName || !permissions || !Array.isArray(permissions)) {
             return next(ApiError.badRequest('Role name and permissions are required.'));
         }
@@ -59,26 +61,41 @@ export const addOrUpdateRolePermissions = async (req: Request, res: Response, ne
             return next(ApiError.badRequest(`Role '${roleName}' does not exist.`));
         }
 
-        // Delete existing permissions for the role
-        await prisma.rolePermission.deleteMany({
-            where: { roleId: role.id },
-        });
+        for (const perm of permissions) {
+            const existingPermission = await prisma.rolePermission.findFirst({
+                where: {
+                    roleId: role.id,
+                    moduleName: perm.moduleName,
+                },
+            });
 
-        // Add new permissions
-        const newPermissions = permissions.map((perm: any) => ({
-            roleId: role.id,
-            moduleName: perm.moduleName,
-            canCreate: perm.canCreate || false,
-            canUpdate: perm.canUpdate || false,
-            canDelete: perm.canDelete || false,
-            canSee: perm.canSee || false,
-        }));
+            if (existingPermission) {
+                // Update existing permission
+                await prisma.rolePermission.update({
+                    where: { id: existingPermission.id },
+                    data: {
+                        canCreate: perm.canCreate || false,
+                        canUpdate: perm.canUpdate || false,
+                        canDelete: perm.canDelete || false,
+                        canSee: perm.canSee || false,
+                    },
+                });
+            } else {
+                // Create new permission
+                await prisma.rolePermission.create({
+                    data: {
+                        roleId: role.id,
+                        moduleName: perm.moduleName,
+                        canCreate: perm.canCreate || false,
+                        canUpdate: perm.canUpdate || false,
+                        canDelete: perm.canDelete || false,
+                        canSee: perm.canSee || false,
+                    },
+                });
+            }
+        }
 
-        await prisma.rolePermission.createMany({
-            data: newPermissions,
-        });
-
-        return new ApiResponse(200, 'Permissions updated successfully.', 'Permissions successfully assigned to the role.').send(res);
+        return new ApiResponse(200, 'Permissions updated successfully.', 'Permissions successfully updated or created for the role.').send(res);
     } catch (error) {
         console.error('Error assigning permissions:', error);
 
@@ -89,6 +106,7 @@ export const addOrUpdateRolePermissions = async (req: Request, res: Response, ne
         next(ApiError.internal('Internal Server Error'));
     }
 };
+
 
 export const getRoles = async (req: Request, res: Response, next: NextFunction) => {
     try {
