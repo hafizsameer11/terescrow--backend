@@ -1,5 +1,5 @@
 -- AlterTable
-ALTER TABLE `notification` MODIFY `type` ENUM('admin', 'agent', 'customer', 'other') NOT NULL;
+ALTER TABLE `User` MODIFY `role` ENUM('admin', 'agent', 'customer', 'other') NOT NULL;
 
 -- AlterTable
 ALTER TABLE `user` ADD COLUMN `customRoleId` INTEGER NULL,
