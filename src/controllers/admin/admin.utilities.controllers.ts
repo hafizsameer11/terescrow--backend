@@ -1406,9 +1406,9 @@ export const createTeamMember = async (
         country: countr,
         gender,
         countryId: 1,
-        role: UserRoles.agent,
+        role: UserRoles. other,
         profilePicture,
-        customRoleId
+        customRoleId:parseInt(customRoleId)
       },
     });
 
