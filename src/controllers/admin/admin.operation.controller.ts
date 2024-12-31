@@ -727,7 +727,7 @@ export const getDepartmentStatsByTransaction = async (
 export const updateKycStatus = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const userId = req.params.userId;
-        const { kycStatus } = req.body;
+        const { status } = req.body;
         const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
         if (!user) {
             return next(ApiError.notFound('User not found'));
@@ -737,7 +737,7 @@ export const updateKycStatus = async (req: Request, res: Response, next: NextFun
             where: {
                 userId: parseInt(userId)
             }, data: {
-                state: kycStatus
+                state: status
             }
         })
         if (!updateKycStates) {
