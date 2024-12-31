@@ -245,21 +245,31 @@ export const createRate = async (req: Request, res: Response, next: NextFunction
 export const getRates = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.agent && user.role !== UserRoles.admin)) {
+        if (!user) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
-        const rates = await prisma.rate.findMany({
-            include: {
-                agent: {
+        const rates = await prisma.transaction.findMany({
+            select: {
+                amount: true,
+                id: true,
+                amountNaira: true,
+                exchangeRate: true,
+                createdAt: true,
+                chat: {
                     select: {
-                        user: {
-                            select: {
-                                id: true,
-                                username: true
+                        participants: {
+                            where: {
+                                user: {
+                                    role: UserRoles.agent
+                                }
+                            },
+                            include: {
+                                user: true
                             }
                         }
                     }
                 }
+
             }
         })
         if (!rates) {
@@ -269,10 +279,10 @@ export const getRates = async (req: Request, res: Response, next: NextFunction) 
             return {
                 id: rate.id,
                 amount: rate.amount,
-                agent: rate.agent.user.username,
-                rate: rate.rate,
+                agent: rate.chat.participants[0].user.username,
+                rate: rate.exchangeRate,
                 amountNaira: rate.amountNaira,
-                chatId: rate.chatId,
+                // chatId: rate.chatId,
                 createdAt: rate.createdAt
             }
 

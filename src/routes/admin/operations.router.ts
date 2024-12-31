@@ -195,4 +195,5 @@ operationsRouter.get('/get-team-stats', teamStats);
 operationsRouter.get('/get-transaction-stats', authenticateUser, transactionStats);
 
 operationsRouter.post('/update-kycstatus/:userId', authenticateUser, updateKycStatus);
+operationsRouter.get('/get-rates', authenticateUser, getRates);
 export default operationsRouter;
