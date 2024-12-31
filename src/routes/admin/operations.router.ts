@@ -29,6 +29,7 @@ import {
 } from '../../controllers/admin/admin.utilities.controllers';
 import upload from '../../middlewares/multer.middleware';
 import {
+  changeUserStatus,
   createBanner,
   createNotification,
   createRate,
@@ -183,8 +184,6 @@ operationsRouter.get(
 );
 
 operationsRouter.get('/get-all-transactions', authenticateUser, getAllTrsansactions);
-// operationsRouter.get('/get-dashboard-stats', authenticateUser, getAdminDashboardStats);
-// operationsRouter.get('/get-customer-stats', authenticateUser,getAdminDashboardStats);
 operationsRouter.get('/get-customer-transactions/:id', authenticateUser, getTransactionForCustomer);
 operationsRouter.get('/get-customer-stats', authenticateUser, getCustomerStats);
 operationsRouter.get('/get-department-transaction', authenticateUser, getDepartmentStatsByTransaction);
@@ -207,4 +206,5 @@ operationsRouter.post('/create-role', createRoles);
 operationsRouter.get('/get-roles', getRoles);
 operationsRouter.get('/get-roles-list', getRolesList);
 operationsRouter.post('/create-permissions', addOrUpdateRolePermissions);
+operationsRouter.get('/change-status/:userId', changeUserStatus);
 export default operationsRouter;

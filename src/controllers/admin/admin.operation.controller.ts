@@ -823,3 +823,30 @@ export const getNotificationForUsers = async (req: Request, res: Response, next:
         next(ApiError.internal('Failed to get notification for users'));
     }
 }
+
+export const changeUserStatus = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.params.userId;
+        const { status } = req.body;
+        const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
+        if (!user) {
+            return next(ApiError.notFound('User not found'));
+        }
+        const updatedUser = await prisma.user.update({
+            where: { id: parseInt(userId) },
+            data: {
+                status: status
+            }
+        });
+        if (!updatedUser) {
+            return next(ApiError.badRequest('Failed to update user status'));
+        }
+        return new ApiResponse(200, updatedUser, 'User status updated successfully').send(res);
+    } catch (error) {
+        console.error(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to change user status'));
+    }
+}

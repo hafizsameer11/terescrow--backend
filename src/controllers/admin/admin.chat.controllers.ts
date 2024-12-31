@@ -120,12 +120,12 @@ export const getAllCustomerWithAgentsChats = async (
     // Additional filtering for agents
     const roleSpecificFilter = isAgent
       ? {
-          participants: {
-            some: {
-              userId: user.id,
-            },
+        participants: {
+          some: {
+            userId: user.id,
           },
-        }
+        },
+      }
       : {};
 
     // Fetch chats with filters

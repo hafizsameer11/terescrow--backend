@@ -110,10 +110,11 @@ model User {
   KycStateTwo       KycStateTwo[]
   AccountActivity   AccountActivity[]
   customRole        CustomRole?         @relation(fields: [customRoleId], references: [id])
-  customRoleId      Int? // Nullable for predefined roles (e.g., admin, agent)
+  customRoleId      Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  status    String   @default("active")
 }
 
 model CustomRole {
