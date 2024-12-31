@@ -83,6 +83,9 @@ export const getAllChatsWithTeamController = async (
             },
           },
         },
+        orderBy:{
+          createdAt: 'desc'
+        }
       });
     } else {
       // Agent-specific logic

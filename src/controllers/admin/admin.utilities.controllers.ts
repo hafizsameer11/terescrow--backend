@@ -1406,9 +1406,9 @@ export const createTeamMember = async (
         country: countr,
         gender,
         countryId: 1,
-        role: UserRoles. other,
+        role: UserRoles.other,
         profilePicture,
-        customRoleId:parseInt(customRoleId)
+        customRoleId: parseInt(customRoleId)
       },
     });
 
@@ -1416,7 +1416,7 @@ export const createTeamMember = async (
       return next(ApiError.internal('User creation failed'));
     }
 
-        const allUsers = await prisma.user.findMany({
+    const allUsers = await prisma.user.findMany({
       where: {
         AND: [
           {

@@ -192,7 +192,11 @@ export const getAllCustomerWithAgentsChats = async (
             createdAt: true,
           },
         },
+
       },
+      orderBy: {
+        createdAt: 'desc',
+      }
     });
 
     if (!agentCustomerChats.length) {

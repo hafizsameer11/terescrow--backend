@@ -277,6 +277,9 @@ export const getRates = async (req: Request, res: Response, next: NextFunction) 
                     }
                 }
 
+            },
+            orderBy: {
+                createdAt: 'desc'
             }
         })
         if (!rates) {
