@@ -763,3 +763,30 @@ export const updateKycStatus = async (req: Request, res: Response, next: NextFun
         next(ApiError.internal('Failed to update kyc status'));
     }
 }
+
+export const getNotificationForUsers = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+
+        const userId = req.params.userId;
+        const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
+        if (!user) {
+            return next(ApiError.notFound('User not found'));
+        }
+        const notifications = await prisma.inAppNotification.findMany({
+            where: {
+                userId: parseInt(userId)
+            },
+            orderBy: {
+                createdAt: 'desc'
+            }
+        });
+        return new ApiResponse(200, notifications, 'Notification fetched successfully').send(res);
+
+    } catch (error) {
+        console.error(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to get notification for users'));
+    }
+}
