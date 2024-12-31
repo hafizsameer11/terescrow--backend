@@ -22,7 +22,7 @@ export const kycTierTwoRequest = async (req: Request, res: Response, next: NextF
                 surName: surName,
                 dob: dateofBirth || '',
                 userId: userId,
-                status: 'tier2'
+                status: 'tier1'
             }
         });
         if (!kycTierTwoRequest) {
