@@ -135,3 +135,18 @@ export const getRoles = async (req: Request, res: Response, next: NextFunction) 
         return next(ApiError.internal('Failed to fetch roles.'));
     }
 };
+export const getRolesList = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const roles = await prisma.customRole.findMany();
+        if (!roles) {
+            return next(ApiError.internal('No roles found.'));
+        }
+        return new ApiResponse(200, roles, 'Roles fetched successfully.').send(res);
+    } catch (error) {
+        console.error('Error fetching roles:', error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        return next(ApiError.internal('Failed to fetch roles.'));
+    }
+};

@@ -1348,3 +1348,123 @@ interface AgentRequest {
   departmentIds?: number[]; // Optional, can be empty or undefined
   countryId?: number;
 }
+
+
+
+
+//create other team Members
+export const createTeamMember = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      throw ApiError.badRequest(
+        'Please enter valid credentials',
+        errors.array()
+      );
+    }
+
+    const {
+      firstName,
+      lastName,
+      email,
+      phoneNumber,
+      password,
+      username,
+      gender,
+      countryId = 1,
+      countr = '',
+      customRoleId
+    } = req.body;
+
+    const profilePicture = req.file ? req.file.filename : '';
+
+    // Check if user already exists
+    const isUser = await prisma.user.findFirst({
+      where: {
+        OR: [{ email }, { username }, { phoneNumber }],
+      },
+    });
+
+    if (isUser) {
+      return next(ApiError.badRequest('This user is already registered'));
+    }
+
+    // Create user
+    const hashedPassword = await hashPassword(password);
+    const newUser = await prisma.user.create({
+      data: {
+        firstname: firstName,
+        lastname: lastName,
+        email,
+        phoneNumber,
+        password: hashedPassword,
+        username,
+        country: countr,
+        gender,
+        countryId: 1,
+        role: UserRoles.agent,
+        profilePicture,
+        customRoleId
+      },
+    });
+
+    if (!newUser) {
+      return next(ApiError.internal('User creation failed'));
+    }
+
+        const allUsers = await prisma.user.findMany({
+      where: {
+        AND: [
+          {
+            role: {
+              not: UserRoles.customer,
+            },
+          },
+          {
+            id: {
+              not: newUser.id,
+            },
+          },
+        ],
+      },
+    });
+    await Promise.all(
+      allUsers.map(async (user) => {
+        const newChat = await prisma.chat.create({
+          data: {
+            chatType: ChatType.team_chat,
+          },
+        });
+
+        // Add participants to the chat
+        await prisma.chatParticipant.createMany({
+          data: [
+            { chatId: newChat.id, userId: user.id },
+            { chatId: newChat.id, userId: newUser.id },
+          ],
+        });
+      })
+    );
+    const accountActivity = await prisma.accountActivity.create({
+      data: {
+        userId: newUser.id,
+        description: `Team Member Joined`
+      }
+    })
+
+    return new ApiResponse(201, undefined, 'User created successfully').send(
+      res
+    );
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+};

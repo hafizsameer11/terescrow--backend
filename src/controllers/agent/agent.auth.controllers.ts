@@ -128,3 +128,4 @@ export const loginController = async (
         next(ApiError.internal('Internal Server Error'));
     }
 };
+// export const getRoleList
