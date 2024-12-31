@@ -54,6 +54,7 @@ import {
 } from '../../controllers/admin/admin.operation.controller';
 import { getAgentCustomerChatDetails, getAgentTeamChatDetailsController, getAllCustomerWithAgentsChats, getSingleAgentWithCustomerChats, getSingleAgentWithTeam } from '../../controllers/admin/admin.chat.controllers';
 import { getChatStats, getDashBoardStats, teamStats, transactionStats } from '../../controllers/admin/admin.stats.controller';
+import { addOrUpdateRolePermissions, createRoles, getRoles } from '../../controllers/admin/rolemanagement.controller';
 
 const operationsRouter = express.Router();
 
@@ -199,4 +200,8 @@ operationsRouter.get('/get-transaction-stats', authenticateUser, transactionStat
 operationsRouter.post('/update-kycstatus/:userId', authenticateUser, updateKycStatus);
 operationsRouter.get('/get-rates', authenticateUser, getRates);
 operationsRouter.get('/get-notification-for-users/:userId',authenticateUser, getNotificationForUsers);
+//role management part
+operationsRouter.post('/create-role',createRoles);
+operationsRouter.get('/get-roles',getRoles);
+operationsRouter.post('/create-permissions',addOrUpdateRolePermissions);
 export default operationsRouter;
