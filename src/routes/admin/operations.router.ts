@@ -55,7 +55,7 @@ import {
   updateNotification,
 } from '../../controllers/admin/admin.operation.controller';
 import { getAgentCustomerChatDetails, getAgentTeamChatDetailsController, getAllCustomerWithAgentsChats, getSingleAgentWithCustomerChats, getSingleAgentWithTeam } from '../../controllers/admin/admin.chat.controllers';
-import { getChatStats, getDashBoardStats, teamStats, transactionStats } from '../../controllers/admin/admin.stats.controller';
+import { customerStats, getChatStats, getDashBoardStats, teamStats, transactionStats } from '../../controllers/admin/admin.stats.controller';
 import { addOrUpdateRolePermissions, createRoles, getRoles, getRolesList } from '../../controllers/admin/rolemanagement.controller';
 
 const operationsRouter = express.Router();
@@ -185,7 +185,7 @@ operationsRouter.get(
 
 operationsRouter.get('/get-all-transactions', authenticateUser, getAllTrsansactions);
 operationsRouter.get('/get-customer-transactions/:id', authenticateUser, getTransactionForCustomer);
-operationsRouter.get('/get-customer-stats', authenticateUser, getCustomerStats);
+// operationsRouter.get('/get-customer-stats', authenticateUser, getCustomerStats);
 operationsRouter.get('/get-department-transaction', authenticateUser, getDepartmentStatsByTransaction);
 operationsRouter.get('/get-all-agent-to-customer-chats', authenticateUser, getAllCustomerWithAgentsChats); //all chats
 operationsRouter.get('/get-agent-customer-chats/:agentId', authenticateUser, getSingleAgentWithCustomerChats); //agent with customer chats
@@ -194,7 +194,7 @@ operationsRouter.get('/get-agent-customer-chatdetails/:chatId', authenticateUser
 operationsRouter.get('/get-agent-agent-chatdetails/:chatId', authenticateUser, getAgentTeamChatDetailsController);
 operationsRouter.get('/get-chat-stats', authenticateUser, getChatStats);
 operationsRouter.get('/get-dashboard-stats', getDashBoardStats);
-operationsRouter.get('/get-customer-stats', getCustomerStats);
+operationsRouter.get('/get-customer-stats', customerStats);
 operationsRouter.get('/get-team-stats', teamStats);
 operationsRouter.get('/get-transaction-stats', authenticateUser, transactionStats);
 
