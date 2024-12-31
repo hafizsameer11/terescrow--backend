@@ -104,7 +104,8 @@ export const loginController = async (
             isVerified: isUser.isVerified,
             KycStateTwo: isUser.KycStateTwo,
             assignedDepartments: isUser.agent?.assignedDepartments,
-            unReadNotification: getNotificationCount.length
+            unReadNotification: getNotificationCount.length,
+            customRole: isUser.customRole
 
         };
         const accountActivity = await prisma.accountActivity.create({
