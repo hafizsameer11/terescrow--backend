@@ -269,10 +269,14 @@ export const getAllChatsWithCustomerController = async (
         messages: {
           take: 1,
           orderBy: {
-            createdAt: 'asc',
+            createdAt: 'desc',
           },
         },
       },
+      orderBy: {
+        updatedAt: 'desc',
+      }
+
      
     });
 
