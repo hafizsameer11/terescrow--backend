@@ -273,11 +273,7 @@ export const getAllChatsWithCustomerController = async (
           },
         },
       },
-      orderBy: {
-        messages: {
-          _count: 'desc',
-        },
-      },
+     
     });
 
     if (!chats) {
