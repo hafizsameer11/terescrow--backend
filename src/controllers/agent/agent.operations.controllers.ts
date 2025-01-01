@@ -85,7 +85,7 @@ export const createTransactionCard = async (
         amount: parseFloat(amount),
         exchangeRate: exchangeRate ? parseFloat(exchangeRate) : null,
         amountNaira: amountNaira ? parseFloat(amountNaira) : null,
-        status: TransactionStatus.pending,
+        status: TransactionStatus.successful,
       },
     });
     //create notification for customer
@@ -296,7 +296,7 @@ export const createTransactionCrypto = async (
         cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
         fromAddress: fromAddress || null,
         toAddress: toAddress || null,
-        status: TransactionStatus.pending,
+        status: TransactionStatus.successful,
       },
     });
     if (!transaction) {
