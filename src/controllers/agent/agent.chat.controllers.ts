@@ -215,9 +215,10 @@ export const getAllChatsWithCustomerController = async (
     const hostUrl = `${req.protocol}://${req.get('host')}`;
 
     // Determine the filter based on user role
-    const filter = user.role === 'admin'
-      ? { chatType: ChatType.customer_to_agent } // Fetch all chats for admin
-      : {
+    const filter =
+      user.role === 'admin'
+        ? { chatType: ChatType.customer_to_agent } // Fetch all chats for admin
+        : {
           AND: [
             {
               participants: {
@@ -252,11 +253,6 @@ export const getAllChatsWithCustomerController = async (
           },
         },
         participants: {
-          where: {
-            userId: {
-              not: user.id,
-            },
-          },
           select: {
             user: {
               select: {
@@ -265,6 +261,7 @@ export const getAllChatsWithCustomerController = async (
                 firstname: true,
                 lastname: true,
                 profilePicture: true,
+                role: true, // Include role to identify customers
               },
             },
           },
@@ -290,15 +287,15 @@ export const getAllChatsWithCustomerController = async (
     const resData = chats.map((chat) => {
       const recentMessage = chat.messages?.[0] || null;
       const recentMessageTimestamp = chat.messages?.[0]?.createdAt || null;
-      const customer = chat.participants?.[0]?.user || null;
+      const customer = chat.participants.find(
+        (participant) => participant.user.role === 'customer' // Find customer by role
+      )?.user || null;
       const chatStatus = chat.chatDetails?.status || null;
       const messagesCount = chat._count?.messages || 0;
       const department = chat.chatDetails?.department || null;
 
       // Construct full profile picture URL
-      if (customer && customer.profilePicture) {
-        customer.profilePicture = `${hostUrl}/uploads/${customer.profilePicture}`;
-      }
+
 
       return {
         id: chat.id,
