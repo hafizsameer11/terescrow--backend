@@ -209,24 +209,29 @@ export const getAllChatsWithCustomerController = async (
     const user = req.body._user;
 
     if (!user) {
-      return ApiError.unauthorized('You are not authorized');
+      return next(ApiError.unauthorized('You are not authorized'));
     }
 
     const hostUrl = `${req.protocol}://${req.get('host')}`;
 
-    const chats = await prisma.chat.findMany({
-      where: {
-        AND: [
-          {
-            participants: {
-              some: {
-                userId: user.id,
+    // Determine the filter based on user role
+    const filter = user.role === 'admin'
+      ? { chatType: ChatType.customer_to_agent } // Fetch all chats for admin
+      : {
+          AND: [
+            {
+              participants: {
+                some: {
+                  userId: user.id,
+                },
               },
             },
-          },
-          { chatType: ChatType.customer_to_agent },
-        ],
-      },
+            { chatType: ChatType.customer_to_agent },
+          ],
+        };
+
+    const chats = await prisma.chat.findMany({
+      where: filter,
       select: {
         id: true,
         chatType: true,
@@ -235,11 +240,9 @@ export const getAllChatsWithCustomerController = async (
             messages: {
               where: {
                 isRead: false,
-                receiverId: user.id
+                receiverId: user.id,
               },
-
             },
-
           },
         },
         chatDetails: {
@@ -275,7 +278,6 @@ export const getAllChatsWithCustomerController = async (
       },
       orderBy: {
         messages: {
-
           _count: 'desc',
         },
       },
@@ -292,6 +294,7 @@ export const getAllChatsWithCustomerController = async (
       const chatStatus = chat.chatDetails?.status || null;
       const messagesCount = chat._count?.messages || 0;
       const department = chat.chatDetails?.department || null;
+
       // Construct full profile picture URL
       if (customer && customer.profilePicture) {
         customer.profilePicture = `${hostUrl}/uploads/${customer.profilePicture}`;
@@ -304,7 +307,7 @@ export const getAllChatsWithCustomerController = async (
         recentMessageTimestamp,
         chatStatus,
         messagesCount,
-        department
+        department,
       };
     });
 
