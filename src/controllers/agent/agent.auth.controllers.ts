@@ -62,7 +62,12 @@ export const loginController = async (
                         permissions: true
                     }
                 },
-                AccountActivity: true
+                AccountActivity: {
+                    take: 6, // Fetch the latest 6 activities
+                    orderBy: {
+                        createdAt: 'desc'
+                    }
+                }
             },
         });
         //check if not agent than show error

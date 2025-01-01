@@ -291,7 +291,7 @@ export const getRates = async (req: Request, res: Response, next: NextFunction) 
                 amount: rate.amount,
                 agent: rate.chat.participants[0].user.username,
                 rate: rate.exchangeRate,
-                amountNaira: rate.amountNaira,
+                amountNaira: rate.amountNaira,  
                 // chatId: rate.chatId,
                 createdAt: rate.createdAt
             }
