@@ -336,11 +336,6 @@ export const getCustomerChatDetailsController = async (
       },
       include: {
         participants: {
-          where: {
-            userId: {
-              not: user.id,
-            },
-          },
           select: {
             user: {
               select: {
@@ -349,6 +344,7 @@ export const getCustomerChatDetailsController = async (
                 firstname: true,
                 lastname: true,
                 profilePicture: true,
+                role: true, // Include role to determine the customer
               },
             },
           },
@@ -356,9 +352,8 @@ export const getCustomerChatDetailsController = async (
         chatDetails: {
           include: {
             category: true,
-            department: true
-
-          }
+            department: true,
+          },
         },
         chatGroup: true,
         messages: true,
@@ -368,6 +363,8 @@ export const getCustomerChatDetailsController = async (
     if (!chat || chat.chatType !== ChatType.customer_to_agent) {
       return next(ApiError.notFound('Chat does not exist'));
     }
+
+    // Update unread messages as read
     const updatedMessages = await prisma.message.updateMany({
       where: {
         AND: [
@@ -376,8 +373,8 @@ export const getCustomerChatDetailsController = async (
           },
           {
             receiverId: user.id,
-          }
-        ]
+          },
+        ],
       },
       data: {
         isRead: true,
@@ -385,8 +382,9 @@ export const getCustomerChatDetailsController = async (
     });
 
     if (updatedMessages) {
-      console.log("messages updated");
+      console.log("Messages updated");
     }
+
     const {
       messages,
       participants,
@@ -397,24 +395,31 @@ export const getCustomerChatDetailsController = async (
       updatedAt,
     } = chat;
 
+    // Find the customer based on their role
+    const customer = participants.find(
+      (participant) => participant.user.role === 'customer'
+    )?.user || null;
+
+    // Construct the response data
     const resData = {
       id,
-      customer: participants[0].user,
+      customer,
       messages,
       chatDetails,
       chatType,
       createdAt,
       updatedAt,
     };
-    // console.log(resData)
+
     return new ApiResponse(200, resData, 'Chat found').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    return next(ApiError.internal('Server Error Occured!'));
+    return next(ApiError.internal('Server Error Occurred!'));
   }
 };
+
 
 export const getDefaultAgentChatsController = async (
   req: Request,
