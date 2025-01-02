@@ -101,7 +101,7 @@ export const loginController = async (
 
             username: isUser.username,
             // profilePicture: isUser.profilePicture,
-            profilePicture: `https://${req.get('host')}/uploads/${isUser.profilePicture}`,
+            profilePicture:isUser.profilePicture,
             email: isUser.email,
             role: isUser.role,
             phoneNumber: isUser.phoneNumber,
