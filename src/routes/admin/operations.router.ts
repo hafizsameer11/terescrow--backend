@@ -215,5 +215,5 @@ operationsRouter.get('get-kyc-limits', getKycLimits);
 operationsRouter.post('update-kyc-limit/:kycId', updateKycLimits);
 //smtp route
 operationsRouter.post('/create-smtp', updateSmtp)
-operationsRouter.post('/get-smtp', getSmtpDetails)
+operationsRouter.get('/get-smtp', getSmtpDetails)
 export default operationsRouter;
