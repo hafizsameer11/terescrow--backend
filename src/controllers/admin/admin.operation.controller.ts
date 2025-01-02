@@ -85,6 +85,9 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
                     },
                     take: 6
                 }
+            },
+            orderBy:{
+                createdAt: 'desc'
             }
         });
         if (!customers) {
