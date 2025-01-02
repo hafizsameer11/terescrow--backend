@@ -57,6 +57,8 @@ import {
 import { getAgentCustomerChatDetails, getAgentTeamChatDetailsController, getAllCustomerWithAgentsChats, getSingleAgentWithCustomerChats, getSingleAgentWithTeam } from '../../controllers/admin/admin.chat.controllers';
 import { customerStats, getChatStats, getDashBoardStats, teamStats, transactionStats } from '../../controllers/admin/admin.stats.controller';
 import { addOrUpdateRolePermissions, createRoles, getRoles, getRolesList } from '../../controllers/admin/rolemanagement.controller';
+import { createKycClimits, getKycLimits, updateKycLimits } from '../../controllers/admin/admin.kyccontroller';
+import { getSmtpDetails, updateSmtp } from '../../controllers/admin/admin.settings';
 
 const operationsRouter = express.Router();
 
@@ -207,4 +209,11 @@ operationsRouter.get('/get-roles', getRoles);
 operationsRouter.get('/get-roles-list', getRolesList);
 operationsRouter.post('/create-permissions', addOrUpdateRolePermissions);
 operationsRouter.post('/change-status/:userId', changeUserStatus);
+
+operationsRouter.post('create-kyc-limit', createKycClimits);
+operationsRouter.get('get-kyc-limits', getKycLimits);
+operationsRouter.post('update-kyc-limit/:kycId', updateKycLimits);
+//smtp route
+operationsRouter.post('/create-smtp', updateSmtp)
+operationsRouter.post('/get-smtp', getSmtpDetails)
 export default operationsRouter;

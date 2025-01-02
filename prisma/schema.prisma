@@ -452,3 +452,24 @@ model Banner {
   image     String
   createdAt DateTime @default(now())
 }
+
+model KycLimits {
+  id                Int     @id @default(autoincrement())
+  tier              KycTier
+  cryptoBuyLimit    Float?
+  cryptoSellLimit   Float?
+  giftCardBuyLimit  Float?
+  giftCardSellLimit Float?
+}
+
+model smtp {
+  id         Int      @id @default(autoincrement())
+  host       String
+  from       String
+  email      String
+  port       Int
+
+  password   String
+  encryption String
+  createdAt  DateTime @default(now())
+}
