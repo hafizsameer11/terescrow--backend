@@ -6,6 +6,7 @@ import {
   getCountriesController,
   getNotificationController,
   getSubCategoriesFromCatDepart,
+  getUnreadMessagesCountController,
   loginController,
   markAllReadController,
   readAllMessagesControllers,
@@ -38,4 +39,5 @@ publicRouter.post(
   readAllMessagesControllers
 );
 
+publicRouter.get('/get-unread-count',authenticateUser,getUnreadMessagesCountController);
 export default publicRouter;
