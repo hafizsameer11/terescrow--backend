@@ -402,6 +402,9 @@ export const getAllUsers = async (req: Request, res: Response, next: NextFunctio
                         AgentStatus: true
                     }
                 }
+            },
+            orderBy:{
+                createdAt: 'desc'
             }
         })
         if (!users) {
