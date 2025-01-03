@@ -432,8 +432,8 @@ export const getAllAgents = async (
     const users = await prisma.user.findMany({
       where: {
         OR: [
-          { role: UserRoles.agent }, // Include 'agent' users
-          { role: UserRoles.other }, // Include 'other' users
+          { role: UserRoles.agent },
+          { role: UserRoles.other }, 
         ],
       },
       select: {
@@ -463,7 +463,7 @@ export const getAllAgents = async (
 
     // Transform data to match the required format
     const transformedData = users.map((user) => ({
-      id: user.agent?.id || null,
+      id: user.agent?.id || user.id,
       AgentStatus: user.agent?.AgentStatus || null,
       user: {
         id: user.id,
