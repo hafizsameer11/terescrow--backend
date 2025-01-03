@@ -429,13 +429,11 @@ export const getAllAgents = async (
     const agents = await prisma.agent.findMany({
       where: {
         user: {
-          OR: [{
-            role: UserRoles.other
-          },
-          {
-            role: UserRoles.agent
-          }]
-        }
+          OR: [
+            { role: UserRoles.other }, // Include 'other' users
+            { role: UserRoles.agent }, // Include 'agent' users
+          ],
+        },
       },
       select: {
         id: true,
