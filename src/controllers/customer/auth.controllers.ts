@@ -666,6 +666,39 @@ export const getAllNotifcications = async (req: Request, res: Response, next: Ne
   }
 }
 
+export const getKycDetails = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.body._user;
+    if (!user) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+    const kycDetails = await prisma.kycStateTwo.findFirst({
+      where: {
+        userId: user.id
+      }
+    })
+    if (!kycDetails) {
+      return new ApiResponse(200, kycDetails, 'No KYC details found').send(res);
+    }
+
+    return new ApiResponse(
+      200,
+      kycDetails,
+      'KYC details fetched successfully'
+    ).send(res);
+  }
+
+  catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+    // console.error(error);
+    // next(ApiError.internal('Internal Server Error'));
+  }
+}
+
 export {
   registerCustomerController,
   logoutController,

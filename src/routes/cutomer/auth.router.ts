@@ -3,6 +3,7 @@ import {
   changePasswordController,
   editProfileController,
   getAllNotifcications,
+  getKycDetails,
   logoutController,
   registerCustomerController,
   resendOtpController,
@@ -31,4 +32,5 @@ authRouter.post('/change-password', authenticateUser, changePasswordController)
 authRouter.post('/kyc-request', authenticateUser, kycTierTwoRequest);
 authRouter.get('/get-all-notifications', authenticateUser, getAllNotifcications);
 authRouter.post('/set-new-password', setNewPasswordController);
+authRouter.get('/get-kyc-details',authenticateUser,getKycDetails)
 export default authRouter;
