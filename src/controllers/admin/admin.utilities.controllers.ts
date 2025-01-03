@@ -433,7 +433,7 @@ export const getAllAgents = async (
       where: {
         OR: [
           { role: UserRoles.agent },
-          { role: UserRoles.other }, 
+          { role: UserRoles.other },
         ],
       },
       select: {
@@ -460,8 +460,6 @@ export const getAllAgents = async (
     if (!users || users.length === 0) {
       return next(ApiError.notFound('No agents found'));
     }
-
-    // Transform data to match the required format
     const transformedData = users.map((user) => ({
       id: user.agent?.id || user.id,
       AgentStatus: user.agent?.AgentStatus || null,

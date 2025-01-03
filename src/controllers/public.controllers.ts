@@ -28,7 +28,7 @@ export const loginController = async (
         errors.array()
       );
     }
-  
+
     const { email, password }: { email: string; password: string } = req.body;
     console.log(email);
     if (!email || !password) {
@@ -38,8 +38,8 @@ export const loginController = async (
       where: { email },
       include: {
         KycStateTwo: {
-          orderBy:{
-            createdAt:'desc'
+          orderBy: {
+            createdAt: 'desc'
           }
         },
       },
@@ -84,10 +84,10 @@ export const loginController = async (
     };
     const accountActivity = await prisma.accountActivity.create({
       data: {
-          userId: isUser.id,
-          description: `User logged in successfully`,
+        userId: isUser.id,
+        description: `User logged in successfully`,
       },
-  })
+    })
 
     return new ApiResponse(
       200,
@@ -117,7 +117,7 @@ export const getAllDepartmentsController = async (
       return next(ApiError.unauthorized('You are not authorized'));
     }
     const departments = await prisma.department.findMany({
-      where:{
+      where: {
         status: DepartmentStatus.active
       },
       orderBy: {
@@ -300,6 +300,38 @@ export const readAllMessagesControllers = async (
 };
 
 
+export const getUnreadMessagesCountController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const user: User = req.body._user;
+    if (!user) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+    // const chatId = req.body.chatId; not chatId 
+    const messagesCount = await prisma.message.count({
+      where: {
+        chat: {
+          participants: {
+            some: {
+              userId: user.id
+            }
+          }
+        },
+        isRead: false
+      }
+    })
+    return new ApiResponse(200, messagesCount, 'Messages count').send(res);
+
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(error);
+  }
+}
 // export const readAllMessagesControllers = async (
 //   req: Request,
 //   res: Response,
