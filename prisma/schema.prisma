@@ -456,10 +456,10 @@ model Banner {
 model KycLimits {
   id                Int     @id @default(autoincrement())
   tier              KycTier
-  cryptoBuyLimit    Float?
-  cryptoSellLimit   Float?
-  giftCardBuyLimit  Float?
-  giftCardSellLimit Float?
+  cryptoBuyLimit    String?
+  cryptoSellLimit   String?
+  giftCardBuyLimit  String?
+  giftCardSellLimit String?
 }
 
 model smtp {
