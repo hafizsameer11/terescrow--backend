@@ -95,6 +95,14 @@ export const sendMessageToTeamController = async (
       }
       console.log('sent to group');
     }
+    const updateChatUpdatedAt = await prisma.chat.update({
+      where: {
+        id: chat.id,
+      },
+      data: {
+        updatedAt: new Date(),
+      },
+    });
 
     if (!newMessage) {
       return next(ApiError.internal('Message Sending Failed'));

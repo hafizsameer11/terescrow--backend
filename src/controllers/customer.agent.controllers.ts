@@ -83,8 +83,8 @@ export const getAllChatsWithTeamController = async (
             },
           },
         },
-        orderBy:{
-          createdAt: 'desc'
+        orderBy: {
+          updatedAt: 'desc'
         }
       });
     } else {

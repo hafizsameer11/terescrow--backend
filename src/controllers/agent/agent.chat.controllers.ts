@@ -277,7 +277,7 @@ export const getAllChatsWithCustomerController = async (
         updatedAt: 'desc',
       }
 
-     
+
     });
 
     if (!chats) {
