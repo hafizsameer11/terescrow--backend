@@ -422,54 +422,71 @@ export const getAllAgents = async (
 ) => {
   try {
     const admin: User = req.body._user;
+
+    // Authorization check
     if (admin?.role !== UserRoles.admin && admin?.role !== UserRoles.agent) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
-    const agents = await prisma.agent.findMany({
+    // Fetch users with roles "agent" or "other"
+    const users = await prisma.user.findMany({
       where: {
-        user: {
-          OR: [
-            { role: UserRoles.other }, // Include 'other' users
-            { role: UserRoles.agent }, // Include 'agent' users
-          ],
-        },
+        OR: [
+          { role: UserRoles.agent }, // Include 'agent' users
+          { role: UserRoles.other }, // Include 'other' users
+        ],
       },
       select: {
         id: true,
-        AgentStatus: true,
-        user: {
+        username: true,
+        firstname: true,
+        lastname: true,
+        profilePicture: true,
+        email: true,
+        agent: {
           select: {
             id: true,
-            username: true,
-            firstname: true,
-            lastname: true,
-            profilePicture: true,
-            email: true,
+            AgentStatus: true,
+            assignedDepartments: {
+              select: {
+                departmentId: true,
+              },
+            },
           },
         },
-        assignedDepartments: {
-          select: {
-            departmentId: true,
-          },
-        },
-
       },
     });
 
-    if (!agents) {
-      return next(ApiError.notFound('No agents found for this department'));
+    if (!users || users.length === 0) {
+      return next(ApiError.notFound('No agents found'));
     }
-    return new ApiResponse(200, agents, 'Agents fetched successfully').send(
-      res
-    );
+
+    // Transform data to match the required format
+    const transformedData = users.map((user) => ({
+      id: user.agent?.id || null,
+      AgentStatus: user.agent?.AgentStatus || null,
+      user: {
+        id: user.id,
+        username: user.username,
+        firstname: user.firstname,
+        lastname: user.lastname,
+        profilePicture: user.profilePicture || '',
+        email: user.email,
+      },
+      assignedDepartments: user.agent?.assignedDepartments || [],
+    }));
+
+    // Send response
+    return new ApiResponse(200, transformedData, 'Agents fetched successfully').send(res);
   } catch (error) {
+    console.error('Error fetching agents:', error);
     if (error instanceof ApiError) {
       return next(error);
     }
-    next(ApiError.internal('Failed to fetch agents'));
+    return next(ApiError.internal('Failed to fetch agents'));
   }
 };
+
 
 // export const createAgent = async (req: Request, res: Response, next: NextFunction) => {
 //   try {
