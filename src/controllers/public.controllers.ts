@@ -455,3 +455,28 @@ export const markAllReadController = async (req: Request, res: Response, next: N
     // next(error);
   }
 }
+export const markAllMessageReadController = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.body._user;
+    if (!user) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+    const messages = await prisma.message.updateMany({
+      where: {
+        receiverId: user.id
+      },
+      data: {
+        isRead: true
+      }
+    });
+
+    return new ApiResponse(200, messages, 'Messages found').send(res);
+
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(error);
+    // next(error);
+  }
+}

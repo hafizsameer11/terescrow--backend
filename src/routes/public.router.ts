@@ -8,6 +8,7 @@ import {
   getSubCategoriesFromCatDepart,
   getUnreadMessagesCountController,
   loginController,
+  markAllMessageReadController,
   markAllReadController,
   readAllMessagesControllers,
 } from '../controllers/public.controllers';
@@ -40,4 +41,5 @@ publicRouter.post(
 );
 
 publicRouter.get('/get-unread-count',authenticateUser,getUnreadMessagesCountController);
+publicRouter.get('/mark-all-messages-read',authenticateUser,markAllMessageReadController)
 export default publicRouter;
