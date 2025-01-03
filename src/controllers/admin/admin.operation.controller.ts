@@ -359,6 +359,9 @@ export const getTeamMembers = async (req: Request, res: Response, next: NextFunc
                 customRole: true,
                 agent: true,
 
+            },
+            orderBy:{
+                createdAt:'desc'
             }
         })
         if (!agents) {
