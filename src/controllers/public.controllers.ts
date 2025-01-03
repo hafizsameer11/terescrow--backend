@@ -313,13 +313,7 @@ export const getUnreadMessagesCountController = async (
     // const chatId = req.body.chatId; not chatId 
     const messagesCount = await prisma.message.count({
       where: {
-        chat: {
-          participants: {
-            some: {
-              userId: user.id
-            }
-          }
-        },
+        receiverId: user.id,
         isRead: false
       }
     })
