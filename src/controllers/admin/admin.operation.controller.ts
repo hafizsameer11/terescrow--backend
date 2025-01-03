@@ -86,7 +86,7 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
                     take: 6
                 }
             },
-            orderBy:{
+            orderBy: {
                 createdAt: 'desc'
             }
         });
@@ -294,7 +294,7 @@ export const getRates = async (req: Request, res: Response, next: NextFunction) 
                 amount: rate.amount,
                 agent: rate.chat.participants[0].user.username,
                 rate: rate.exchangeRate,
-                amountNaira: rate.amountNaira,  
+                amountNaira: rate.amountNaira,
                 // chatId: rate.chatId,
                 createdAt: rate.createdAt
             }
@@ -355,13 +355,20 @@ export const getTeamMembers = async (req: Request, res: Response, next: NextFunc
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const agents = await prisma.user.findMany({
+            where: {
+                NOT: {
+                    role: UserRoles.customer || UserRoles.admin,
+
+
+                }
+            },
             include: {
                 customRole: true,
                 agent: true,
 
             },
-            orderBy:{
-                createdAt:'desc'
+            orderBy: {
+                createdAt: 'desc'
             }
         })
         if (!agents) {
