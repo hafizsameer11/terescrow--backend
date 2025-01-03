@@ -210,9 +210,9 @@ operationsRouter.get('/get-roles-list', getRolesList);
 operationsRouter.post('/create-permissions', addOrUpdateRolePermissions);
 operationsRouter.post('/change-status/:userId', changeUserStatus);
 
-operationsRouter.post('create-kyc-limit', createKycClimits);
-operationsRouter.get('get-kyc-limits', getKycLimits);
-operationsRouter.post('update-kyc-limit/:kycId', updateKycLimits);
+operationsRouter.post('/create-kyc-limit', createKycClimits);
+operationsRouter.get('/get-kyc-limits', getKycLimits);
+operationsRouter.post('/update-kyc-limit/:kycId', updateKycLimits);
 //smtp route
 operationsRouter.post('/create-smtp', updateSmtp)
 operationsRouter.get('/get-smtp', getSmtpDetails)
