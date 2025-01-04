@@ -48,6 +48,7 @@ const registerCustomerController = async (
       countryId,
       country,
     }: UserRequest = req.body;
+    console.log(req.body)
     const profilePicture = req.file ? req.file.filename : '';
 
     // Check if any attribute already exists
