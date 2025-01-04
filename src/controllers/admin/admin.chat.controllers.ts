@@ -195,7 +195,7 @@ export const getAllCustomerWithAgentsChats = async (
 
       },
       orderBy: {
-        createdAt: 'desc',
+        updatedAt: 'desc',
       }
     });
 
