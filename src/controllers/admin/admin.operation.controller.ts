@@ -563,36 +563,61 @@ Notification Crud
 
 export const createNotification = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        const user = req.body._user;
+        if (!user || user.role !== UserRoles.admin) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
-        //get image from request
-        const userIds = req.body.userIds;
-        console.log(userIds);
+
+        // Extract userIds and message details from the request body
+        const { userIds, message, title, type } = req.body;
+
+        // Get the image from the request
         const image = req.file?.filename || '';
+
+        // Create the main notification
         const notification = await prisma.notification.create({
             data: {
                 isSingle: false,
-                message: req.body.message,
-                type: req.body.type,
-                title: req.body.title,
-                image: image
-            }
-        })
+                message: message,
+                type: type,
+                title: title,
+                image: image,
+            },
+        });
+
         if (!notification) {
-            return next(ApiError.badRequest('Failed to create notification'))
+            return next(ApiError.badRequest('Failed to create notification'));
         }
+
+        // If userIds is defined, create in-app notifications for each user
+        if (userIds !== undefined && Array.isArray(userIds)) {
+            const inAppNotifications = await Promise.all(
+                userIds.map(async (userId: number) => {
+                    return await prisma.inAppNotification.create({
+                        data: {
+                            userId: userId,
+                            description: message, // Use the notification message as the description
+                            title: title,
+                            type: 'customeer', // Adjust type if necessary
+                        },
+                    });
+                })
+            );
+
+            console.log('In-app notifications created:', inAppNotifications);
+        }
+
+        // Return success response
         return new ApiResponse(201, notification, 'Notification created successfully').send(res);
-    }
-    catch (error) {
+    } catch (error) {
         console.log(error);
         if (error instanceof ApiError) {
             return next(error);
         }
         next(ApiError.internal('Failed to create notification'));
     }
-}
+};
+
 export const getNotifications = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
