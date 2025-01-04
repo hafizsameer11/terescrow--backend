@@ -59,26 +59,32 @@ function generateOTP(length = 4): string {
   ).toString();
 }
 
-const sendVerificationEmail = async (
+ const sendVerificationEmail = async (
   userEmail: string,
   otp: string
 ): Promise<void> => {
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.GMAIL_USER, // Your Gmail email address
-      pass: process.env.GMAIL_PASS, // Your Gmail app password
-    },
-  });
-
-  const mailOptions = {
-    from: process.env.GMAIL_USER,
-    to: userEmail,
-    subject: 'Your Verification Code',
-    text: `Your OTP for verification is: ${otp}`,
-  };
-
   try {
+    // Fetch SMTP settings from the database
+    const smtpSettings = await prisma.smtp.findFirst();
+
+    // Fallback to .env if no SMTP settings are found
+    const transporter = nodemailer.createTransport({
+      host: smtpSettings?.host || 'smtp.gmail.com',
+      port: smtpSettings?.port || 587,
+      secure: smtpSettings?.encryption === 'SSL', // Use true if the encryption is SSL
+      auth: {
+        user: smtpSettings?.email || process.env.GMAIL_USER,
+        pass: smtpSettings?.password || process.env.GMAIL_PASS,
+      },
+    });
+
+    const mailOptions = {
+      from: smtpSettings?.email || process.env.GMAIL_USER,
+      to: userEmail,
+      subject: 'Your Verification Code',
+      text: `Your OTP for verification is: ${otp}`,
+    };
+
     await transporter.sendMail(mailOptions);
     console.log('OTP sent successfully!');
   } catch (error) {
