@@ -569,9 +569,18 @@ export const createNotification = async (req: Request, res: Response, next: Next
         }
 
         // Extract userIds and message details from the request body
-        const { userIds, message, title, type } = req.body;
+        const { message, title, type } = req.body;
 
         // Get the image from the request
+        let userIds = req.body.userIds;
+        if (userIds != undefined && typeof userIds === 'string') {
+            try {
+                userIds = JSON.parse(userIds); // Convert string to array
+            } catch (error) {
+                return next(ApiError.badRequest('Invalid userIds format'));
+            }
+        }
+
         const image = req.file?.filename || '';
 
         // Create the main notification
