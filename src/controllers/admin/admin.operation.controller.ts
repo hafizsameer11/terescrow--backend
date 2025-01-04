@@ -403,7 +403,7 @@ export const getAllUsers = async (req: Request, res: Response, next: NextFunctio
                     }
                 }
             },
-            orderBy:{
+            orderBy: {
                 createdAt: 'desc'
             }
         })
@@ -568,6 +568,8 @@ export const createNotification = async (req: Request, res: Response, next: Next
             return next(ApiError.unauthorized('You are not authorized'));
         }
         //get image from request
+        const userIds = req.body.userIds;
+        console.log(userIds);
         const image = req.file?.filename || '';
         const notification = await prisma.notification.create({
             data: {
