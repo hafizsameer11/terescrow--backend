@@ -32,8 +32,6 @@ const registerCustomerController = async (
     }
     console.log(req.body);
     const { termsAccepted = 'false' } = req.body;
-
-    // Convert 'false'/'true' strings to actual boolean values
     const isTermsAccepted = termsAccepted === 'true';
 
     if (!isTermsAccepted) {
@@ -90,7 +88,7 @@ const registerCustomerController = async (
         phoneNumber,
         password: hashedPassword,
         username,
-        gender: gender == 1 ? 'male' : 'female',
+        gender: gender == 1 ? 'male' : gender == 2 ? 'female' : 'other',
         // countryId: +countryId,
         country: selectCountry?.title || 'Nigeria',
         profilePicture,
