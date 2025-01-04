@@ -843,6 +843,9 @@ export const deleteDepartment = async (req: Request, res: Response, next: NextFu
 export const getAlldepartments = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const departments = await prisma.department.findMany({
+      where:{
+        status:'active'
+      },
       include: {
         _count: {
           select: { assignedDepartments: true },
