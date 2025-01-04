@@ -577,7 +577,8 @@ export const createNotification = async (req: Request, res: Response, next: Next
             try {
                 userIds = JSON.parse(userIds); // Convert string to array
             } catch (error) {
-                return next(ApiError.badRequest('Invalid userIds format'));
+                console.log(error);
+                // return next(ApiError.badRequest('Invalid userIds format'));
             }
         }
 
