@@ -25,6 +25,7 @@ import {
   getallSubCategories,
   getAllTrsansactions,
   getDepartment,
+  getPrivacyPageLinks,
   getSingleCategory,
   getTransactionForCustomer,
 } from '../../controllers/admin/admin.utilities.controllers';
@@ -218,4 +219,5 @@ operationsRouter.post('/update-kyc-limit/:kycId', updateKycLimits);
 operationsRouter.post('/create-smtp', updateSmtp)
 operationsRouter.get('/get-smtp', getSmtpDetails)
 operationsRouter.post('/create-privacy-page', createOrUpdatePrivacyPageLinks);
+operationsRouter.get('/privacy-page-links', getPrivacyPageLinks);
 export default operationsRouter;

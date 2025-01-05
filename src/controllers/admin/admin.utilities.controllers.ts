@@ -1531,3 +1531,16 @@ export const createOrUpdatePrivacyPageLinks = async (req: Request, res: Response
     next(ApiError.internal('Internal Server Error'));
   }
 }
+export const getPrivacyPageLinks = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const privacyPage = await prisma.privacyPage.findFirst()
+    return new ApiResponse(200, privacyPage, 'Privacy page links retrieved successfully').send(res)
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+}
