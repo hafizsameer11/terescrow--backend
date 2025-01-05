@@ -463,13 +463,19 @@ model KycLimits {
 }
 
 model smtp {
-  id         Int      @id @default(autoincrement())
-  host       String
-  from       String
-  email      String
-  port       Int
+  id    Int    @id @default(autoincrement())
+  host  String
+  from  String
+  email String
+  port  Int
 
   password   String
   encryption String
   createdAt  DateTime @default(now())
+}
+
+model privacyPage {
+  id              Int    @id @default(autoincrement())
+  privacyPageLink String
+  termsPageLink   String
 }

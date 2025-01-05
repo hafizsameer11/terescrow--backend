@@ -474,3 +474,6 @@ export const markAllMessageReadController = async (req: Request, res: Response, 
     // next(error);
   }
 }
+
+
+// export const getBanners

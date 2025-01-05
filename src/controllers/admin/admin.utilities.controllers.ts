@@ -843,8 +843,8 @@ export const deleteDepartment = async (req: Request, res: Response, next: NextFu
 export const getAlldepartments = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const departments = await prisma.department.findMany({
-      where:{
-        status:'active'
+      where: {
+        status: 'active'
       },
       include: {
         _count: {
@@ -1494,3 +1494,40 @@ export const createTeamMember = async (
     next(ApiError.internal('Internal Server Error'));
   }
 };
+
+
+
+export const createOrUpdatePrivacyPageLinks = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { privacyPageLink, termsPageLink } = req.body
+    const previousPrivacyPage = await prisma.privacyPage.findFirst()
+    if (previousPrivacyPage) {
+      await prisma.privacyPage.update({
+        // where:{id:1},
+        where: {
+          id: previousPrivacyPage.id
+        },
+        data: {
+          privacyPageLink,
+          termsPageLink
+        }
+      })
+    }
+    else {
+      await prisma.privacyPage.create({
+        data: {
+          privacyPageLink,
+          termsPageLink
+        }
+      })
+    }
+    return new ApiResponse(201, undefined, 'Privacy page links updated successfully').send(res)
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+}

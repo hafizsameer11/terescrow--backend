@@ -8,6 +8,7 @@ import authenticateUser from '../../middlewares/authenticate.user';
 import {
   createCategory,
   createDepartment,
+  createOrUpdatePrivacyPageLinks,
   createSubCategory,
   deleteCategory,
   deleteDepartment,
@@ -142,7 +143,7 @@ operationsRouter.post(
   authenticateUser,
   createBanner
 );
-operationsRouter.get('/get-all-banners', authenticateUser, getBanners);
+operationsRouter.get('/get-all-banners',  getBanners);
 operationsRouter.post(
   '/update-banner',
   authenticateUser,
@@ -216,4 +217,5 @@ operationsRouter.post('/update-kyc-limit/:kycId', updateKycLimits);
 //smtp route
 operationsRouter.post('/create-smtp', updateSmtp)
 operationsRouter.get('/get-smtp', getSmtpDetails)
+operationsRouter.post('/create-privacy-page', createOrUpdatePrivacyPageLinks);
 export default operationsRouter;

@@ -455,10 +455,7 @@ export const createBanner = async (req: Request, res: Response, next: NextFuncti
 }
 export const getBanners = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
-            return next(ApiError.unauthorized('You are not authorized'));
-        }
+
         const banners = await prisma.banner.findMany()
         //we will get image add the server url in start
 
