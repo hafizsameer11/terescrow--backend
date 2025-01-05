@@ -131,6 +131,13 @@ export const getTransactionBydepartment = async (req: Request, res: Response, ne
     const transactionGroupData = await prisma.transaction.findMany({
       where: {
         departmentId: parseInt(departmetnId),
+        chat: {
+          participants: {
+            some: {
+              userId: userId
+            }
+          }
+        }
       },
       select: {
         id: true,
