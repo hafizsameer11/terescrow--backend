@@ -4,17 +4,21 @@ import {
   createNote,
   createTransactionCard,
   createTransactionCrypto,
+  creatQuickReplies,
   deleteNote,
+  deleteQuickReply,
   editProfile,
   getAgentStats,
   getAgentTransactions,
   getAllNotes,
   getAllNotifications,
   getCustomerNotifications,
+  getQuickReplies,
   getTeamNotification,
   getTransactionsForAgent,
   getTransactionsStatesForAgent,
   updateNote,
+  updateQuickReply,
 } from '../../controllers/agent/agent.operations.controllers';
 import upload from '../../middlewares/multer.middleware';
 import { getDefaultAgentChatsController, takeOverDefaultAgentChatController } from '../../controllers/agent/agent.chat.controllers';
@@ -48,4 +52,9 @@ agentOperationsRouter.get('/get-notes/:id', authenticateUser, getAllNotes);
 agentOperationsRouter.get('/delete-note/:id', authenticateUser, deleteNote);
 agentOperationsRouter.get('/get-all-default-chats', authenticateUser, getDefaultAgentChatsController);
 agentOperationsRouter.post('/take-over-chat/:chatId', authenticateUser, takeOverDefaultAgentChatController);
+
+agentOperationsRouter.get('/get-all-quick-replies', authenticateUser, getQuickReplies);
+agentOperationsRouter.post('/create-quick-reply', authenticateUser, creatQuickReplies);
+agentOperationsRouter.get('/delete-quick-reply/:id', authenticateUser, deleteQuickReply);
+agentOperationsRouter.post('/update-quick-reply/:id', authenticateUser, updateQuickReply);
 export default agentOperationsRouter;

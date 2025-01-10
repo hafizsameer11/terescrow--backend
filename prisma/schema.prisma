@@ -22,6 +22,7 @@ enum ChatStatus {
   pending
   successful
   declined
+  unsucessful
 }
 
 enum Gender {
@@ -478,4 +479,11 @@ model privacyPage {
   id              Int    @id @default(autoincrement())
   privacyPageLink String
   termsPageLink   String
+}
+
+model quickReplies {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  message   String
+  createdAt DateTime @default(now())
 }

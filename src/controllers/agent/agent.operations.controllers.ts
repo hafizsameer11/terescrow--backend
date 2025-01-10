@@ -1007,3 +1007,92 @@ export const deleteNote = async (req: Request, res: Response, next: NextFunction
     return next(ApiError.internal('Internal Server Error'));
   }
 }
+
+export const creatQuickReplies = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.body._user;
+    const userId = user.id;
+    const message = req.body.message;
+    const quickReply = await prisma.quickReplies.create({
+      data: {
+        userId: userId,
+        message: message || ''
+      }
+    });
+    if (!quickReply) {
+      return next(ApiError.notFound('Quick Reply not found'))
+    }
+    return new ApiResponse(200, quickReply, 'Quick Reply created successfully').send(res);
+  } catch (error) {
+
+  }
+}
+
+export const getQuickReplies = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.body._user;
+    const quickReplies = await prisma.quickReplies.findMany({
+      where: {
+        userId: user.id
+      }
+    });
+    if (!quickReplies) {
+      return next(ApiError.notFound('Quick Replies not found'));
+    }
+    return new ApiResponse(200, quickReplies, 'Quick Replies found successfully').send(res);
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}
+export const deleteQuickReply = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id
+    const quickReply = await prisma.quickReplies.delete({
+      where: {
+        id: parseInt(id)
+      }
+    });
+    if (!quickReply) {
+      return next(ApiError.notFound('Quick Reply not found'));
+    }
+    return new ApiResponse(200, quickReply, 'Quick Reply deleted successfully').send(res);
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}
+
+export const updateQuickReply = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id
+    const message = req.body.message
+    const quickReply = await prisma.quickReplies.update({
+      where: {
+        id: parseInt(id)
+      },
+      data: {
+        message: message
+      }
+    });
+    if (!quickReply) {
+      return next(ApiError.notFound('Quick Reply not found'));
+    }
+    return new ApiResponse(200, quickReply, 'Quick Reply updated successfully').send(res);
+    // data: req.body
+
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}
