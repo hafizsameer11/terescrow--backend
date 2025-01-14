@@ -106,16 +106,20 @@ model User {
   participations    ChatParticipant[]
   groups            ChatGroup[]
   inappNotification InAppNotification[]
+
   // transaction       Transaction[]
-  notes             Notes[]
-  KycStateTwo       KycStateTwo[]
-  AccountActivity   AccountActivity[]
-  customRole        CustomRole?         @relation(fields: [customRoleId], references: [id])
-  customRoleId      Int?
+   agentNotes        Notes[]             @relation("AgentNotes") // Updated relation name
+  userNotes         Notes[]             @relation("UserNotes")  // Updated relation name
+  KycStateTwo     KycStateTwo[]
+  AccountActivity AccountActivity[]
+  customRole      CustomRole?       @relation(fields: [customRoleId], references: [id])
+  customRoleId    Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   status    String   @default("active")
+  // agentNotes Notes[] @relation("Notes_agentId")
+  // userNotes  Notes[] @relation("Notes_userId")
 }
 
 model CustomRole {
@@ -157,9 +161,9 @@ model Agent {
   assignedDepartments AssignedDepartment[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
-  notes               Notes[]
-  rate                Rate[]
-  isDefault           Boolean              @default(false)
+
+  rate      Rate[]
+  isDefault Boolean @default(false)
 }
 
 model Department {
@@ -374,8 +378,8 @@ model Notes {
   note           String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-  agent          Agent    @relation(fields: [agentId], references: [id])
-  user           User     @relation(fields: [userId], references: [id])
+ agent          User     @relation("AgentNotes", fields: [agentId], references: [id]) // Updated relation name
+  user           User     @relation("UserNotes", fields: [userId], references: [id])  // Updated relation name
 }
 
 model Rate {
