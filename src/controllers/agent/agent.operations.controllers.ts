@@ -873,7 +873,7 @@ export const createNote = async (req: Request, res: Response, next: NextFunction
       data: {
         title: title,
         note: note,
-        userId: userId,
+        userId: parseInt(userId),
         agentId: agent.id
       }
     });
