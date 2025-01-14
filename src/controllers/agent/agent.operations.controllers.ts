@@ -861,9 +861,9 @@ export const createNote = async (req: Request, res: Response, next: NextFunction
       return next(ApiError.notFound('Agent not found'));
     }
     //get agentId from agent table
-    const agent = await prisma.agent.findFirst({
+    const agent = await prisma.user.findFirst({
       where: {
-        userId: agentId
+        id: agentId
       }
     });
     if (!agent) {
@@ -905,15 +905,8 @@ export const getAllNotes = async (req: Request, res: Response, next: NextFunctio
         userId: parseInt(userId)
       },
       include: {
-        agent: {
-          select: {
-            user: {
-              select: {
-                username: true
-              }
-            }
-          }
-        }
+        user: true,
+        agent: true,
       }
     });
     if (!notes) {
