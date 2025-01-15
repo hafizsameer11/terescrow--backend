@@ -133,6 +133,7 @@ const getDefaultAgent = async () => {
 }
 export const sendDefaultMessageFromDefaultAgent = async (chatId: Number, agentId: Number) => {
   try {
+    console.log("send default message hit");
     const chat = await primsa.chat.findFirst({
       where: {
         id: parseInt(chatId.toString()),
@@ -161,8 +162,11 @@ export const sendDefaultMessageFromDefaultAgent = async (chatId: Number, agentId
           receiverId: chat.participants[0].userId
         }
       });
+      console.log(message);
       return message;
     }
+    console.log("chat not found");
+    return null;
 
   } catch (error) {
     console.log(error);
