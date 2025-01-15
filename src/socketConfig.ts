@@ -239,7 +239,7 @@ io.on('connection', async (socket) => {
 
                 if (newChat) {
                   console.log('Default agent assigned:', defaultAgent.id);
-                  const message = await sendDefaultMessageFromDefaultAgent(defaultAgent.id, parseInt(newChat));
+                  const message = await sendDefaultMessageFromDefaultAgent( parseInt(newChat),defaultAgent.id);
                   if (message) {
 
                   }
