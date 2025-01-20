@@ -92,7 +92,7 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
         const totalUsers = await prisma.user.count();
         const totalInflow = await prisma.transaction.aggregate({
             _sum: {
-                profit: true, 
+                profit: true,
                 amountNaira: true
             }
         });
@@ -103,13 +103,13 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
                 }
             },
             _sum: {
-                amount: true, 
+                amount: true,
                 amountNaira: true
             }
         });
         const totalRevenue = await prisma.transaction.aggregate({
             _sum: {
-                amount: true, 
+                amount: true,
                 amountNaira: true
             }
         });
@@ -145,7 +145,7 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
                 }
             },
             _sum: {
-                profit: true, 
+                profit: true,
                 amountNaira: true
             }
         });
@@ -160,7 +160,7 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
                 }
             },
             _sum: {
-                amount: true, 
+                amount: true,
                 amountNaira: true
             }
         });
@@ -172,7 +172,7 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
                 }
             },
             _sum: {
-                amount: true, 
+                amount: true,
                 amountNaira: true
             }
         });
@@ -212,7 +212,7 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
             const percentage = (difference / previous) * 100;
             return {
                 change: difference >= 0 ? 'positive' : 'negative',
-                percentage: Math.abs(percentage.toFixed(2))
+                percentage: parseFloat(Math.abs(percentage).toFixed(2)) // Convert to a number
             };
         };
 
