@@ -82,12 +82,20 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
 
 export const getDashBoardStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
+        // Get the current and previous month dates
+        const currentMonthStart = new Date();
+        currentMonthStart.setDate(1);
+        const previousMonthStart = new Date(currentMonthStart);
+        previousMonthStart.setMonth(previousMonthStart.getMonth() - 1);
+
+        // Fetch current month data
         const totalUsers = await prisma.user.count();
         const totalInflow = await prisma.transaction.aggregate({
             _sum: {
-                profit: true, amountNaira: true
+                profit: true, 
+                amountNaira: true
             }
-        })
+        });
         const totalOutflow = await prisma.transaction.aggregate({
             where: {
                 department: {
@@ -95,46 +103,160 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
                 }
             },
             _sum: {
-                amount: true, amountNaira: true
+                amount: true, 
+                amountNaira: true
             }
-        })
-        const totatlRevenew = await prisma.transaction.aggregate({
+        });
+        const totalRevenue = await prisma.transaction.aggregate({
             _sum: {
-                amount: true, amountNaira: true
+                amount: true, 
+                amountNaira: true
             }
-        })
+        });
         const totalTransactions = await prisma.transaction.count();
         const totalAgents = await prisma.user.count({
             where: {
-                role: UserRoles.agent
+                role: 'agent'
             }
-        })
+        });
         const verifiedCustomers = await prisma.user.count({
             where: {
                 KycStateTwo: {
-                    some: {
-
-                    }
+                    some: {}
                 }
             }
-        })
+        });
         const totalDepartments = await prisma.department.count();
+
+        // Fetch previous month data for comparison
+        const prevTotalUsers = await prisma.user.count({
+            where: {
+                createdAt: {
+                    lt: currentMonthStart,
+                    gte: previousMonthStart
+                }
+            }
+        });
+        const prevTotalInflow = await prisma.transaction.aggregate({
+            where: {
+                createdAt: {
+                    lt: currentMonthStart,
+                    gte: previousMonthStart
+                }
+            },
+            _sum: {
+                profit: true, 
+                amountNaira: true
+            }
+        });
+        const prevTotalOutflow = await prisma.transaction.aggregate({
+            where: {
+                createdAt: {
+                    lt: currentMonthStart,
+                    gte: previousMonthStart
+                },
+                department: {
+                    Type: 'sell'
+                }
+            },
+            _sum: {
+                amount: true, 
+                amountNaira: true
+            }
+        });
+        const prevTotalRevenue = await prisma.transaction.aggregate({
+            where: {
+                createdAt: {
+                    lt: currentMonthStart,
+                    gte: previousMonthStart
+                }
+            },
+            _sum: {
+                amount: true, 
+                amountNaira: true
+            }
+        });
+        const prevTotalTransactions = await prisma.transaction.count({
+            where: {
+                createdAt: {
+                    lt: currentMonthStart,
+                    gte: previousMonthStart
+                }
+            }
+        });
+        const prevTotalAgents = await prisma.user.count({
+            where: {
+                role: 'agent',
+                createdAt: {
+                    lt: currentMonthStart,
+                    gte: previousMonthStart
+                }
+            }
+        });
+        const prevVerifiedCustomers = await prisma.user.count({
+            where: {
+                KycStateTwo: {
+                    some: {}
+                },
+                createdAt: {
+                    lt: currentMonthStart,
+                    gte: previousMonthStart
+                }
+            }
+        });
+
+        // Function to calculate percentage change
+        const calculateChange = (current: number, previous: number) => {
+            if (previous === 0) return { change: 'positive', percentage: 100 };
+            const difference = current - previous;
+            const percentage = (difference / previous) * 100;
+            return {
+                change: difference >= 0 ? 'positive' : 'negative',
+                percentage: Math.abs(percentage.toFixed(2))
+            };
+        };
+
+        // Prepare the response data
         const data = {
-            totalUsers: totalUsers,
-            totalInflow: totalInflow,
-            totalOutflow: totalOutflow,
-            totatlRevenew: totatlRevenew,
-            totalTransactions: totalTransactions,
-            totalDepartments: totalDepartments,
-            totalAgents: totalAgents,
-            totalVerifiedUsers: verifiedCustomers
-            // totalRevenue:totalInflow+totalOutflow
-        }
+            totalUsers: {
+                count: totalUsers,
+                ...calculateChange(totalUsers, prevTotalUsers)
+            },
+            totalInflow: {
+                current: totalInflow._sum.amountNaira || 0,
+                ...calculateChange(totalInflow._sum.amountNaira || 0, prevTotalInflow._sum.amountNaira || 0)
+            },
+            totalOutflow: {
+                current: totalOutflow._sum.amountNaira || 0,
+                ...calculateChange(totalOutflow._sum.amountNaira || 0, prevTotalOutflow._sum.amountNaira || 0)
+            },
+            totalRevenue: {
+                current: totalRevenue._sum.amountNaira || 0,
+                ...calculateChange(totalRevenue._sum.amountNaira || 0, prevTotalRevenue._sum.amountNaira || 0)
+            },
+            totalTransactions: {
+                count: totalTransactions,
+                ...calculateChange(totalTransactions, prevTotalTransactions)
+            },
+            totalAgents: {
+                count: totalAgents,
+                ...calculateChange(totalAgents, prevTotalAgents)
+            },
+            totalVerifiedUsers: {
+                count: verifiedCustomers,
+                ...calculateChange(verifiedCustomers, prevVerifiedCustomers)
+            },
+            totalDepartments: {
+                count: totalDepartments
+            }
+        };
+
         return new ApiResponse(
             200,
             data,
-            'Stats found successfully'
+            'Dashboard stats fetched successfully'
         ).send(res);
+
     } catch (error) {
         console.error(error);
         if (error instanceof ApiError) {
@@ -142,8 +264,7 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
         }
         return next(ApiError.internal('Internal Server Error'));
     }
-}
-
+};
 export const customerStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const totalCustomers = await prisma.user.count({
