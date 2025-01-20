@@ -38,6 +38,7 @@ export const createTransactionCard = async (
       categoryId,
       exchangeRate,
       amountNaira,
+      profit
     } = req.body;
     if (!subCategoryId || !amount || !chatId) {
       return next(ApiError.badRequest('Missing required fields'));
@@ -86,6 +87,7 @@ export const createTransactionCard = async (
         exchangeRate: exchangeRate ? parseFloat(exchangeRate) : null,
         amountNaira: amountNaira ? parseFloat(amountNaira) : null,
         status: TransactionStatus.successful,
+        profit: profit ? parseFloat(profit) : 0,
       },
     });
     //create notification for customer
@@ -203,6 +205,7 @@ export const createTransactionCrypto = async (
       cryptoAmount,
       fromAddress,
       toAddress,
+      profit
     } = req.body;
 
     // Validate required fields
@@ -297,6 +300,7 @@ export const createTransactionCrypto = async (
         fromAddress: fromAddress || null,
         toAddress: toAddress || null,
         status: TransactionStatus.successful,
+        profit: profit ? parseFloat(profit) : 0,
       },
     });
     if (!transaction) {

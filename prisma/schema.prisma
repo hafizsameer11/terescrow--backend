@@ -108,8 +108,8 @@ model User {
   inappNotification InAppNotification[]
 
   // transaction       Transaction[]
-   agentNotes        Notes[]             @relation("AgentNotes") // Updated relation name
-  userNotes         Notes[]             @relation("UserNotes")  // Updated relation name
+  agentNotes      Notes[]           @relation("AgentNotes") // Updated relation name
+  userNotes       Notes[]           @relation("UserNotes") // Updated relation name
   KycStateTwo     KycStateTwo[]
   AccountActivity AccountActivity[]
   customRole      CustomRole?       @relation(fields: [customRoleId], references: [id])
@@ -359,6 +359,7 @@ model Transaction {
   fromAddress   String?
   toAddress     String?
   status        TransactionStatus @default(successful)
+  profit        Float             @default(0)
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
@@ -378,8 +379,8 @@ model Notes {
   note           String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
- agent          User     @relation("AgentNotes", fields: [agentId], references: [id]) // Updated relation name
-  user           User     @relation("UserNotes", fields: [userId], references: [id])  // Updated relation name
+  agent          User     @relation("AgentNotes", fields: [agentId], references: [id]) // Updated relation name
+  user           User     @relation("UserNotes", fields: [userId], references: [id]) // Updated relation name
 }
 
 model Rate {
