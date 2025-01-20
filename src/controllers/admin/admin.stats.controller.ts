@@ -84,13 +84,8 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
     try {
         const totalUsers = await prisma.user.count();
         const totalInflow = await prisma.transaction.aggregate({
-            where: {
-                department: {
-                    Type: 'buy'
-                }
-            },
             _sum: {
-                amount: true, amountNaira: true
+                profit: true, amountNaira: true
             }
         })
         const totalOutflow = await prisma.transaction.aggregate({
