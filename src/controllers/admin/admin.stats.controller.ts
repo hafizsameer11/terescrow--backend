@@ -50,6 +50,14 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
                 ...userFilter, // Apply user filter if not admin
             },
         });
+        const unsuccessfulChats = await prisma.chat.count({
+            where: {
+                chatDetails: {
+                    status: ChatStatus.unsucessful,
+                },
+                ...userFilter, // Apply user filter if not admin
+            },
+        });
 
         // Combine results into a single object
         const data = {
@@ -57,6 +65,7 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
             successfulTransactions,
             pendingChats,
             declinedChats,
+            unsuccessfulChats
         };
 
         return new ApiResponse(200, data, 'Stats found successfully').send(res);
