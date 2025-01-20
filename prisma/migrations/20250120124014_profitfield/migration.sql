@@ -1,2 +1,2 @@
 -- AlterTable
-ALTER TABLE `transaction` ADD COLUMN `profit` DOUBLE NOT NULL DEFAULT 0;
+ALTER TABLE `Transaction` ADD COLUMN `profit` DOUBLE NOT NULL DEFAULT 0;
