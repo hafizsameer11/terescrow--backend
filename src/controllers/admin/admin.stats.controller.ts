@@ -267,31 +267,92 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
 };
 export const customerStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
+        const currentMonthStart = new Date();
+        currentMonthStart.setDate(1);
+        const previousMonthStart = new Date(currentMonthStart);
+        previousMonthStart.setMonth(previousMonthStart.getMonth() - 1);
+
+        // Current month data
         const totalCustomers = await prisma.user.count({
             where: {
                 role: UserRoles.customer
             }
-        })
+        });
         const verifiedCustomers = await prisma.user.count({
             where: {
                 role: UserRoles.customer,
-
                 status: 'active'
             }
-
-        })
+        });
         const offlineNow = 0;
         const totalCustomerChats = await prisma.chat.count({
             where: {
                 chatType: ChatType.customer_to_agent
             }
-        })
+        });
+
+        // Previous month data for comparison
+        const prevTotalCustomers = await prisma.user.count({
+            where: {
+                role: UserRoles.customer,
+                createdAt: {
+                    lt: currentMonthStart,
+                    gte: previousMonthStart
+                }
+            }
+        });
+        const prevVerifiedCustomers = await prisma.user.count({
+            where: {
+                role: UserRoles.customer,
+                status: 'active',
+                createdAt: {
+                    lt: currentMonthStart,
+                    gte: previousMonthStart
+                }
+            }
+        });
+        const prevTotalCustomerChats = await prisma.chat.count({
+            where: {
+                chatType: ChatType.customer_to_agent,
+                createdAt: {
+                    lt: currentMonthStart,
+                    gte: previousMonthStart
+                }
+            }
+        });
+
+        // Function to calculate percentage change
+        const calculateChange = (current: number, previous: number) => {
+            if (previous === 0) return { change: 'positive', percentage: 100 };
+            const difference = current - previous;
+            const percentage = (difference / previous) * 100;
+            return {
+                change: difference >= 0 ? 'positive' : 'negative',
+                percentage: parseFloat(Math.abs(percentage).toFixed(2))
+            };
+        };
+
+        // Prepare response data
         const data = {
-            totalCustomers: totalCustomers,
-            verifiedCustomers: verifiedCustomers,
-            offlineNow: offlineNow,
-            totalCustomerChats: totalCustomerChats
-        }
+            totalCustomers: {
+                count: totalCustomers,
+                ...calculateChange(totalCustomers, prevTotalCustomers)
+            },
+            verifiedCustomers: {
+                count: verifiedCustomers,
+                ...calculateChange(verifiedCustomers, prevVerifiedCustomers)
+            },
+            offlineNow: {
+                count: offlineNow,
+                change: 'neutral',
+                percentage: 0
+            },
+            totalCustomerChats: {
+                count: totalCustomerChats,
+                ...calculateChange(totalCustomerChats, prevTotalCustomerChats)
+            }
+        };
+
         return new ApiResponse(
             200,
             data,
@@ -304,7 +365,8 @@ export const customerStats = async (req: Request, res: Response, next: NextFunct
         }
         return next(ApiError.internal('Internal Server Error'));
     }
-}
+};
+
 export const transactionStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user;
