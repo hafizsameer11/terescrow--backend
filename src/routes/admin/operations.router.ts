@@ -221,5 +221,5 @@ operationsRouter.post('/create-smtp', updateSmtp)
 operationsRouter.get('/get-smtp', getSmtpDetails)
 operationsRouter.post('/create-privacy-page', createOrUpdatePrivacyPageLinks);
 operationsRouter.get('/privacy-page-links', getPrivacyPageLinks);
-operationsRouter.get('/kyc-users', kycUser);
+operationsRouter.get('/kyc-users',kycUser);
 export default operationsRouter;
