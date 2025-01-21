@@ -14,13 +14,13 @@ export const kycTierTwoRequest = async (req: Request, res: Response, next: NextF
       return next(ApiError.unauthorized('You are not authorized'));
     }
     const userId = user.id
-    const { firstName, surName, bvn, dateofBirth } = req.body
+    const { firstName, surName, bvn, dob } = req.body
     const kycTierTwoRequest = await prisma.kycStateTwo.create({
       data: {
         firtName: firstName,
         bvn: bvn,
         surName: surName,
-        dob: dateofBirth || '',
+        dob: dob || '',
         userId: userId,
         status: 'tier1'
       }
