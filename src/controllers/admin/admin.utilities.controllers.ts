@@ -1552,12 +1552,24 @@ export const kycUser = async (req: Request, res: Response, next: NextFunction) =
         KycStateTwo: {
           some: { state: 'pending' }
         }
-      }, include: {
-        KycStateTwo: true
+      },
+      include: {
+        KycStateTwo: {
+          orderBy: {
+            createdAt: 'desc'
+          },
+          take: 1
+        }
       }
-    })
-    return new ApiResponse(200, users, 'KYC users retrieved successfully').send(res)
+    });
 
+    // Process the result to extract only the latest KycStateTwo record
+    const processedUsers = users.map(user => ({
+      ...user,
+      KycStateTwo: user.KycStateTwo.length > 0 ? user.KycStateTwo[0] : null
+    }));
+
+    return new ApiResponse(200, processedUsers, 'KYC users retrieved successfully').send(res);
   } catch (error) {
     console.log(error);
     if (error instanceof ApiError) {
@@ -1566,4 +1578,4 @@ export const kycUser = async (req: Request, res: Response, next: NextFunction) =
     }
     next(ApiError.internal('Internal Server Error'));
   }
-}
+};
