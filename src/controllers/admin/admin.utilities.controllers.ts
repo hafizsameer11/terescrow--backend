@@ -1544,3 +1544,26 @@ export const getPrivacyPageLinks = async (req: Request, res: Response, next: Nex
     next(ApiError.internal('Internal Server Error'));
   }
 }
+
+export const kycUser = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        KycStateTwo: {
+          some: { state: 'pending' }
+        }
+      }, include: {
+        KycStateTwo: true
+      }
+    })
+    return new ApiResponse(200, users, 'KYC users retrieved successfully').send(res)
+
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      next(error);
+      return;
+    }
+    next(ApiError.internal('Internal Server Error'));
+  }
+}

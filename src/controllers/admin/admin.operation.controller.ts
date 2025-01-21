@@ -823,16 +823,17 @@ export const updateKycStatus = async (req: Request, res: Response, next: NextFun
     try {
         const userId = req.params.userId;
         const { status } = req.body;
+        const { reason } = req.body;
         const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
         if (!user) {
             return next(ApiError.notFound('User not found'));
         }
-        // const updateKyc 
         const updateKycStates = await prisma.kycStateTwo.updateMany({
             where: {
                 userId: parseInt(userId)
             }, data: {
-                state: status
+                state: status,
+                reason: reason || "Your Information has been verified successfully"
             }
         })
         if (!updateKycStates) {

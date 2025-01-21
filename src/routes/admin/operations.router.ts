@@ -28,6 +28,7 @@ import {
   getPrivacyPageLinks,
   getSingleCategory,
   getTransactionForCustomer,
+  kycUser,
 } from '../../controllers/admin/admin.utilities.controllers';
 import upload from '../../middlewares/multer.middleware';
 import {
@@ -144,7 +145,7 @@ operationsRouter.post(
   authenticateUser,
   createBanner
 );
-operationsRouter.get('/get-all-banners',  getBanners);
+operationsRouter.get('/get-all-banners', getBanners);
 operationsRouter.post(
   '/update-banner',
   authenticateUser,
@@ -220,4 +221,5 @@ operationsRouter.post('/create-smtp', updateSmtp)
 operationsRouter.get('/get-smtp', getSmtpDetails)
 operationsRouter.post('/create-privacy-page', createOrUpdatePrivacyPageLinks);
 operationsRouter.get('/privacy-page-links', getPrivacyPageLinks);
+operationsRouter.get('/kyc-users', kycUser);
 export default operationsRouter;
