@@ -85,7 +85,12 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
                     },
                     take: 6
                 },
-                KycStateTwo:true
+                KycStateTwo: {
+                    orderBy: {
+                        createdAt: 'desc'
+                    },
+                    take: 1
+                }
             },
             orderBy: {
                 createdAt: 'desc'
