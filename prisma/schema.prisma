@@ -443,6 +443,7 @@ model KycStateTwo {
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
   state     String   @default("pending")
+  reason    String?   
 }
 
 model AccountActivity {

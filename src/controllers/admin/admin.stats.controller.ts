@@ -261,8 +261,8 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
                 ...calculateChange(totalUsers, prevTotalUsers)
             },
             totalInflow: {
-                current: totalInflow._sum.amountNaira || 0,
-                ...calculateChange(totalInflow._sum.amountNaira || 0, prevTotalInflow._sum.amountNaira || 0)
+                current: totalInflow._sum.profit  || 0,
+                ...calculateChange(totalInflow._sum.profit || 0, prevTotalInflow._sum.profit || 0)
             },
             totalOutflow: {
                 current: totalOutflow._sum.amountNaira || 0,
