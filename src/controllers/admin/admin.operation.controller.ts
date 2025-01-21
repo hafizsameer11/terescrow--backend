@@ -70,15 +70,17 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
 
 export const getAllCustomers = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const user = req.body._user
-        // return new ApiResponse(201, user, 'Transaction created successfully').send(res);
+        const user = req.body._user;
+        
         if (!user || (user.role !== UserRoles.admin)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
+
         const customers = await prisma.user.findMany({
             where: {
                 role: UserRoles.customer,
-            }, include: {
+            }, 
+            include: {
                 inappNotification: {
                     orderBy: {
                         createdAt: 'desc'
@@ -96,18 +98,27 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
                 createdAt: 'desc'
             }
         });
-        if (!customers) {
+
+        if (!customers || customers.length === 0) {
             return next(ApiError.notFound('Customers not found'));
         }
-        return new ApiResponse(200, customers, 'Customers fetched successfully').send(res);
+
+        // Modify the response to remove the array from KycStateTwo
+        const modifiedCustomers = customers.map(customer => ({
+            ...customer,
+            KycStateTwo: customer.KycStateTwo.length > 0 ? customer.KycStateTwo[0] : null
+        }));
+
+        return new ApiResponse(200, modifiedCustomers, 'Customers fetched successfully').send(res);
     } catch (error) {
         console.log(error);
         if (error instanceof ApiError) {
             return next(error);
         }
-        next(ApiError.internal('Failed to change department status'));
+        next(ApiError.internal('Failed to fetch customers'));
     }
 };
+
 export const editCustomer = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
