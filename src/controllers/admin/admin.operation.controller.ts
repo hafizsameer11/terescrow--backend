@@ -822,7 +822,7 @@ export const getDepartmentStatsByTransaction = async (
 export const updateKycStatus = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const userId = req.params.userId;
-        const { status } = req.body;
+        const { kycStatus } = req.body;
         const { reason } = req.body;
         const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
         if (!user) {
@@ -832,7 +832,7 @@ export const updateKycStatus = async (req: Request, res: Response, next: NextFun
             where: {
                 userId: parseInt(userId)
             }, data: {
-                state: status,
+                state: kycStatus,
                 reason: reason || "Your Information has been verified successfully"
             }
         })
