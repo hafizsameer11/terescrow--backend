@@ -153,6 +153,9 @@ export const getCategoriesFromDepartment = async (
     const categories = await prisma.catDepart.findMany({
       where: {
         departmentId: parseInt(departmentId),
+        category:{
+          status:DepartmentStatus.active
+        }
       },
       select: {
         category: true,
