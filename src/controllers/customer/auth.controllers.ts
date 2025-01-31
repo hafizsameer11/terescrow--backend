@@ -47,6 +47,7 @@ const registerCustomerController = async (
       gender,
       countryId,
       country,
+      means
     }: UserRequest = req.body;
     console.log(req.body)
     const profilePicture = req.file ? req.file.filename : '';
@@ -81,6 +82,11 @@ const registerCustomerController = async (
         id: parseInt(country) || 1,
       },
     })
+    const selectMeans = await prisma.waysOfHearing.findUnique({
+      where: {
+        id: means || 1,
+      },
+    })
     const newUser = await prisma.user.create({
       data: {
         firstname: firstName,
@@ -93,6 +99,7 @@ const registerCustomerController = async (
         // countryId: +countryId,
         country: selectCountry?.title || 'Nigeria',
         profilePicture,
+        meansId: selectMeans?.id || 1,
         role: UserRoles.customer,
       },
     });
@@ -720,4 +727,5 @@ export interface UserRequest {
   countryId: string;
   role: UserRoles;
   country: string;
+  means?: number;
 }

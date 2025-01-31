@@ -36,6 +36,7 @@ import {
   createBanner,
   createNotification,
   createRate,
+  createWayOfHearing,
   deleteBanner,
   deleteNotification,
   editCustomer,
@@ -53,9 +54,11 @@ import {
   getNotifications,
   getRates,
   getTeamMembers,
+  getWaysOfHearing,
   updateBanner,
   updateKycStatus,
   updateNotification,
+  updateWayOfHearing,
 } from '../../controllers/admin/admin.operation.controller';
 import { getAgentCustomerChatDetails, getAgentTeamChatDetailsController, getAllCustomerWithAgentsChats, getSingleAgentWithCustomerChats, getSingleAgentWithTeam } from '../../controllers/admin/admin.chat.controllers';
 import { customerStats, getChatStats, getDashBoardStats, teamStats, transactionStats } from '../../controllers/admin/admin.stats.controller';
@@ -221,5 +224,9 @@ operationsRouter.post('/create-smtp', updateSmtp)
 operationsRouter.get('/get-smtp', getSmtpDetails)
 operationsRouter.post('/create-privacy-page', createOrUpdatePrivacyPageLinks);
 operationsRouter.get('/privacy-page-links', getPrivacyPageLinks);
-operationsRouter.get('/kyc-users',kycUser);
+operationsRouter.get('/kyc-users', kycUser);
+
+operationsRouter.get('/get-all-ways-of-hearing', getWaysOfHearing);
+operationsRouter.post('/create-ways-of-hearing', createWayOfHearing);
+operationsRouter.post('/update-ways-of-hearing/:id', updateWayOfHearing);
 export default operationsRouter;

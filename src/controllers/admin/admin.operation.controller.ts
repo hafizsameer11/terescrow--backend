@@ -71,7 +71,7 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
 export const getAllCustomers = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user;
-        
+
         if (!user || (user.role !== UserRoles.admin)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
@@ -79,7 +79,7 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
         const customers = await prisma.user.findMany({
             where: {
                 role: UserRoles.customer,
-            }, 
+            },
             include: {
                 inappNotification: {
                     orderBy: {
@@ -920,5 +920,77 @@ export const changeUserStatus = async (req: Request, res: Response, next: NextFu
             return next(error);
         }
         next(ApiError.internal('Failed to change user status'));
+    }
+}
+
+export const createWayOfHearing = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const { means } = req.body;
+        const wayOfHearingData = await prisma.waysOfHearing.create({
+            data: {
+                means: means || ''
+            }
+        })
+        if (!wayOfHearingData) {
+            return next(ApiError.badRequest('Failed to create way of hearing'))
+        }
+        return new ApiResponse(201, wayOfHearingData, 'Way of hearing created successfully').send(res);
+
+    } catch (error) {
+        console.error(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to create way of hearing'));
+    }
+}
+
+export const getWaysOfHearing = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const waysOfHearing = await prisma.waysOfHearing.findMany();
+        if (!waysOfHearing) {
+            return next(ApiError.notFound('Ways of hearing not found'));
+        }
+        return new ApiResponse(200, waysOfHearing, 'Ways of hearing fetched successfully').send(res);
+
+    } catch (error) {
+        console.error(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to get ways of hearing'));
+    }
+}
+
+export const updateWayOfHearing = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const wayId = req.params.id;
+        const { means } = req.body;
+        const user = req.body._user
+        if (!user || (user.role !== UserRoles.admin)) {
+            return next(ApiError.unauthorized('You are not authorized'));
+        }
+        const wayOfHearingData = await prisma.waysOfHearing.update({
+            where: {
+                id: parseInt(wayId)
+            },
+            data: {
+                means: means || ''
+            }
+        })
+        if (!wayOfHearingData) {
+            return next(ApiError.badRequest('Failed to update way of hearing'))
+        }
+        return new ApiResponse(200, wayOfHearingData, 'Way of hearing updated successfully').send(res);
+    } catch (error) {
+        console.error(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+        next(ApiError.internal('Failed to update way of hearing'));
     }
 }

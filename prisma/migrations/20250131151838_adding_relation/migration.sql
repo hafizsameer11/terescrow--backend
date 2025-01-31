@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE `User` ADD COLUMN `meansId` INTEGER NULL;
+
+-- AlterTable
+ALTER TABLE `WaysOfHearing` ADD COLUMN `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3);
+
+-- AddForeignKey
+ALTER TABLE `User` ADD CONSTRAINT `User_meansId_fkey` FOREIGN KEY (`meansId`) REFERENCES `WaysOfHearing`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
