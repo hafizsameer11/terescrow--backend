@@ -925,10 +925,7 @@ export const changeUserStatus = async (req: Request, res: Response, next: NextFu
 
 export const createWayOfHearing = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
-            return next(ApiError.unauthorized('You are not authorized'));
-        }
+       
         const { means } = req.body;
         const wayOfHearingData = await prisma.waysOfHearing.create({
             data: {
@@ -983,10 +980,7 @@ export const updateWayOfHearing = async (req: Request, res: Response, next: Next
     try {
         const wayId = req.params.id;
         const { means } = req.body;
-        const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
-            return next(ApiError.unauthorized('You are not authorized'));
-        }
+       
         const wayOfHearingData = await prisma.waysOfHearing.update({
             where: {
                 id: parseInt(wayId)
