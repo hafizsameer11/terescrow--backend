@@ -951,21 +951,34 @@ export const createWayOfHearing = async (req: Request, res: Response, next: Next
 
 export const getWaysOfHearing = async (req: Request, res: Response, next: NextFunction) => {
     try {
+        // 1️⃣ Fetch the list of all ways of hearing
         const waysOfHearing = await prisma.waysOfHearing.findMany();
-        if (!waysOfHearing) {
+
+        if (!waysOfHearing || waysOfHearing.length === 0) {
             return next(ApiError.notFound('Ways of hearing not found'));
         }
-        return new ApiResponse(200, waysOfHearing, 'Ways of hearing fetched successfully').send(res);
+
+        // 2️⃣ Count how many users selected each way of hearing
+        const waysOfHearingWithCounts = await prisma.user.groupBy({
+            by: ['meansId'], // meansId references waysOfHearing
+            _count: { meansId: true } // Counting users per meansId
+        });
+
+        const groupedWaysOfHearing = waysOfHearing.map(way => {
+            const countEntry = waysOfHearingWithCounts.find(item => item.meansId === way.id);
+            return {
+                name: way.means, 
+                count: countEntry ? countEntry._count.meansId : 0 
+            };
+        });
+
+        return new ApiResponse(200, { list: waysOfHearing, grouped: groupedWaysOfHearing }, 'Ways of hearing fetched successfully').send(res);
 
     } catch (error) {
         console.error(error);
-        if (error instanceof ApiError) {
-            return next(error);
-        }
-        next(ApiError.internal('Failed to get ways of hearing'));
+        return next(ApiError.internal('Failed to get ways of hearing'));
     }
-}
-
+};
 export const updateWayOfHearing = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const wayId = req.params.id;
