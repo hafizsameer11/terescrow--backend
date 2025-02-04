@@ -84,7 +84,7 @@ const registerCustomerController = async (
     })
     const selectMeans = await prisma.waysOfHearing.findUnique({
       where: {
-        id: means || 1,
+        id: parseInt(means) || 1,
       },
     })
     const newUser = await prisma.user.create({
@@ -727,5 +727,5 @@ export interface UserRequest {
   countryId: string;
   role: UserRoles;
   country: string;
-  means?: number;
+  means?: string;
 }
