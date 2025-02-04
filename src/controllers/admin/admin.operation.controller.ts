@@ -961,7 +961,7 @@ export const getWaysOfHearing = async (req: Request, res: Response, next: NextFu
         const waysOfHearingSImple=waysOfHearing.map(way=>{
             return{
                 id:way.id,
-                means:way.means
+                title:way.means
             }
         })
 
