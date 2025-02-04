@@ -948,18 +948,22 @@ export const createWayOfHearing = async (req: Request, res: Response, next: Next
 
 export const getWaysOfHearing = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        // 1️⃣ Fetch the list of all ways of hearing
         const waysOfHearing = await prisma.waysOfHearing.findMany();
 
         if (!waysOfHearing || waysOfHearing.length === 0) {
             return next(ApiError.notFound('Ways of hearing not found'));
         }
 
-        // 2️⃣ Count how many users selected each way of hearing
         const waysOfHearingWithCounts = await prisma.user.groupBy({
-            by: ['meansId'], // meansId references waysOfHearing
-            _count: { meansId: true } // Counting users per meansId
+            by: ['meansId'], 
+            _count: { meansId: true }
         });
+        const waysOfHearingSImple=waysOfHearing.map(way=>{
+            return{
+                id:way.id,
+                means:way.means
+            }
+        })
 
         const groupedWaysOfHearing = waysOfHearing.map(way => {
             const countEntry = waysOfHearingWithCounts.find(item => item.meansId === way.id);
