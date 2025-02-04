@@ -48,7 +48,7 @@ const registerCustomerController = async (
       countryId,
       country,
       means
-    }: UserRequest = req.body;
+    } = req.body;
     console.log(req.body)
     const profilePicture = req.file ? req.file.filename : '';
 
