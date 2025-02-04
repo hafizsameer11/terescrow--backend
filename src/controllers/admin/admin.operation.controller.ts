@@ -973,7 +973,7 @@ export const getWaysOfHearing = async (req: Request, res: Response, next: NextFu
             };
         });
 
-        return new ApiResponse(200, { list: waysOfHearing, grouped: groupedWaysOfHearing }, 'Ways of hearing fetched successfully').send(res);
+        return new ApiResponse(200, { list: waysOfHearingSImple, grouped: groupedWaysOfHearing }, 'Ways of hearing fetched successfully').send(res);
 
     } catch (error) {
         console.error(error);
