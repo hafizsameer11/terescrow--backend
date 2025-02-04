@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   changePasswordController,
+  deleteCustomerController,
   editProfileController,
   getAllNotifcications,
   getKycDetails,
@@ -33,4 +34,5 @@ authRouter.post('/kyc-request', authenticateUser, kycTierTwoRequest);
 authRouter.get('/get-all-notifications', authenticateUser, getAllNotifcications);
 authRouter.post('/set-new-password', setNewPasswordController);
 authRouter.get('/get-kyc-details',authenticateUser,getKycDetails)
+authRouter.get('/delete-customer', authenticateUser, deleteCustomerController);
 export default authRouter;

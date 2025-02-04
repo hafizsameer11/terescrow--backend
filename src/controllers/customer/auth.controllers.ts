@@ -152,7 +152,41 @@ const registerCustomerController = async (
   }
 };
 
-
+export const deleteCustomerController = async (req: Request,
+  res: Response,
+  next: NextFunction) => {
+  try {
+    const user = req.body._user;
+    if (!user) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+    const customer = await prisma.user.findUnique({
+      where: {
+        id: user.id,
+      },
+    });
+    //chnage the user email and add some rnadom nuber like current time stamp 
+    const newEmail = `${customer?.email}_${Date.now()}`;
+    const newUsername = `${customer?.username}_${Date.now()}`;
+    //update the user email and username
+    await prisma.user.update({
+      where: {
+        id: user.id,
+      }, data: {
+        email: newEmail,
+        username: newUsername,
+      }
+    });
+    //return response
+    return new ApiResponse(200, null, 'User deleted successfully').send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+}
 const logoutController = async (
   req: Request,
   res: Response,
