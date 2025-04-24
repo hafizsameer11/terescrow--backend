@@ -21,7 +21,8 @@ export async function sendPushNotification(
   fcmToken: string,
   title: string,
   body: string,
-  userId: string
+  userId: string,
+  badgeCount?: number
 ): Promise<any> {
   const accessToken = await getAccessToken();
 
@@ -36,6 +37,19 @@ export async function sendPushNotification(
         title,
         body,
         userId,
+      },
+      apns: {
+        payload: {
+          aps: {
+            badge: badgeCount, // ✅ Set this dynamically from DB/unread count
+            sound: 'default',  // Optional: play a sound on iOS
+          },
+        },
+      },
+      android: {
+        notification: {
+          sound: 'default', // Optional: play a sound on Android
+        },
       },
     },
   };

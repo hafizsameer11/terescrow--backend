@@ -153,8 +153,8 @@ export const getCategoriesFromDepartment = async (
     const categories = await prisma.catDepart.findMany({
       where: {
         departmentId: parseInt(departmentId),
-        category:{
-          status:DepartmentStatus.active
+        category: {
+          status: DepartmentStatus.active
         }
       },
       select: {
@@ -329,6 +329,36 @@ export const getUnreadMessagesCountController = async (
     next(error);
   }
 }
+export const saveFcmTokenController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const user = req.body._user as User;
+
+    if (!user || !user.id) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+
+    const { fcmToken } = req.body;
+    if (!fcmToken || typeof fcmToken !== 'string') {
+      return next(ApiError.badRequest('Please provide a valid FCM token'));
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: { fcmToken },
+    });
+
+    return new ApiResponse(200, updatedUser, 'FCM token saved successfully').send(res);
+  } catch (error: any) {
+    if (error instanceof ApiError) return next(error);
+    console.error('💥 Error in saveFcmTokenController:', error.message);
+    return next(ApiError.internal('Failed to save FCM token'));
+  }
+};
+
 // export const readAllMessagesControllers = async (
 //   req: Request,
 //   res: Response,
