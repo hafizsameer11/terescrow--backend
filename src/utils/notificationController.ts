@@ -16,8 +16,14 @@ export async function sendToUserById(req: Request, res: Response) {
         if (!user || !user.fcmToken) {
             return res.status(404).json({ status: 'error', message: 'User or FCM token not found' });
         }
-
-        const result = await sendPushNotification(user.fcmToken, title, body, String(userId));
+        //count unread messages
+        const unreadMessagesCount = await prisma.message.count({
+            where: {
+                receiverId: Number(userId),
+                isRead: false,
+            },
+        });
+        const result = await sendPushNotification(user.fcmToken, title, body, String(userId), unreadMessagesCount);
         return res.status(200).json({ status: 'success', result });
     } catch (error: any) {
         return res.status(500).json({ status: 'error', message: error.message });

@@ -11,6 +11,8 @@ import ApiResponse from '../utils/ApiResponse';
 import { comparePassword, generateToken } from '../utils/authUtils';
 import { validationResult } from 'express-validator';
 import { profile } from 'console';
+import { sendToUserById } from '../utils/notificationController';
+import { notifyUserById } from '../utils/notificationUtils';
 
 const prisma = new PrismaClient();
 
@@ -82,6 +84,8 @@ export const loginController = async (
       KycStateTwo: isUser.KycStateTwo[0],
       unReadNotification: getNotificationCount.length
     };
+
+    const notification = notifyUserById(isUser.id, 'Welcome', 'Welcome to our platform!');
     const accountActivity = await prisma.accountActivity.create({
       data: {
         userId: isUser.id,
