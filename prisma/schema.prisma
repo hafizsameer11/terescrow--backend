@@ -115,13 +115,14 @@ model User {
   AccountActivity AccountActivity[]
   customRole      CustomRole?       @relation(fields: [customRoleId], references: [id])
   customRoleId    Int?
- fcmToken  String? // ✅ Add this line if it doesn't exist already
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   // means     String?  @default("others")
   meansId    Int?
   means WaysOfHearing?  @relation(fields: [meansId], references: [id])     
   status    String   @default("active")
+   fcmToken  String? // ✅ Add this line if it doesn't exist already
+
   // agentNotes Notes[] @relation("Notes_agentId")
   // userNotes  Notes[] @relation("Notes_userId")
 }
