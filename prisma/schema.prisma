@@ -95,6 +95,7 @@ model User {
   countryId         Int?
   phoneNumber       String              @unique @db.VarChar(20)
   profilePicture    String?
+    fcmToken  String? // ✅ Add this line if it doesn't exist already
   password          String              @db.VarChar(255)
   gender            Gender
   role              UserRoles

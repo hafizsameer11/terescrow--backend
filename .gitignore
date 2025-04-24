@@ -1,4 +1,5 @@
 # Logs
+
 logs
 *.log
 npm-debug.log*
@@ -62,3 +63,4 @@ out/
 yarn.lock
 # If you're using pnpm
 pnpm-lock.yaml
+src/service-account.json
