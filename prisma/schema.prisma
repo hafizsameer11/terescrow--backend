@@ -95,7 +95,7 @@ model User {
   countryId         Int?
   phoneNumber       String              @unique @db.VarChar(20)
   profilePicture    String?
-    fcmToken  String? // ✅ Add this line if it doesn't exist already
+   
   password          String              @db.VarChar(255)
   gender            Gender
   role              UserRoles
@@ -115,7 +115,7 @@ model User {
   AccountActivity AccountActivity[]
   customRole      CustomRole?       @relation(fields: [customRoleId], references: [id])
   customRoleId    Int?
-
+ fcmToken  String? // ✅ Add this line if it doesn't exist already
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   // means     String?  @default("others")
