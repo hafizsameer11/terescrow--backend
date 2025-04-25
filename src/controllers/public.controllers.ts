@@ -12,7 +12,6 @@ import { comparePassword, generateToken } from '../utils/authUtils';
 import { validationResult } from 'express-validator';
 import { profile } from 'console';
 import { sendToUserById } from '../utils/notificationController';
-import { notifyUserById } from '../utils/notificationUtils';
 import { sendPushNotification } from '../utils/pushService';
 // import { sendPushNotification } from '../utils/firebaseNotificationService';
 

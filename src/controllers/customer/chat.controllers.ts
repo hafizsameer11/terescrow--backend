@@ -10,7 +10,6 @@ import {
   ChatStatus,
 } from '@prisma/client';
 import { getAgentSocketId, getCustomerSocketId, io } from '../../socketConfig';
-import { notifyUserById } from '../../utils/notificationUtils';
 
 const prisma = new PrismaClient();
 
@@ -85,12 +84,8 @@ const sendMessageController = async (
         message: message.trim() || '', // Include only if exists
       },
     });
-const notification=await notifyUserById(
-      chat.participants[0].userId,
-      'New Message',
-      `You have a new message from ${sender.firstname} ${sender.lastname}`
-    );
-    console.log(notification);
+
+    // console.log(notification);
     // Update chat `updatedAt`
     await prisma.chat.update({
       where: {
