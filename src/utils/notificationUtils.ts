@@ -10,6 +10,7 @@ export async function notifyUserById(userId: number, title: string, body: string
     where: { id: userId },
     select: { fcmToken: true },
   });
+  console.log('User FCM Token:', user?.fcmToken); // Debugging line
 
   if (!user?.fcmToken) {
     throw new Error('User or FCM token not found  for the given user ID' + userId);
