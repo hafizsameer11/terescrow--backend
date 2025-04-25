@@ -13,6 +13,8 @@ import { validationResult } from 'express-validator';
 import { profile } from 'console';
 import { sendToUserById } from '../utils/notificationController';
 import { notifyUserById } from '../utils/notificationUtils';
+import { sendPushNotification } from '../utils/pushService';
+// import { sendPushNotification } from '../utils/firebaseNotificationService';
 
 const prisma = new PrismaClient();
 
@@ -84,7 +86,13 @@ export const loginController = async (
       KycStateTwo: isUser.KycStateTwo[0],
       unReadNotification: getNotificationCount.length
     };
-
+    const notification = await sendPushNotification({
+      userId: isUser.id,
+      title: 'Welcome',
+      body: 'Welcome to our platform!',
+      sound: 'default',
+    });
+    
     // const notification = notifyUserById(isUser.id, 'Welcome', 'Welcome to our platform!');
     const accountActivity = await prisma.accountActivity.create({
       data: {

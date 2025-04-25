@@ -17,7 +17,7 @@ export async function getAccessToken(): Promise<string> {
   return tokenResponse.token!;
 }
 
-export async function sendPushNotification(
+export async function senadPushNotification(
   fcmToken: string,
   title: string,
   body: string,
