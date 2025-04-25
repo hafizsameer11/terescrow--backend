@@ -11,6 +11,7 @@ import {
 } from '@prisma/client';
 import { getCustomerSocketId } from '../../socketConfig';
 import { io } from '../../socketConfig';
+import { sendPushNotification } from '../../utils/pushService';
 
 const prisma = new PrismaClient();
 
@@ -121,7 +122,11 @@ export const sendToCustomerController = async (
       });
       console.log('sent to customer');
     }
-
+const receiverNotification=sendPushNotification({
+      userId: chat?.participants[0].userId || sender.id, // receiver
+      title: 'New Message',
+      body: `You have a new message from ${sender.firstname} ${sender.lastname} that is ${message}`,
+      sound: 'default',});
     return new ApiResponse(201, newMessage, 'Message sent successfully').send(
       res
     );
