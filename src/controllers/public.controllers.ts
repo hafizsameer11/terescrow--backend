@@ -85,7 +85,7 @@ export const loginController = async (
       unReadNotification: getNotificationCount.length
     };
 
-    const notification = notifyUserById(isUser.id, 'Welcome', 'Welcome to our platform!');
+    // const notification = notifyUserById(isUser.id, 'Welcome', 'Welcome to our platform!');
     const accountActivity = await prisma.accountActivity.create({
       data: {
         userId: isUser.id,
