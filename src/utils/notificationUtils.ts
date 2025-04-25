@@ -12,7 +12,7 @@ export async function notifyUserById(userId: number, title: string, body: string
   });
 
   if (!user?.fcmToken) {
-    throw new Error('User or FCM token not found');
+    throw new Error('User or FCM token not found  for the given user ID' + userId);
   }
 
   // Count unread messages
