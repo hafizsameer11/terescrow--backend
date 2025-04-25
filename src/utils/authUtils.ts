@@ -69,8 +69,8 @@ function generateOTP(length = 4): string {
 
     // Fallback to .env if no SMTP settings are found
     const transporter = nodemailer.createTransport({
-      host: smtpSettings?.host || 'smtp.gmail.com',
-      port: smtpSettings?.port || 587,
+      host: smtpSettings?.host || 'smtp.hostinger.com',
+      port: smtpSettings?.port || 465,
       secure: smtpSettings?.encryption === 'SSL', // Use true if the encryption is SSL
       auth: {
         user: smtpSettings?.email || process.env.GMAIL_USER,
