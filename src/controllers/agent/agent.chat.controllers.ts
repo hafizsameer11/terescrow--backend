@@ -125,7 +125,7 @@ export const sendToCustomerController = async (
 const receiverNotification=sendPushNotification({
       userId: chat?.participants[0].userId || sender.id, // receiver
       title: 'New Message',
-      body: `You have a new message from ${sender.firstname} ${sender.lastname} that is ${message}`,
+      body: `You have a new message from ${sender.firstname} ${sender.lastname} :  ${message}`,
       sound: 'default',});
     return new ApiResponse(201, newMessage, 'Message sent successfully').send(
       res
