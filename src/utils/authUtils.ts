@@ -71,7 +71,7 @@ function generateOTP(length = 4): string {
     const transporter = nodemailer.createTransport({
       host: smtpSettings?.host || 'smtp.hostinger.com',
       port: smtpSettings?.port || 465,
-      secure: smtpSettings?.encryption === 'SSL', // Use true if the encryption is SSL
+      secure: true, // Use true if the encryption is SSL
       auth: {
         user: smtpSettings?.email || process.env.GMAIL_USER,
         pass: smtpSettings?.password || process.env.GMAIL_PASS,
