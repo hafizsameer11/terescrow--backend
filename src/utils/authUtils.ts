@@ -92,6 +92,54 @@ function generateOTP(length = 4): string {
     throw ApiError.internal('Failed to send OTP');
   }
 };
+export const sendWelcomeEmail = async (userEmail: string, firstName: string): Promise<void> => {
+  try {
+    // Fetch SMTP settings from the database
+    const smtpSettings = await prisma.smtp.findFirst();
+    console.log('SMTP Settings:', smtpSettings);
+
+    // Setup transporter
+    const transporter = nodemailer.createTransport({
+      host: smtpSettings?.host || 'smtp.hostinger.com',
+      port: smtpSettings?.port || 465,
+      secure: true, // SSL
+      auth: {
+        user: smtpSettings?.email || process.env.GMAIL_USER,
+        pass: smtpSettings?.password || process.env.GMAIL_PASS,
+      },
+    });
+
+    const mailOptions = {
+      from: smtpSettings?.email || process.env.GMAIL_USER,
+      to: userEmail,
+      subject: 'Welcome to Tercescrow – Let’s Trade Giftcards Safely and Easily!',
+      html: `
+        <p>Hi <strong>${firstName}</strong>,</p>
+        <p>Welcome to <strong>Tercescrow</strong> – your trusted platform for trading gift cards securely and conveniently!</p>
+        <p>We’re excited to have you on board. With Tercescrow, you can:</p>
+        <ul>
+          <li>Trade a wide variety of gift cards at competitive rates</li>
+          <li>Enjoy fast and secure transactions</li>
+          <li>Get support from our dedicated team whenever you need it</li>
+        </ul>
+        <p>Your journey to hassle-free gift card trading starts now.</p>
+        <p>Need help? Our support team is here for you.</p>
+        <br/>
+        <p>Thanks for choosing Tercescrow. We’re glad to have you with us!</p>
+        <br/>
+        <p>Warm regards,<br/>
+        The Tercescrow Team<br/>
+        <a href="https://www.tercescrow.io" target="_blank">www.tercescrow.io</a></p>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log('Welcome email sent successfully!');
+  } catch (error) {
+    console.error('Error sending welcome email:', error);
+    throw ApiError.internal('Failed to send Welcome Email');
+  }
+};
 
 const getAgentIdFromUserId = async (userId: number): Promise<number> => {
   const agent = await prisma.user.findUnique({

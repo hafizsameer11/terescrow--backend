@@ -9,6 +9,7 @@ import {
   generateToken,
   hashPassword,
   sendVerificationEmail,
+  sendWelcomeEmail,
   verifyToken,
 } from '../../utils/authUtils';
 
@@ -129,6 +130,7 @@ const registerCustomerController = async (
     }
 
     await sendVerificationEmail(email, otp);
+    await sendWelcomeEmail(email, firstName);
     const token = generateToken(newUser.id, newUser.username, newUser.role);
     res.cookie('token', token, {
       secure: true,
