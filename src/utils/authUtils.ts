@@ -66,7 +66,7 @@ function generateOTP(length = 4): string {
   try {
     // Fetch SMTP settings from the database
     const smtpSettings = await prisma.smtp.findFirst();
-
+    console.log('SMTP Settings:', smtpSettings);
     // Fallback to .env if no SMTP settings are found
     const transporter = nodemailer.createTransport({
       host: smtpSettings?.host || 'smtp.hostinger.com',
