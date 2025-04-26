@@ -54,7 +54,7 @@ publicRouter.get('/test-otp', async function (req, res) {
     console.log('Error sending OTP:', error);
     res.status(500).json({
       message: 'Failed to send OTP',
-      error: error.message,
+      error: error,
     });
   }
 });
