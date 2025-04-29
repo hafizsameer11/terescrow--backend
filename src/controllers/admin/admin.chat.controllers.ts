@@ -145,6 +145,7 @@ export const getAllCustomerWithAgentsChats = async (
                 lastname: true,
                 role: true,
                 profilePicture: true,
+                country:true
               },
             },
           },
