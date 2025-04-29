@@ -84,7 +84,7 @@ export const sendToCustomerController = async (
       data: {
         userId: chat?.participants[0].userId || sender.id,
         title: "New Message",
-        description: `You have a new message from ${sender.firstname} ${sender.lastname}`,
+        description: `You have a new message from ${sender.firstname} ${sender.lastname} message :  ${message}`,
       }
     });
     const userActivity = await prisma.accountActivity.create({

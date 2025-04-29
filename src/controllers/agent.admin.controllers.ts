@@ -63,8 +63,8 @@ export const sendMessageToTeamController = async (
     const notification = await prisma.inAppNotification.create({
       data: {
         userId: chat.participants?.[0].userId,
-        description: `${_user.username} sent you a message`,
-        title: `${_user.username} sent you a message`,
+        description: `${_user.username} sent you a message : ${message}`,
+        title: `${_user.username} sent you a message : ${message}`,
         type: InAppNotificationType.team,
       }
     })

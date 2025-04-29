@@ -85,7 +85,7 @@ const sendMessageController = async (
         message: message.trim() || '', // Include only if exists
       },
     });
-    const receveNotication=await sendPushNotification({
+    const receveNotication = await sendPushNotification({
       userId: chat.participants[0].userId, // receiver
       title: 'New Message',
       body: `You have a new message from ${sender.firstname} ${sender.lastname} that is ${message}`,
@@ -93,7 +93,7 @@ const sendMessageController = async (
     });
     console.log(receveNotication);
     // Send push notification to sender also (for testing only)
-    const senderNotification= await sendPushNotification({
+    const senderNotification = await sendPushNotification({
       userId: sender.id, // sender (himself)
       title: 'Message Sent',
       body: `You sent a message: "${message}"`,
@@ -116,7 +116,7 @@ const sendMessageController = async (
       data: {
         userId: chat.participants[0].userId,
         title: 'New Message',
-        description: `You have a new message from ${sender.firstname} ${sender.lastname}`,
+        description: `You have a new message from ${sender.firstname} ${sender.lastname} message : "${message}"`,
       },
     });
 
