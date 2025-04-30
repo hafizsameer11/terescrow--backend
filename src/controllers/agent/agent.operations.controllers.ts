@@ -52,9 +52,7 @@ export const createTransactionCard = async (
             userId: agent.id,
           },
         },
-        chatDetails: {
-          status: ChatStatus.pending,
-        },
+       
       },
       select: {
         participants: {
