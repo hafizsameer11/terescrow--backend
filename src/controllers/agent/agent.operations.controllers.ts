@@ -70,6 +70,7 @@ export const createTransactionCard = async (
       },
     });
 
+    console.log("current chat ", currChat);
     if (!currChat || currChat.participants.length === 0) {
       return next(ApiError.notFound('Chat not found'));
     }
