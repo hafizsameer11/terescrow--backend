@@ -1407,7 +1407,7 @@ export const createTeamMember = async (
     } = req.body;
 
     const profilePicture = req.file ? req.file.filename : '';
-
+    console.log("complete rwq body", req.body);
     // Check if user already exists
     const isUser = await prisma.user.findFirst({
       where: {
