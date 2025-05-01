@@ -1411,7 +1411,7 @@ export const createTeamMember = async (
     // Check if user already exists
     const isUser = await prisma.user.findFirst({
       where: {
-        OR: [{ email }, { username }, { phoneNumber }],
+        OR: [{ email }],
       },
     });
 
