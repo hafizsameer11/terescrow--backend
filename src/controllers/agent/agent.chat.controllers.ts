@@ -80,6 +80,22 @@ export const sendToCustomerController = async (
         }
       });
     }
+    //mark all previous messages as read for the receiver sender
+    const updatedMessages = await prisma.message.updateMany({
+      where: {
+        AND: [
+          {
+            chatId: chat?.id,
+          },
+          {
+            receiverId: sender.id,
+          },
+        ],
+      },
+      data: {
+        isRead: true,
+      },
+    });
     const notification = await prisma.inAppNotification.create({
       data: {
         userId: chat?.participants[0].userId || sender.id,
@@ -122,11 +138,12 @@ export const sendToCustomerController = async (
       });
       console.log('sent to customer');
     }
-const receiverNotification=sendPushNotification({
+    const receiverNotification = sendPushNotification({
       userId: chat?.participants[0].userId || sender.id, // receiver
       title: 'New Message',
       body: `You have a new message from ${sender.firstname} ${sender.lastname} :  ${message}`,
-      sound: 'default',});
+      sound: 'default',
+    });
     return new ApiResponse(201, newMessage, 'Message sent successfully').send(
       res
     );
