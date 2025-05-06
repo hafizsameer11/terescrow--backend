@@ -627,6 +627,17 @@ export const createNotification = async (req: Request, res: Response, next: Next
                     });
                 })
             );
+            await Promise.all(
+                userIds.map(async (userId: number) => {
+                  await prisma.inAppNotification.create({
+                    data: {
+                      userId: userId,
+                      title: title,
+                      description: message,
+                    },
+                  });
+                })
+              );
 
             console.log('In-app notifications created:', inAppNotifications);
         }
