@@ -72,7 +72,7 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
     try {
         const user = req.body._user;
 
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
 
@@ -629,15 +629,15 @@ export const createNotification = async (req: Request, res: Response, next: Next
             );
             await Promise.all(
                 userIds.map(async (userId: number) => {
-                  await prisma.inAppNotification.create({
-                    data: {
-                      userId: userId,
-                      title: title,
-                      description: message,
-                    },
-                  });
+                    await prisma.inAppNotification.create({
+                        data: {
+                            userId: userId,
+                            title: title,
+                            description: message,
+                        },
+                    });
                 })
-              );
+            );
 
             console.log('In-app notifications created:', inAppNotifications);
         }
@@ -936,7 +936,7 @@ export const changeUserStatus = async (req: Request, res: Response, next: NextFu
 
 export const createWayOfHearing = async (req: Request, res: Response, next: NextFunction) => {
     try {
-       
+
         const { means } = req.body;
         const wayOfHearingData = await prisma.waysOfHearing.create({
             data: {
@@ -966,21 +966,21 @@ export const getWaysOfHearing = async (req: Request, res: Response, next: NextFu
         }
 
         const waysOfHearingWithCounts = await prisma.user.groupBy({
-            by: ['meansId'], 
+            by: ['meansId'],
             _count: { meansId: true }
         });
-        const waysOfHearingSImple=waysOfHearing.map(way=>{
-            return{
-                id:way.id,
-                title:way.means
+        const waysOfHearingSImple = waysOfHearing.map(way => {
+            return {
+                id: way.id,
+                title: way.means
             }
         })
 
         const groupedWaysOfHearing = waysOfHearing.map(way => {
             const countEntry = waysOfHearingWithCounts.find(item => item.meansId === way.id);
             return {
-                name: way.means, 
-                count: countEntry ? countEntry._count.meansId : 0 
+                name: way.means,
+                count: countEntry ? countEntry._count.meansId : 0
             };
         });
 
@@ -995,7 +995,7 @@ export const updateWayOfHearing = async (req: Request, res: Response, next: Next
     try {
         const wayId = req.params.id;
         const { means } = req.body;
-       
+
         const wayOfHearingData = await prisma.waysOfHearing.update({
             where: {
                 id: parseInt(wayId)
