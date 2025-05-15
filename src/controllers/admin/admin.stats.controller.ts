@@ -9,7 +9,7 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
         const user = req.body._user;
 
         // Conditions for filtering based on the user's role
-        const userFilter = user.role !== UserRoles.admin ? {
+        const userFilter = user.role == UserRoles.customer ? {
             participants: { some: { userId: user.id } }
         } : {};
 
@@ -410,7 +410,7 @@ export const transactionStats = async (req: Request, res: Response, next: NextFu
         const user = req.body._user;
 
         // Apply filter if the user is not an admin
-        const userFilter = user.role !== UserRoles.admin ? {
+        const userFilter = user.role == UserRoles.customer ? {
             department: {
                 assignedDepartments: {
                     some: {

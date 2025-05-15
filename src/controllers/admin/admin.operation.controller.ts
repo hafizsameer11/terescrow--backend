@@ -18,7 +18,7 @@ Customer Controller
 export const getCustomerDetails = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user;
-        if (!user || user.role !== UserRoles.admin) {
+        if (!user || user.role == UserRoles.customer) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
 
@@ -125,7 +125,7 @@ export const editCustomer = async (req: Request, res: Response, next: NextFuncti
         const userId = req.params.id;
         //get profile pictire
         const profilePicture = req.file ? req.file.filename : '';
-        if (!user || (user.role !== UserRoles.admin && user.role !== UserRoles.agent)) {
+        if (!user || (user.role === UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const {
@@ -178,7 +178,7 @@ export const editCustomer = async (req: Request, res: Response, next: NextFuncti
 //     try {
 //         const user = req.body._user
 //         // return new ApiResponse(201, user, 'Transaction created successfully').send(res);
-//         if (!user || (user.role !== UserRoles.admin)) {
+//         if (!user || (user.role == UserRoles.customer.admin)) {
 //             return next(ApiError.unauthorized('You are not authorized'));
 //         }
 
@@ -229,7 +229,7 @@ export const createRate = async (req: Request, res: Response, next: NextFunction
     try {
         const user = req.body._user
         console.log(user);
-        if (!user || (user.role !== UserRoles.agent && user.role !== UserRoles.admin)) {
+        if (!user || (user.role === UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const userId = user.id;
@@ -332,7 +332,7 @@ export const getRates = async (req: Request, res: Response, next: NextFunction) 
 export const getAgents = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const agents = await prisma.agent.findMany({
@@ -368,7 +368,7 @@ export const getAgents = async (req: Request, res: Response, next: NextFunction)
 export const getTeamMembers = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const agents = await prisma.user.findMany({
@@ -403,7 +403,7 @@ export const getTeamMembers = async (req: Request, res: Response, next: NextFunc
 export const getAllUsers = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const users = await prisma.user.findMany({
@@ -447,7 +447,7 @@ Banner Controller
 export const createBanner = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const image = req.file?.filename || '';
@@ -495,7 +495,7 @@ export const getBanners = async (req: Request, res: Response, next: NextFunction
 export const updateBanner = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const image = req.file?.filename || '';
@@ -523,7 +523,7 @@ export const updateBanner = async (req: Request, res: Response, next: NextFuncti
 export const getsingleBanner = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const banner = await prisma.banner.findUnique({
@@ -547,7 +547,7 @@ export const getsingleBanner = async (req: Request, res: Response, next: NextFun
 export const deleteBanner = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const banner = await prisma.banner.delete({
@@ -578,7 +578,7 @@ Notification Crud
 export const createNotification = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user;
-        if (!user || user.role !== UserRoles.admin) {
+        if (!user || user.role == UserRoles.customer) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
 
@@ -656,7 +656,7 @@ export const createNotification = async (req: Request, res: Response, next: Next
 export const getNotifications = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const notifications = await prisma.notification.findMany()
@@ -676,7 +676,7 @@ export const getNotifications = async (req: Request, res: Response, next: NextFu
 export const deleteNotification = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const notification = await prisma.notification.delete({
@@ -700,7 +700,7 @@ export const deleteNotification = async (req: Request, res: Response, next: Next
 export const updateNotification = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const image = req.file?.filename || '';
@@ -737,7 +737,7 @@ export const updateNotification = async (req: Request, res: Response, next: Next
 export const getAdminDashboardStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const users = await prisma.user.count()
@@ -768,7 +768,7 @@ export const getAdminDashboardStats = async (req: Request, res: Response, next: 
 export const getCustomerStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user
-        if (!user || (user.role !== UserRoles.admin)) {
+        if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
         const users = await prisma.user.count({
@@ -802,7 +802,7 @@ export const getDepartmentStatsByTransaction = async (
 ) => {
     try {
         const user = req.body._user;
-        if (!user || user.role !== UserRoles.admin) {
+        if (!user || user.role == UserRoles.customer) {
             return next(ApiError.unauthorized('You are not authorized'));
         }
 
