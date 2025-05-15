@@ -261,7 +261,7 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
                 ...calculateChange(totalUsers, prevTotalUsers)
             },
             totalInflow: {
-                current: totalInflow._sum.profit  || 0,
+                current: totalInflow._sum.profit || 0,
                 ...calculateChange(totalInflow._sum.profit || 0, prevTotalInflow._sum.profit || 0)
             },
             totalOutflow: {
@@ -358,6 +358,30 @@ export const customerStats = async (req: Request, res: Response, next: NextFunct
                 }
             }
         });
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        const yesterdayStart = new Date(todayStart);
+        yesterdayStart.setDate(todayStart.getDate() - 1);
+
+        const todayCustomers = await prisma.user.count({
+            where: {
+                role: UserRoles.customer,
+                createdAt: {
+                    gte: todayStart
+                }
+            }
+        });
+
+        const yesterdayCustomers = await prisma.user.count({
+            where: {
+                role: UserRoles.customer,
+                createdAt: {
+                    gte: yesterdayStart,
+                    lt: todayStart
+                }
+            }
+        });
 
         // Function to calculate percentage change
         const calculateChange = (current: number, previous: number) => {
@@ -388,6 +412,10 @@ export const customerStats = async (req: Request, res: Response, next: NextFunct
             totalCustomerChats: {
                 count: totalCustomerChats,
                 ...calculateChange(totalCustomerChats, prevTotalCustomerChats)
+            },
+            todayCustomers: {
+                count: todayCustomers,
+                ...calculateChange(todayCustomers, yesterdayCustomers)
             }
         };
 

@@ -95,14 +95,14 @@ export const getAllChatsWithTeamController = async (
             {
               participants: {
                 some: {
-                  userId: _user.id, // Current user participates in the chat
+                  userId: _user.id, 
                 },
               },
             },
             {
               OR: [
-                { chatType: ChatType.team_chat }, // Include team chats
-                { chatType: ChatType.group_chat }, // Include group chats
+                { chatType: ChatType.team_chat }, 
+                { chatType: ChatType.group_chat }, 
               ],
             },
           ],
@@ -122,7 +122,7 @@ export const getAllChatsWithTeamController = async (
           participants: {
             where: {
               userId: {
-                not: _user.id, // Exclude the current user
+                not: _user.id, 
               },
             },
             select: {
