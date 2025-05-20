@@ -14,9 +14,9 @@ const generateToken = (userId: number, username: string, role: string) => {
   const token = jwt.sign(
     { id: userId, username, role },
     process.env.ACCESS_TOKEN_SECRET as string,
-    {
-      expiresIn: process.env.ACCESS_TOKEN_EXPIRY as string,
-    }
+    // {
+    //   // expiresIn: process.env.ACCESS_TOKEN_EXPIRY as string,
+    // }
   );
   return token;
 };
@@ -59,7 +59,7 @@ function generateOTP(length = 4): string {
   ).toString();
 }
 
- const sendVerificationEmail = async (
+const sendVerificationEmail = async (
   userEmail: string,
   otp: string
 ): Promise<void> => {
