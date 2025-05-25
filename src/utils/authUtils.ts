@@ -34,7 +34,7 @@ const verifyToken = async (token: string) => {
       throw new Error('Token decode failed');
     }
     // console.log(decoded);
-    console.log('Decoded token:', decoded);
+    // console.log('Decoded token:', decoded);
     // console.log('token:', token);
     return decoded as {
       id: number;
