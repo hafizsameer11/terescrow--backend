@@ -28,6 +28,9 @@ const verifyToken = async (token: string) => {
       token,
       process.env.ACCESS_TOKEN_SECRET as string
     );
+    console.log(decoded);
+    console.log('Decoded token:', decoded);
+    console.log('token:', token);
     return decoded as {
       id: number;
       username: string;

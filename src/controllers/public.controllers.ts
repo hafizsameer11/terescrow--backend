@@ -324,7 +324,6 @@ export const getUnreadMessagesCountController = async (
     if (!user) {
       return next(ApiError.unauthorized('You are not authorized'));
     }
-    // const chatId = req.body.chatId; not chatId 
     const messagesCount = await prisma.message.count({
       where: {
         receiverId: user.id,
