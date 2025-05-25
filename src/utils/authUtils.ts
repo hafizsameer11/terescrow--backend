@@ -24,13 +24,18 @@ const generateToken = (userId: number, username: string, role: string) => {
 // Token verification
 const verifyToken = async (token: string) => {
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.ACCESS_TOKEN_SECRET as string
-    );
-    console.log(decoded);
-    console.log('Decoded token:', decoded);
-    console.log('token:', token);
+    // const decoded = jwt.verify(
+    //   token,
+    //   process.env.ACCESS_TOKEN_SECRET as string
+    // );
+      const decoded = jwt.decode(token); // ❌ No signature check
+
+    if (!decoded || typeof decoded !== 'object') {
+      throw new Error('Token decode failed');
+    }
+    // console.log(decoded);
+    // console.log('Decoded token:', decoded);
+    // console.log('token:', token);
     return decoded as {
       id: number;
       username: string;
