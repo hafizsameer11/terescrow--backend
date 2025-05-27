@@ -32,9 +32,17 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
         const pendingChats = await prisma.chat.count({
             where: {
                 chatDetails: { status: ChatStatus.pending },
+                participants: {
+                    some: {
+                        user: {
+                            role: UserRoles.agent,
+                        },
+                    },
+                },
                 ...userFilter,
             },
         });
+
 
         const declinedChats = await prisma.chat.count({
             where: {
@@ -60,8 +68,23 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
         });
 
         const prevPendingChats = await prisma.chat.count({
-            where: { chatDetails: { status: ChatStatus.pending }, createdAt: { lt: currentMonthStart, gte: previousMonthStart }, ...userFilter },
+            where: {
+                chatDetails: { status: ChatStatus.pending },
+                participants: {
+                    some: {
+                        user: {
+                            role: UserRoles.agent,
+                        },
+                    },
+                },
+                createdAt: {
+                    lt: currentMonthStart,
+                    gte: previousMonthStart,
+                },
+                ...userFilter,
+            },
         });
+
 
         const prevDeclinedChats = await prisma.chat.count({
             where: { chatDetails: { status: ChatStatus.declined }, createdAt: { lt: currentMonthStart, gte: previousMonthStart }, ...userFilter },

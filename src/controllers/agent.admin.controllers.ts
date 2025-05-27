@@ -170,11 +170,22 @@ export const getTeamChatDetailsController = async (
         messages: true,
       },
     });
+    //m,arks all messages of current chat as read
 
     if (!chat || chat.chatType == ChatType.customer_to_agent) {
       return next(ApiError.notFound('Chat not found'));
     }
 
+    await prisma.message.updateMany({
+      where: {
+        chatId: chat.id,
+        receiverId: user.id,
+        isRead: false,
+      },
+      data: {
+        isRead: true,
+      },
+    });
     return new ApiResponse(200, chat, 'Chat found').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
