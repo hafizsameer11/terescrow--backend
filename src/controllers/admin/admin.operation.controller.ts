@@ -7,6 +7,7 @@ import { hashPassword } from '../../utils/authUtils';
 import { UserRequest } from '../customer/auth.controllers';
 import { validationResult } from 'express-validator';
 import upload from '../../middlewares/multer.middleware';
+import { sendPushNotification } from '../../utils/pushService';
 
 const prisma = new PrismaClient();
 
@@ -576,82 +577,77 @@ Notification Crud
 */
 
 export const createNotification = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const user = req.body._user;
-        if (!user || user.role == UserRoles.customer) {
-            return next(ApiError.unauthorized('You are not authorized'));
-        }
+  try {
+    const user = req.body._user;
+    if (!user || user.role === UserRoles.customer) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
 
-        // Extract userIds and message details from the request body
-        const { message, title, type } = req.body;
+    const { message, title, type } = req.body;
 
-        // Get the image from the request
-        let userIds = req.body.userIds;
-        if (userIds != undefined && typeof userIds === 'string') {
-            try {
-                userIds = JSON.parse(userIds); // Convert string to array
-            } catch (error) {
-                console.log(error);
-                // return next(ApiError.badRequest('Invalid userIds format'));
-            }
-        }
+    // Parse userIds
+    let userIds = req.body.userIds;
+    if (userIds !== undefined && typeof userIds === 'string') {
+      try {
+        userIds = JSON.parse(userIds);
+      } catch (error) {
+        console.error('Invalid userIds JSON:', error);
+        return next(ApiError.badRequest('Invalid userIds format'));
+      }
+    }
 
-        const image = req.file?.filename || '';
+    const image = req.file?.filename || '';
 
-        // Create the main notification
-        const notification = await prisma.notification.create({
-            data: {
-                isSingle: false,
-                message: message,
-                type: type,
-                title: title,
-                image: image,
-            },
+    // Create main notification record
+    const notification = await prisma.notification.create({
+      data: {
+        isSingle: false,
+        message,
+        type,
+        title,
+        image,
+      },
+    });
+
+    if (!notification) {
+      return next(ApiError.badRequest('Failed to create notification'));
+    }
+
+    // Send in-app + push notifications if userIds are provided
+    if (Array.isArray(userIds)) {
+      const notificationPromises = userIds.map(async (userId: number) => {
+        // Create in-app notification
+        await prisma.inAppNotification.create({
+          data: {
+            userId,
+            title,
+            description: message,
+            type: type,
+          },
         });
 
-        if (!notification) {
-            return next(ApiError.badRequest('Failed to create notification'));
-        }
+        // Send push notification
+        await sendPushNotification({
+          userId: userId,
+          title: title,
+          body: message,
+          sound: 'default',
+        });
+      });
 
-        // If userIds is defined, create in-app notifications for each user
-        if (userIds !== undefined && Array.isArray(userIds)) {
-            const inAppNotifications = await Promise.all(
-                userIds.map(async (userId: number) => {
-                    return await prisma.inAppNotification.create({
-                        data: {
-                            userId: userId,
-                            description: message, // Use the notification message as the description
-                            title: title,
-                            type: 'customeer', // Adjust type if necessary
-                        },
-                    });
-                })
-            );
-            await Promise.all(
-                userIds.map(async (userId: number) => {
-                    await prisma.inAppNotification.create({
-                        data: {
-                            userId: userId,
-                            title: title,
-                            description: message,
-                        },
-                    });
-                })
-            );
-
-            console.log('In-app notifications created:', inAppNotifications);
-        }
-
-        // Return success response
-        return new ApiResponse(201, notification, 'Notification created successfully').send(res);
-    } catch (error) {
-        console.log(error);
-        if (error instanceof ApiError) {
-            return next(error);
-        }
-        next(ApiError.internal('Failed to create notification'));
+      await Promise.all(notificationPromises);
     }
+
+    return new ApiResponse(201, notification, 'Notification created successfully').send(res);
+  } catch (error) {
+    console.error('Notification Error:', error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Failed to create notification'));
+  }
 };
+
 
 export const getNotifications = async (req: Request, res: Response, next: NextFunction) => {
     try {
