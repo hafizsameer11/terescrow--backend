@@ -622,7 +622,7 @@ export const createNotification = async (req: Request, res: Response, next: Next
             userId,
             title,
             description: message,
-            type: type,
+            type: 'customeer',
           },
         });
 
