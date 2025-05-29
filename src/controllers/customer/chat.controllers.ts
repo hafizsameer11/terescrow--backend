@@ -88,8 +88,9 @@ const sendMessageController = async (
     const receveNotication = await sendPushNotification({
       userId: chat.participants[0].userId, // receiver
       title: 'New Message',
-      body: `You have a new message from ${sender.firstname} ${sender.lastname} that is ${message}`,
-      sound: 'default',
+      body: req.file
+        ? `You have received an image from ${sender.firstname} ${sender.lastname}`
+        : `You have a new message from ${sender.firstname} ${sender.lastname}: "${message}"`, sound: 'default',
     });
     console.log(receveNotication);
     // Send push notification to sender also (for testing only)
