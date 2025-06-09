@@ -93,16 +93,13 @@ const sendMessageController = async (
         : `You have a new message from ${sender.firstname} ${sender.lastname}: "${message}"`, sound: 'default',
     });
     console.log(receveNotication);
-    // Send push notification to sender also (for testing only)
     const senderNotification = await sendPushNotification({
       userId: sender.id, // sender (himself)
       title: 'Message Sent',
       body: `You sent a message: "${message}"`,
       sound: 'default',
     });
-    console.log(senderNotification);
-    // console.log(notification);
-    // Update chat `updatedAt`
+    console.log(senderNotification)
     await prisma.chat.update({
       where: {
         id: chat.id,
