@@ -145,7 +145,7 @@ export const getAllCustomerWithAgentsChats = async (
                 lastname: true,
                 role: true,
                 profilePicture: true,
-                country:true
+                country: true
               },
             },
           },
@@ -553,6 +553,16 @@ export const getAgentCustomerChatDetails = async (
     if (!customer || !agent) {
       return next(ApiError.notFound('Chat participants not found'));
     }
+    //mark messages as read if applicable
+    const updatedMessages = await prisma.message.updateMany({
+      where: {
+        chatId: chat.id,
+        receiverId: admin.id, // Optional: Mark messages for admin as read
+      },
+      data: {
+        isRead: true,
+      },
+    });
 
     // Mark messages as read if applicable
 
