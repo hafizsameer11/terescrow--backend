@@ -179,9 +179,18 @@ export const getAllCustomerWithAgentsChats = async (
         },
         messages: {
           where: {
-            message: {
-              not: '',
-            },
+            OR: [
+              {
+                message: {
+                  not: '',
+                },
+              },
+              {
+                image: {
+                  not: null,
+                },
+              },
+            ],
           },
           take: 1,
           orderBy: {
