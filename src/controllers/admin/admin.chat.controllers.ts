@@ -202,7 +202,16 @@ export const getAllCustomerWithAgentsChats = async (
             createdAt: true,
           },
         },
-
+        _count: {
+          select: {
+            messages: {
+              where: {
+                isRead: false,
+                receiverId: user.id, // Only count messages not read by the current user
+              },
+            },
+          },
+        },
       },
       orderBy: {
         updatedAt: 'desc',
