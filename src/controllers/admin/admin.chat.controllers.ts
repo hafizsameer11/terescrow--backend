@@ -246,6 +246,8 @@ export const getAllCustomerWithAgentsChats = async (
         transactions: chat.transactions,
         agent,
         createdAt: chat.chatDetails?.createdAt || null,
+        unreadCount: chat._count?.messages || 0,
+
       };
     });
 
