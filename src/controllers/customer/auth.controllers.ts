@@ -66,8 +66,6 @@ const registerCustomerController = async (
         conflictField = 'email';
       } else if (existingUser.username === username) {
         conflictField = 'username';
-      } else if (existingUser.phoneNumber === phoneNumber) {
-        conflictField = 'phoneNumber';
       }
 
       throw ApiError.badRequest(
