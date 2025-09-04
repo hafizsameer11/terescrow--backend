@@ -56,7 +56,7 @@ const registerCustomerController = async (
     // Check if any attribute already exists
     const existingUser = await prisma.user.findFirst({
       where: {
-        OR: [{ email }, { username }, { phoneNumber }],
+        OR: [{ email }],
       },
     });
 
@@ -64,10 +64,7 @@ const registerCustomerController = async (
       let conflictField = '';
       if (existingUser.email === email) {
         conflictField = 'email';
-      } else if (existingUser.username === username) {
-        conflictField = 'username';
-      }
-
+      } 
       throw ApiError.badRequest(
         `This ${conflictField} is already registered.`,
         { conflictField }
