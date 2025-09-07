@@ -100,6 +100,168 @@ export const createChatGroupController = async (
 };
 
 
+// export const getAllCustomerWithAgentsChats = async (
+//   req: Request,
+//   res: Response,
+//   next: NextFunction
+// ) => {
+//   try {
+//     const user = req.body._user;
+
+//     // Determine role-based access
+//     const isAdmin = user?.role === UserRoles.admin;
+//     const isAgent = user?.role === UserRoles.agent;
+
+//     // Common filters applied to all roles
+//     const baseFilter = {
+//       chatType: ChatType.customer_to_agent,
+//     };
+
+//     // Additional filtering for agents
+//     const roleSpecificFilter = isAgent
+//       ? {
+//         participants: {
+//           some: {
+//             userId: user.id,
+//           },
+//         },
+//       }
+//       : {};
+
+//     // Fetch chats with filters
+//     const agentCustomerChats = await prisma.chat.findMany({
+//       where: {
+//         ...baseFilter,
+//         ...roleSpecificFilter,
+//       },
+//       include: {
+//         participants: {
+//           select: {
+//             user: {
+//               select: {
+//                 id: true,
+//                 username: true,
+//                 firstname: true,
+//                 lastname: true,
+//                 role: true,
+//                 profilePicture: true,
+//                 country: true
+//               },
+//             },
+//           },
+//         },
+//         chatDetails: {
+//           select: {
+//             status: true,
+//             createdAt: true,
+//             category: {
+//               select: {
+//                 id: true,
+//                 title: true,
+//               },
+//             },
+//             department: {
+//               select: {
+//                 id: true,
+//                 title: true,
+//                 Type: true,
+//                 niche: true,
+//               },
+//             },
+//           },
+//         },
+//         transactions: {
+//           select: {
+//             id: true,
+//             amount: true,
+//             amountNaira: true,
+//           },
+//         },
+//         messages: {
+//           where: {
+//             OR: [
+//               {
+//                 message: {
+//                   not: '',
+//                 },
+//               },
+//               {
+//                 image: {
+//                   not: null,
+//                 },
+//               },
+//             ],
+//           },
+//           take: 1,
+//           orderBy: {
+//             createdAt: 'desc',
+//           },
+//           select: {
+//             id: true,
+//             message: true,
+//             createdAt: true,
+//           },
+//         },
+//         _count: {
+//           select: {
+//             messages: {
+//               where: {
+//                 isRead: false,
+//                 receiverId: user.id, // Only count messages not read by the current user
+//               },
+//             },
+//           },
+//         },
+//       },
+//       orderBy: {
+//         updatedAt: 'desc',
+//       }
+//     });
+
+//     if (!agentCustomerChats.length) {
+//       return next(ApiError.notFound('No chats found'));
+//     }
+
+//     // Process chat data
+//     const resData = agentCustomerChats.map((chat) => {
+//       const recentMessage = chat.messages?.[0] || null;
+//       const recentMessageTimestamp = recentMessage?.createdAt || null;
+
+//       // Identify customer and agent participants
+//       const customer = chat.participants.find(
+//         (participant) => participant.user.role === UserRoles.customer
+//       )?.user;
+//       const agent = chat.participants.find(
+//         (participant) => participant.user.role === UserRoles.agent
+//       )?.user;
+
+//       return {
+//         id: chat.id,
+//         customer,
+//         recentMessage,
+//         recentMessageTimestamp,
+//         chatStatus: chat.chatDetails?.status || null,
+//         department: chat.chatDetails?.department || null,
+//         messagesCount: chat.messages?.length || 0,
+//         transactions: chat.transactions,
+//         agent,
+//         createdAt: chat.chatDetails?.createdAt || null,
+//         unreadCount: chat._count?.messages || 0,
+
+//       };
+//     });
+
+//     return new ApiResponse(200, resData, 'Chats retrieved successfully').send(res);
+//   } catch (error) {
+//     console.error('Error fetching chats:', error);
+//     if (error instanceof ApiError) {
+//       return next(error);
+//     }
+//     return next(ApiError.internal('An unexpected error occurred while fetching chats'));
+//   }
+// };
+
+
 export const getAllCustomerWithAgentsChats = async (
   req: Request,
   res: Response,
@@ -107,160 +269,137 @@ export const getAllCustomerWithAgentsChats = async (
 ) => {
   try {
     const user = req.body._user;
-
-    // Determine role-based access
-    const isAdmin = user?.role === UserRoles.admin;
     const isAgent = user?.role === UserRoles.agent;
 
-    // Common filters applied to all roles
-    const baseFilter = {
+    // --- pagination (offset based) ---
+    const page = Math.max(1, Number(req.query.page ?? 1));
+    const limit = Math.min(Math.max(1, Number(req.query.limit ?? 50)), 100);
+    const skip = (page - 1) * limit;
+
+    // --- filters (same as before, just reading from query) ---
+    const status = (req.query.status as string) || 'All';
+    const type = (req.query.type as string) || 'All';
+    const category = (req.query.category as string) || 'All';
+    const q = (req.query.q as string) || '';
+    const start = req.query.start ? new Date(String(req.query.start)) : undefined;
+    const end = req.query.end ? new Date(String(req.query.end)) : undefined;
+
+    // base + role filters
+    const where: any = {
       chatType: ChatType.customer_to_agent,
+      ...(isAgent ? { participants: { some: { userId: user.id } } } : {}),
     };
 
-    // Additional filtering for agents
-    const roleSpecificFilter = isAgent
-      ? {
-        participants: {
-          some: {
-            userId: user.id,
-          },
-        },
-      }
-      : {};
+    if (status !== 'All') where.chatDetails = { ...(where.chatDetails || {}), status };
+    if (type !== 'All') where.chatDetails = { ...(where.chatDetails || {}), department: { ...(where.chatDetails?.department || {}), Type: type } };
+    if (category !== 'All') where.chatDetails = { ...(where.chatDetails || {}), department: { ...(where.chatDetails?.department || {}), niche: category } };
 
-    // Fetch chats with filters
-    const agentCustomerChats = await prisma.chat.findMany({
-      where: {
-        ...baseFilter,
-        ...roleSpecificFilter,
-      },
-      include: {
-        participants: {
-          select: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                firstname: true,
-                lastname: true,
-                role: true,
-                profilePicture: true,
-                country: true
-              },
-            },
+    if (start || end) {
+      where.chatDetails = {
+        ...(where.chatDetails || {}),
+        createdAt: {
+          ...(start ? { gte: start } : {}),
+          ...(end ? { lte: end } : {}),
+        },
+      };
+    }
+
+    if (q) {
+      where.participants = {
+        some: {
+          user: {
+            OR: [
+              { username: { contains: q, mode: 'insensitive' } },
+              { firstname: { contains: q, mode: 'insensitive' } },
+              { lastname:  { contains: q, mode: 'insensitive' } },
+            ],
           },
         },
+      };
+    }
+
+    // total count for pagination UI
+    const total = await prisma.chat.count({ where });
+
+    // page slice (keep selects lean)
+    const rows = await prisma.chat.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], // no schema change needed
+      select: {
+        id: true,
+        updatedAt: true,
         chatDetails: {
           select: {
             status: true,
             createdAt: true,
-            category: {
-              select: {
-                id: true,
-                title: true,
-              },
-            },
-            department: {
-              select: {
-                id: true,
-                title: true,
-                Type: true,
-                niche: true,
-              },
-            },
+            department: { select: { id: true, title: true, Type: true, niche: true } },
+            category: { select: { id: true, title: true } },
           },
         },
-        transactions: {
+        participants: {
           select: {
-            id: true,
-            amount: true,
-            amountNaira: true,
+            user: {
+              select: {
+                id: true, username: true, firstname: true, lastname: true,
+                role: true, profilePicture: true, country: true,
+              },
+            },
           },
         },
         messages: {
-          where: {
-            OR: [
-              {
-                message: {
-                  not: '',
-                },
-              },
-              {
-                image: {
-                  not: null,
-                },
-              },
-            ],
-          },
+          where: { OR: [{ message: { not: '' } }, { image: { not: null } }] },
           take: 1,
-          orderBy: {
-            createdAt: 'desc',
-          },
-          select: {
-            id: true,
-            message: true,
-            createdAt: true,
-          },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, message: true, createdAt: true, receiverId: true, isRead: true },
         },
         _count: {
           select: {
             messages: {
-              where: {
-                isRead: false,
-                receiverId: user.id, // Only count messages not read by the current user
-              },
+              where: { isRead: false, receiverId: user.id },
             },
+            transactions: true,
           },
         },
+        // (Optional) remove the heavy transactions list from the list view
       },
-      orderBy: {
-        updatedAt: 'desc',
-      }
     });
 
-    if (!agentCustomerChats.length) {
-      return next(ApiError.notFound('No chats found'));
-    }
-
-    // Process chat data
-    const resData = agentCustomerChats.map((chat) => {
+    const data = rows.map((chat) => {
       const recentMessage = chat.messages?.[0] || null;
-      const recentMessageTimestamp = recentMessage?.createdAt || null;
-
-      // Identify customer and agent participants
-      const customer = chat.participants.find(
-        (participant) => participant.user.role === UserRoles.customer
-      )?.user;
-      const agent = chat.participants.find(
-        (participant) => participant.user.role === UserRoles.agent
-      )?.user;
+      const customer = chat.participants.find(p => p.user.role === UserRoles.customer)?.user || null;
+      const agent = chat.participants.find(p => p.user.role === UserRoles.agent)?.user || null;
 
       return {
         id: chat.id,
-        customer,
-        recentMessage,
-        recentMessageTimestamp,
+        updatedAt: chat.updatedAt,
+        createdAt: chat.chatDetails?.createdAt || null,
         chatStatus: chat.chatDetails?.status || null,
         department: chat.chatDetails?.department || null,
-        messagesCount: chat.messages?.length || 0,
-        transactions: chat.transactions,
+        category: chat.chatDetails?.category || null,
+        customer,
         agent,
-        createdAt: chat.chatDetails?.createdAt || null,
-        unreadCount: chat._count?.messages || 0,
-
+        recentMessage,
+        unreadCount: chat._count.messages || 0,
+        transactionsCount: chat._count.transactions || 0,
       };
     });
 
-    return new ApiResponse(200, resData, 'Chats retrieved successfully').send(res);
+    return res.json({
+      success: true,
+      message: 'Chats retrieved successfully',
+      data,
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    });
   } catch (error) {
     console.error('Error fetching chats:', error);
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    return next(ApiError.internal('An unexpected error occurred while fetching chats'));
+    return next(error instanceof ApiError ? error : ApiError.internal('Unexpected error while fetching chats'));
   }
 };
-
 
 export const getSingleAgentWithCustomerChats = async (
   req: Request,
