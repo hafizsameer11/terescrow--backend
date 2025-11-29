@@ -1,9 +1,10 @@
 /**
  * Gift Card Purchase Controller
  * 
- * Handles gift card purchase flow:
- * - Validate purchase request
- * - Process purchase (payment + Reloadly order)
+ * Handles gift card purchase flow according to Reloadly's official API:
+ * - Fetch product details from Reloadly API (not database)
+ * - Create order directly with Reloadly
+ * - Store order in database for tracking
  */
 
 import { Request, Response, NextFunction } from 'express';
@@ -12,88 +13,23 @@ import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { reloadlyOrdersService } from '../../services/reloadly/reloadly.orders.service';
-import { GiftCardPurchaseValidationRequest, GiftCardPurchaseRequest } from '../../types/reloadly.types';
-
-/**
- * Validate purchase request (before payment)
- */
-export const validatePurchaseController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      throw ApiError.badRequest('Validation failed', errors.array());
-    }
-
-    const validationData: GiftCardPurchaseValidationRequest = req.body;
-    const { productId, countryCode, cardType, faceValue, quantity, currencyCode } = validationData;
-
-    // Get product
-    const product = await prisma.giftCardProduct.findFirst({
-      where: {
-        OR: [
-          { id: productId },
-          { reloadlyProductId: productId },
-        ],
-        status: 'active',
-      },
-    });
-
-    if (!product) {
-      throw ApiError.notFound('Product not found or inactive');
-    }
-
-    // Validate country
-    if (!product.isGlobal && product.countryCode !== countryCode) {
-      throw ApiError.badRequest('Product not available in selected country');
-    }
-
-    // Validate amount
-    if (product.minValue && faceValue < Number(product.minValue)) {
-      throw ApiError.badRequest(`Minimum value is ${product.minValue} ${currencyCode}`);
-    }
-
-    if (product.maxValue && faceValue > Number(product.maxValue)) {
-      throw ApiError.badRequest(`Maximum value is ${product.maxValue} ${currencyCode}`);
-    }
-
-    // Validate card type
-    const supportedTypes = product.supportedCardTypes
-      ? (typeof product.supportedCardTypes === 'string' 
-          ? JSON.parse(product.supportedCardTypes) 
-          : product.supportedCardTypes) as string[]
-      : ['Physical', 'E-Code', 'Code Only'];
-
-    if (!supportedTypes.includes(cardType)) {
-      throw ApiError.badRequest(`Card type ${cardType} not supported for this product`);
-    }
-
-    // Calculate fees (example: 5% fee)
-    const feePercentage = 0.05; // 5%
-    const fees = faceValue * feePercentage;
-    const totalAmount = faceValue + fees;
-
-    return new ApiResponse(200, {
-      valid: true,
-      faceValue,
-      fees,
-      totalAmount,
-      currencyCode,
-      productName: product.productName,
-    }, 'Purchase validation successful').send(res);
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    next(ApiError.internal('Failed to validate purchase'));
-  }
-};
+import { reloadlyProductsService } from '../../services/reloadly/reloadly.products.service';
+import { ReloadlyOrderRequest, ReloadlyOrderResponse } from '../../types/reloadly.types';
 
 /**
  * Process gift card purchase
+ * POST /api/v2/giftcards/purchase
+ * 
+ * According to Reloadly official documentation:
+ * - productId (required)
+ * - quantity (required)
+ * - unitPrice (required) - must be from fixedRecipientDenominations or within min/max range
+ * - senderName (required)
+ * - customIdentifier (optional)
+ * - preOrder (optional, default false)
+ * - recipientEmail (optional)
+ * - recipientPhoneDetails (optional)
+ * - productAdditionalRequirements (optional)
  */
 export const purchaseController = async (
   req: Request,
@@ -106,9 +42,7 @@ export const purchaseController = async (
       throw ApiError.badRequest('Validation failed', errors.array());
     }
 
-    const purchaseData: GiftCardPurchaseRequest = req.body;
     const authenticatedUser = req.body._user;
-
     if (!authenticatedUser || !authenticatedUser.id) {
       throw ApiError.unauthorized('User not authenticated');
     }
@@ -124,154 +58,153 @@ export const purchaseController = async (
       throw ApiError.notFound('User not found');
     }
 
-    // TODO: Check KYC status
-    // TODO: Check wallet balance if paymentMethod is 'wallet'
+    // Extract order data from request body (matching Reloadly's structure)
+    const {
+      productId,
+      quantity,
+      unitPrice,
+      senderName,
+      customIdentifier,
+      preOrder = false,
+      recipientEmail,
+      recipientPhoneDetails,
+      productAdditionalRequirements,
+    } = req.body as ReloadlyOrderRequest & {
+      recipientPhoneDetails?: {
+        countryCode?: string;
+        phoneNumber?: string;
+      };
+    };
 
-    // Get product
-    const product = await prisma.giftCardProduct.findFirst({
-      where: {
-        OR: [
-          { id: purchaseData.productId },
-          { reloadlyProductId: purchaseData.productId },
-        ],
-        status: 'active',
-      },
-    });
-
-    if (!product) {
-      throw ApiError.notFound('Product not found or inactive');
+    // Validate required fields
+    if (!productId || !quantity || !unitPrice || !senderName) {
+      throw ApiError.badRequest('Missing required fields: productId, quantity, unitPrice, senderName');
     }
 
-    // Validate purchase (same as validate endpoint)
-    if (!product.isGlobal && product.countryCode !== purchaseData.countryCode) {
-      throw ApiError.badRequest('Product not available in selected country');
+    // Fetch product details from Reloadly API (not database)
+    let product;
+    try {
+      product = await reloadlyProductsService.getProductById(productId);
+    } catch (error) {
+      throw ApiError.notFound(`Product ${productId} not found in Reloadly`);
     }
 
-    if (product.minValue && purchaseData.faceValue < Number(product.minValue)) {
-      throw ApiError.badRequest(`Minimum value is ${product.minValue} ${purchaseData.currencyCode}`);
+    // Validate unitPrice against product's denomination requirements
+    if (product.denominationType === 'FIXED') {
+      // For FIXED denomination, unitPrice must be in fixedRecipientDenominations
+      const fixedDenominations = product.fixedRecipientDenominations || [];
+      if (!fixedDenominations.includes(unitPrice)) {
+        throw ApiError.badRequest(
+          `Invalid unitPrice. For this product, unitPrice must be one of: ${fixedDenominations.join(', ')}`
+        );
+      }
+    } else if (product.denominationType === 'RANGE') {
+      // For RANGE denomination, unitPrice must be within min/max
+      const minPrice = product.minRecipientDenomination || 0;
+      const maxPrice = product.maxRecipientDenomination || Infinity;
+      if (unitPrice < minPrice || unitPrice > maxPrice) {
+        throw ApiError.badRequest(
+          `Invalid unitPrice. For this product, unitPrice must be between ${minPrice} and ${maxPrice}`
+        );
+      }
     }
 
-    if (product.maxValue && purchaseData.faceValue > Number(product.maxValue)) {
-      throw ApiError.badRequest(`Maximum value is ${product.maxValue} ${purchaseData.currencyCode}`);
+    // Generate custom identifier if not provided
+    const orderCustomIdentifier = customIdentifier || `GC-${userId}-${Date.now()}`;
+
+    // Prepare Reloadly order request
+    const reloadlyOrderRequest: ReloadlyOrderRequest = {
+      productId,
+      quantity,
+      unitPrice,
+      senderName,
+      customIdentifier: orderCustomIdentifier,
+      preOrder,
+      recipientEmail: recipientEmail || user.email,
+      recipientPhoneDetails: recipientPhoneDetails
+        ? {
+            countryCode: recipientPhoneDetails.countryCode,
+            phoneNumber: recipientPhoneDetails.phoneNumber,
+          }
+        : undefined,
+      productAdditionalRequirements,
+    };
+
+    // Create order in Reloadly
+    let reloadlyOrder: ReloadlyOrderResponse;
+    try {
+      reloadlyOrder = await reloadlyOrdersService.createOrder(reloadlyOrderRequest);
+    } catch (error: any) {
+      throw ApiError.internal(
+        `Failed to create order with Reloadly: ${error.message || 'Unknown error'}`
+      );
     }
 
-    // Calculate fees
-    const feePercentage = 0.05; // 5%
-    const fees = purchaseData.faceValue * feePercentage;
-    const totalAmount = purchaseData.faceValue + fees;
-
-    // TODO: Process payment (deduct from wallet or charge card)
-    // For now, we'll assume payment is successful
-
-    // Create order in our database
+    // Store order in database for tracking
     const order = await prisma.giftCardOrder.create({
       data: {
         userId,
-        productId: product.id,
-        quantity: purchaseData.quantity,
-        cardType: purchaseData.cardType,
-        countryCode: purchaseData.countryCode,
-        currencyCode: purchaseData.currencyCode,
-        faceValue: purchaseData.faceValue,
-        totalAmount,
-        fees,
-        paymentMethod: purchaseData.paymentMethod,
+        productId: product.productId,
+        quantity: reloadlyOrder.product.quantity,
+        currencyCode: reloadlyOrder.currencyCode,
+        faceValue: reloadlyOrder.product.unitPrice,
+        totalAmount: reloadlyOrder.amount,
+        fees: reloadlyOrder.fee,
+        paymentMethod: 'wallet', // TODO: Get from request if payment method is passed
         paymentStatus: 'completed', // TODO: Update based on actual payment processing
-        status: 'pending',
-        recipientEmail: purchaseData.recipientEmail,
-        recipientPhone: purchaseData.recipientPhone,
-        senderName: purchaseData.senderName || `${user.firstname} ${user.lastname}`,
+        status: reloadlyOrder.status === 'SUCCESSFUL' ? 'completed' : 'pending',
+        recipientEmail: reloadlyOrder.recipientEmail,
+        senderName: reloadlyOrderRequest.senderName,
+        countryCode: reloadlyOrder.product.countryCode || product.countryCode || 'US', // Get from order or product
+        cardType: 'E-Code', // Default to E-Code (Reloadly doesn't specify card type in order API)
+        reloadlyOrderId: String(reloadlyOrder.transactionId),
+        reloadlyTransactionId: String(reloadlyOrder.transactionId),
+        reloadlyStatus: reloadlyOrder.status,
+        metadata: JSON.parse(JSON.stringify(reloadlyOrder)),
+        completedAt: reloadlyOrder.status === 'SUCCESSFUL' ? new Date() : null,
       },
     });
 
-    // Create order in Reloadly
-    try {
-      const reloadlyOrder = await reloadlyOrdersService.createOrder({
-        productId: product.reloadlyProductId,
-        countryCode: purchaseData.countryCode,
-        quantity: purchaseData.quantity,
-        unitPrice: purchaseData.faceValue,
-        customIdentifier: order.id,
-        senderName: purchaseData.senderName || `${user.firstname} ${user.lastname}`,
-        recipientEmail: purchaseData.recipientEmail || user.email,
-        recipientPhoneDetails: purchaseData.recipientPhone
-          ? {
-              countryCode: purchaseData.countryCode,
-              phoneNumber: purchaseData.recipientPhone.replace(/^\+/, ''),
-            }
-          : undefined,
-      });
-
-      // Update order with Reloadly response
-      await prisma.giftCardOrder.update({
-        where: { id: order.id },
-        data: {
-          reloadlyOrderId: String(reloadlyOrder.orderId),
-          reloadlyTransactionId: String(reloadlyOrder.transactionId),
-          reloadlyStatus: reloadlyOrder.status,
-          status: reloadlyOrder.status === 'SUCCESS' ? 'completed' : 'processing',
-          metadata: JSON.parse(JSON.stringify(reloadlyOrder)),
-          completedAt: reloadlyOrder.status === 'SUCCESS' ? new Date() : null,
-        },
-      });
-
-      // If order is immediately successful, fetch card code
-      if (reloadlyOrder.status === 'SUCCESS' && reloadlyOrder.transactionId) {
-        try {
-          const cardCodes = await reloadlyOrdersService.getCardCodes(reloadlyOrder.transactionId);
+    // If order is immediately successful, try to fetch card code
+    if (reloadlyOrder.status === 'SUCCESSFUL' && reloadlyOrder.transactionId) {
+      try {
+        const cardCodes = await reloadlyOrdersService.getCardCodes(reloadlyOrder.transactionId);
+        
+        if (cardCodes.content && cardCodes.content.length > 0) {
+          const cardCode = cardCodes.content[0];
           
-          if (cardCodes.content && cardCodes.content.length > 0) {
-            const cardCode = cardCodes.content[0];
-            
-            await prisma.giftCardOrder.update({
-              where: { id: order.id },
-              data: {
-                cardCode: cardCode.redemptionCode,
-                cardPin: cardCode.pin || null,
-                expiryDate: cardCode.expiryDate ? new Date(cardCode.expiryDate) : null,
-                status: 'completed',
-                completedAt: new Date(),
-              },
-            });
-          }
-        } catch (cardError) {
-          // Card code not available yet, will be fetched later
-          console.log('Card code not available yet, will poll later');
+          await prisma.giftCardOrder.update({
+            where: { id: order.id },
+            data: {
+              cardCode: cardCode.redemptionCode,
+              cardPin: cardCode.pin || null,
+              expiryDate: cardCode.expiryDate ? new Date(cardCode.expiryDate) : null,
+            },
+          });
         }
+      } catch (cardError) {
+        // Card code not available yet, will be fetched later via polling
+        console.log('Card code not available yet, will poll later');
       }
-
-      // Get updated order
-      const updatedOrder = await prisma.giftCardOrder.findUnique({
-        where: { id: order.id },
-        include: {
-          product: true,
-        },
-      });
-
-      return new ApiResponse(200, {
-        orderId: updatedOrder!.id,
-        reloadlyOrderId: updatedOrder!.reloadlyOrderId,
-        reloadlyTransactionId: updatedOrder!.reloadlyTransactionId,
-        status: updatedOrder!.status,
-        productName: updatedOrder!.product.productName,
-        faceValue: Number(updatedOrder!.faceValue),
-        totalAmount: Number(updatedOrder!.totalAmount),
-        currencyCode: updatedOrder!.currencyCode,
-        estimatedDelivery: updatedOrder!.completedAt || new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-      }, 'Purchase completed successfully').send(res);
-    } catch (reloadlyError) {
-      // Reloadly order failed, update our order
-      await prisma.giftCardOrder.update({
-        where: { id: order.id },
-        data: {
-          status: 'failed',
-          errorMessage: reloadlyError instanceof Error ? reloadlyError.message : 'Reloadly order failed',
-        },
-      });
-
-      // TODO: Refund payment
-      throw ApiError.internal('Failed to create order with Reloadly. Payment will be refunded.');
     }
+
+    // Return response matching Reloadly's structure
+    return new ApiResponse(200, {
+      transactionId: reloadlyOrder.transactionId,
+      amount: reloadlyOrder.amount,
+      discount: reloadlyOrder.discount,
+      currencyCode: reloadlyOrder.currencyCode,
+      fee: reloadlyOrder.fee,
+      totalFee: reloadlyOrder.totalFee,
+      recipientEmail: reloadlyOrder.recipientEmail,
+      customIdentifier: reloadlyOrder.customIdentifier,
+      status: reloadlyOrder.status,
+      product: reloadlyOrder.product,
+      transactionCreatedTime: reloadlyOrder.transactionCreatedTime,
+      preOrdered: reloadlyOrder.preOrdered,
+      balanceInfo: reloadlyOrder.balanceInfo,
+      orderId: order.id, // Our internal order ID
+    }, 'Gift card order created successfully').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -279,8 +212,3 @@ export const purchaseController = async (
     next(ApiError.internal('Failed to process purchase'));
   }
 };
-
-
-
-
-

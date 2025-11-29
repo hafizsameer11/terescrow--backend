@@ -64,88 +64,59 @@ const pinValidation = [
 // Gift Card Validations
 // ============================================
 
+// Gift card purchase validation - matches Reloadly's official order API structure
 const giftCardPurchaseValidation = [
   body('productId')
     .isInt({ min: 1 })
     .withMessage('Valid product ID is required'),
   
-  body('countryCode')
-    .isString()
-    .notEmpty()
-    .isLength({ min: 2, max: 2 })
-    .withMessage('Country code must be 2 characters (ISO code)'),
-  
-  body('cardType')
-    .isString()
-    .notEmpty()
-    .isIn(['Physical', 'E-Code', 'Code Only', 'Paper Code', 'Horizontal Card'])
-    .withMessage('Valid card type is required'),
-  
-  body('faceValue')
-    .isFloat({ min: 0.01 })
-    .withMessage('Face value must be a positive number'),
-  
   body('quantity')
-    .isInt({ min: 1, max: 10 })
-    .withMessage('Quantity must be between 1 and 10'),
+    .isInt({ min: 1 })
+    .withMessage('Quantity must be a positive integer'),
   
-  body('currencyCode')
+  body('unitPrice')
+    .isFloat({ min: 0.01 })
+    .withMessage('Unit price must be a positive number'),
+  
+  body('senderName')
     .isString()
     .notEmpty()
-    .isLength({ min: 3, max: 3 })
-    .withMessage('Currency code must be 3 characters (ISO code)'),
+    .withMessage('Sender name is required'),
   
-  body('paymentMethod')
+  body('customIdentifier')
+    .optional()
     .isString()
-    .isIn(['wallet', 'card', 'bank_transfer'])
-    .withMessage('Valid payment method is required'),
+    .withMessage('Custom identifier must be a string if provided'),
+  
+  body('preOrder')
+    .optional()
+    .isBoolean()
+    .withMessage('PreOrder must be a boolean if provided'),
   
   body('recipientEmail')
     .optional()
     .isEmail()
     .withMessage('Valid recipient email is required if provided'),
   
-  body('recipientPhone')
+  body('recipientPhoneDetails')
+    .optional()
+    .isObject()
+    .withMessage('Recipient phone details must be an object if provided'),
+  
+  body('recipientPhoneDetails.countryCode')
     .optional()
     .isString()
-    .withMessage('Valid recipient phone is required if provided'),
+    .withMessage('Phone country code must be a string if provided'),
   
-  body('senderName')
+  body('recipientPhoneDetails.phoneNumber')
     .optional()
     .isString()
-    .withMessage('Sender name must be a string if provided'),
-];
-
-const giftCardPurchaseValidateValidation = [
-  body('productId')
-    .isInt({ min: 1 })
-    .withMessage('Valid product ID is required'),
+    .withMessage('Phone number must be a string if provided'),
   
-  body('countryCode')
-    .isString()
-    .notEmpty()
-    .isLength({ min: 2, max: 2 })
-    .withMessage('Country code must be 2 characters (ISO code)'),
-  
-  body('cardType')
-    .isString()
-    .notEmpty()
-    .isIn(['Physical', 'E-Code', 'Code Only', 'Paper Code', 'Horizontal Card'])
-    .withMessage('Valid card type is required'),
-  
-  body('faceValue')
-    .isFloat({ min: 0.01 })
-    .withMessage('Face value must be a positive number'),
-  
-  body('quantity')
-    .isInt({ min: 1, max: 10 })
-    .withMessage('Quantity must be between 1 and 10'),
-  
-  body('currencyCode')
-    .isString()
-    .notEmpty()
-    .isLength({ min: 3, max: 3 })
-    .withMessage('Currency code must be 3 characters (ISO code)'),
+  body('productAdditionalRequirements')
+    .optional()
+    .isObject()
+    .withMessage('Product additional requirements must be an object if provided'),
 ];
 
 export {
@@ -154,5 +125,4 @@ export {
   driverRegisterValidation,
   pinValidation,
   giftCardPurchaseValidation,
-  giftCardPurchaseValidateValidation,
 };

@@ -24,6 +24,9 @@ class ReloadlyOrdersService {
 
   /**
    * Create a new gift card order
+   * POST https://giftcards.reloadly.com/orders
+   * 
+   * According to Reloadly official documentation
    */
   async createOrder(orderData: ReloadlyOrderRequest): Promise<ReloadlyOrderResponse> {
     try {

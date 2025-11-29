@@ -15,7 +15,6 @@ import {
   getCategoriesController,
 } from '../../controllers/customer/giftcard.product.controller';
 import {
-  validatePurchaseController,
   purchaseController,
 } from '../../controllers/customer/giftcard.purchase.controller';
 import {
@@ -25,7 +24,6 @@ import {
 } from '../../controllers/customer/giftcard.order.controller';
 import {
   giftCardPurchaseValidation,
-  giftCardPurchaseValidateValidation,
 } from '../../utils/validations';
 
 const giftCardRouter = express.Router();
@@ -158,7 +156,7 @@ giftCardRouter.get('/products', getProductsController);
  *       **💡 Example Flow:**
  *       1. Call this endpoint to get list of countries
  *       2. Use `isoName: "US"` in `/products?countryCode=US` to filter products
- *       3. Use `isoName: "US"` as `countryCode` in `/purchase/validate` and `/purchase`
+ *       3. Use `isoName: "US"` in `/products?countryCode=US` to filter products
  *     responses:
  *       200:
  *         description: Countries retrieved successfully
@@ -255,8 +253,8 @@ giftCardRouter.get('/categories', getCategoriesController);
  *       1. Browse products: `GET /api/v2/giftcards/products`
  *       2. Select a product (e.g., `productId: 1234`)
  *       3. Get details: `GET /api/v2/giftcards/products/1234`
- *       4. Get card types: `GET /api/v2/giftcards/products/1234/types`
- *       5. Validate purchase: `POST /api/v2/giftcards/purchase/validate`
+ *       4. Get card types: `GET /api/v2/giftcards/products/1234/types` (if needed)
+ *       5. Order gift card: `POST /api/v2/giftcards/purchase`
  *     parameters:
  *       - in: path
  *         name: productId
@@ -291,7 +289,7 @@ giftCardRouter.get('/products/:productId', getProductByIdController);
  *       **💡 Example Flow:**
  *       1. Get product: `GET /api/v2/giftcards/products` → find `productId: 1234`
  *       2. Get countries: `GET /api/v2/giftcards/products/1234/countries`
- *       3. Use country code in purchase: `POST /api/v2/giftcards/purchase/validate` with `countryCode: "US"`
+ *       3. Order gift card: `POST /api/v2/giftcards/purchase` (product details fetched from Reloadly API)
  *     parameters:
  *       - in: path
  *         name: productId
@@ -319,12 +317,12 @@ giftCardRouter.get('/products/:productId/countries', getProductCountriesControll
  *       
  *       **📋 Usage:**
  *       - Get `productId` from: `GET /api/v2/giftcards/products` (use `productId` field)
- *       - Use returned `type` values as `cardType` in purchase endpoints
+ *       - This endpoint shows available card delivery types for information purposes
  *       
- *       **💡 Example Flow:**
- *       1. Get product: `GET /api/v2/giftcards/products` → find `productId: 1234`
- *       2. Get card types: `GET /api/v2/giftcards/products/1234/types` → returns `["Physical", "E-Code"]`
- *       3. Use card type in purchase: `POST /api/v2/giftcards/purchase/validate` with `cardType: "E-Code"`
+ *       **💡 Note:** 
+ *       - Reloadly's order API doesn't require cardType in the request
+ *       - Card type is determined by Reloadly based on product configuration
+ *       - This endpoint is for informational purposes only
  *       
  *       **Common Card Types:**
  *       - `Physical` - Physical card shipped to recipient
@@ -357,7 +355,7 @@ giftCardRouter.get('/products/:productId/countries', getProductCountriesControll
  *                     properties:
  *                       type:
  *                         type: string
- *                         description: Use this value as `cardType` in purchase endpoints
+ *                         description: Card delivery type (informational - not required in purchase request)
  *                         example: "E-Code"
  *                       description:
  *                         type: string
@@ -374,157 +372,32 @@ giftCardRouter.get('/products/:productId/types', getProductCardTypesController);
 
 /**
  * @swagger
- * /api/v2/giftcards/purchase/validate:
- *   post:
- *     summary: Validate purchase request before payment
- *     tags: [V2 - Gift Cards]
- *     description: |
- *       **V2 API** - Validate gift card purchase before processing payment.
- *       Checks product availability, amount limits, and calculates fees.
- *       
- *       **📋 Complete Flow:**
- *       1. **Get Products:** `GET /api/v2/giftcards/products` → Get `productId`
- *       2. **Get Countries:** `GET /api/v2/giftcards/countries` → Get `countryCode` (use `isoName`)
- *       3. **Get Card Types:** `GET /api/v2/giftcards/products/{productId}/types` → Get `cardType` (use `type`)
- *       4. **Get Product Details:** `GET /api/v2/giftcards/products/{productId}` → Check `minValue`, `maxValue`, `currencyCode`
- *       5. **Validate Purchase:** `POST /api/v2/giftcards/purchase/validate` (this endpoint)
- *       6. **Purchase:** `POST /api/v2/giftcards/purchase` (after validation passes)
- *       
- *       **💡 Parameter Sources:**
- *       - `productId` → From `GET /api/v2/giftcards/products` (use `productId` field)
- *       - `countryCode` → From `GET /api/v2/giftcards/countries` (use `isoName` field) OR from `GET /api/v2/giftcards/products/{productId}/countries`
- *       - `cardType` → From `GET /api/v2/giftcards/products/{productId}/types` (use `type` field)
- *       - `currencyCode` → From `GET /api/v2/giftcards/products/{productId}` (use `currencyCode` field)
- *       - `faceValue` → User input (must be between `minValue` and `maxValue` from product details)
- *       - `quantity` → User input (number of cards to purchase)
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - productId
- *               - countryCode
- *               - cardType
- *               - faceValue
- *               - quantity
- *               - currencyCode
- *             properties:
- *               productId:
- *                 type: integer
- *                 example: 1234
- *                 description: |
- *                   Product ID from Reloadly.
- *                   **Source:** `GET /api/v2/giftcards/products` → use `productId` field
- *               countryCode:
- *                 type: string
- *                 example: "US"
- *                 description: |
- *                   Country code (ISO 2-letter format).
- *                   **Source:** `GET /api/v2/giftcards/countries` → use `isoName` field
- *                   OR `GET /api/v2/giftcards/products/{productId}/countries`
- *               cardType:
- *                 type: string
- *                 example: "E-Code"
- *                 enum: [Physical, E-Code, Code Only, Paper Code, Horizontal Card]
- *                 description: |
- *                   Card delivery type.
- *                   **Source:** `GET /api/v2/giftcards/products/{productId}/types` → use `type` field
- *                   Common values: "Physical", "E-Code", "Code Only"
- *               faceValue:
- *                 type: number
- *                 example: 50.00
- *                 minimum: 0.01
- *                 description: |
- *                   Gift card face value (amount).
- *                   **Validation:** Must be between `minValue` and `maxValue` from product details.
- *                   **Source:** `GET /api/v2/giftcards/products/{productId}` → check `minValue` and `maxValue`
- *               quantity:
- *                 type: integer
- *                 example: 1
- *                 minimum: 1
- *                 description: Number of gift cards to purchase
- *               currencyCode:
- *                 type: string
- *                 example: "USD"
- *                 description: |
- *                   Currency code (3-letter ISO format).
- *                   **Source:** `GET /api/v2/giftcards/products/{productId}` → use `currencyCode` field
- *                   OR `GET /api/v2/giftcards/countries` → use `currencyCode` field
- *           examples:
- *             example1:
- *               summary: Example validation request
- *               value:
- *                 productId: 1234
- *                 countryCode: "US"
- *                 cardType: "E-Code"
- *                 faceValue: 50.00
- *                 quantity: 1
- *                 currencyCode: "USD"
- *     responses:
- *       200:
- *         description: Validation successful
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 valid:
- *                   type: boolean
- *                   example: true
- *                 faceValue:
- *                   type: number
- *                   example: 50.00
- *                 fees:
- *                   type: number
- *                   example: 2.50
- *                 totalAmount:
- *                   type: number
- *                   example: 52.50
- *                 currencyCode:
- *                   type: string
- *                   example: "USD"
- *                 productName:
- *                   type: string
- *                   example: "Amazon"
- *       400:
- *         description: Validation failed (invalid parameters, amount out of range, etc.)
- */
-giftCardRouter.post(
-  '/purchase/validate',
-  giftCardPurchaseValidateValidation,
-  validatePurchaseController
-);
-
-/**
- * @swagger
  * /api/v2/giftcards/purchase:
  *   post:
- *     summary: Purchase a gift card
+ *     summary: Order a gift card (Reloadly Official API)
  *     tags: [V2 - Gift Cards]
  *     description: |
- *       **V2 API** - Purchase a gift card from Reloadly.
- *       Processes payment, creates order with Reloadly, and returns order details.
- *       
- *       **⚠️ IMPORTANT:** Always validate purchase first using `POST /api/v2/giftcards/purchase/validate`
+ *       **V2 API** - Order a gift card product directly from Reloadly.
+ *       This endpoint matches Reloadly's official order API structure.
  *       
  *       **📋 Complete Flow:**
  *       1. **Get Products:** `GET /api/v2/giftcards/products` → Get `productId`
- *       2. **Get Countries:** `GET /api/v2/giftcards/countries` → Get `countryCode` (use `isoName`)
- *       3. **Get Card Types:** `GET /api/v2/giftcards/products/{productId}/types` → Get `cardType` (use `type`)
- *       4. **Get Product Details:** `GET /api/v2/giftcards/products/{productId}` → Check `minValue`, `maxValue`, `currencyCode`
- *       5. **Validate Purchase:** `POST /api/v2/giftcards/purchase/validate` → Verify all parameters
- *       6. **Purchase:** `POST /api/v2/giftcards/purchase` (this endpoint) → Process payment and create order
+ *       2. **Get Product Details:** `GET /api/v2/giftcards/products/{productId}` → Check denomination type and valid prices
+ *       3. **Order Gift Card:** `POST /api/v2/giftcards/purchase` (this endpoint) → Create order with Reloadly
+ *       
+ *       **💡 Important Notes:**
+ *       - Product details are fetched from Reloadly API (not database)
+ *       - `unitPrice` must match product's denomination requirements:
+ *         - For FIXED: must be in `fixedRecipientDenominations` array
+ *         - For RANGE: must be between `minRecipientDenomination` and `maxRecipientDenomination`
+ *       - Order is created directly with Reloadly and stored in database for tracking
  *       
  *       **💡 Parameter Sources:**
  *       - `productId` → From `GET /api/v2/giftcards/products` (use `productId` field)
- *       - `countryCode` → From `GET /api/v2/giftcards/countries` (use `isoName` field) OR from `GET /api/v2/giftcards/products/{productId}/countries`
- *       - `cardType` → From `GET /api/v2/giftcards/products/{productId}/types` (use `type` field)
- *       - `currencyCode` → From `GET /api/v2/giftcards/products/{productId}` (use `currencyCode` field)
- *       - `faceValue` → User input (must be between `minValue` and `maxValue` from product details)
- *       - `quantity` → User input (number of cards to purchase)
- *       - `paymentMethod` → User selection: "wallet", "card", or "bank_transfer"
+ *       - `unitPrice` → Must match product's denomination:
+ *         - For FIXED products: Use value from `fixedRecipientDenominations` array
+ *         - For RANGE products: Use value between `minRecipientDenomination` and `maxRecipientDenomination`
+ *       - Get product details: `GET /api/v2/giftcards/products/{productId}` to see valid prices
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -535,12 +408,9 @@ giftCardRouter.post(
  *             type: object
  *             required:
  *               - productId
- *               - countryCode
- *               - cardType
- *               - faceValue
  *               - quantity
- *               - currencyCode
- *               - paymentMethod
+ *               - unitPrice
+ *               - senderName
  *             properties:
  *               productId:
  *                 type: integer
@@ -548,89 +418,74 @@ giftCardRouter.post(
  *                 description: |
  *                   Product ID from Reloadly.
  *                   **Source:** `GET /api/v2/giftcards/products` → use `productId` field
- *               countryCode:
- *                 type: string
- *                 example: "US"
- *                 description: |
- *                   Country code (ISO 2-letter format).
- *                   **Source:** `GET /api/v2/giftcards/countries` → use `isoName` field
- *                   OR `GET /api/v2/giftcards/products/{productId}/countries`
- *               cardType:
- *                 type: string
- *                 example: "E-Code"
- *                 enum: [Physical, E-Code, Code Only, Paper Code, Horizontal Card]
- *                 description: |
- *                   Card delivery type.
- *                   **Source:** `GET /api/v2/giftcards/products/{productId}/types` → use `type` field
- *                   Common values: "Physical", "E-Code", "Code Only"
- *               faceValue:
- *                 type: number
- *                 example: 50.00
- *                 minimum: 0.01
- *                 description: |
- *                   Gift card face value (amount).
- *                   **Validation:** Must be between `minValue` and `maxValue` from product details.
- *                   **Source:** `GET /api/v2/giftcards/products/{productId}` → check `minValue` and `maxValue`
  *               quantity:
  *                 type: integer
  *                 example: 1
  *                 minimum: 1
- *                 description: Number of gift cards to purchase
- *               currencyCode:
- *                 type: string
- *                 example: "USD"
+ *                 description: Number of gift cards to order
+ *               unitPrice:
+ *                 type: number
+ *                 example: 50.00
  *                 description: |
- *                   Currency code (3-letter ISO format).
- *                   **Source:** `GET /api/v2/giftcards/products/{productId}` → use `currencyCode` field
- *                   OR `GET /api/v2/giftcards/countries` → use `currencyCode` field
- *               paymentMethod:
+ *                   Price of the gift card to be purchased.
+ *                   **IMPORTANT:** Must match product's denomination requirements:
+ *                   - For FIXED products: Must be one of the values in `fixedRecipientDenominations` array
+ *                   - For RANGE products: Must be between `minRecipientDenomination` and `maxRecipientDenomination`
+ *                   **Source:** `GET /api/v2/giftcards/products/{productId}` → check `denominationType` and valid prices
+ *               senderName:
  *                 type: string
- *                 enum: [wallet, card, bank_transfer]
- *                 example: "wallet"
- *                 description: Payment method to use
+ *                 example: "John Doe"
+ *                 description: Name on the gift card receipt
+ *               customIdentifier:
+ *                 type: string
+ *                 example: "obucks10"
+ *                 description: |
+ *                   Unique reference for the order (optional).
+ *                   If not provided, will be auto-generated.
+ *               preOrder:
+ *                 type: boolean
+ *                 example: false
+ *                 default: false
+ *                 description: Set to true if user wants to pre-order the gift card
  *               recipientEmail:
  *                 type: string
  *                 format: email
  *                 example: "recipient@example.com"
- *                 description: |
- *                   Recipient email address (required for E-Code card types).
- *                   Used to deliver digital gift card codes.
- *               recipientPhone:
- *                 type: string
- *                 example: "+1234567890"
- *                 description: |
- *                   Recipient phone number (optional, format: +country code + number).
- *                   Used for SMS delivery if supported.
- *               senderName:
- *                 type: string
- *                 example: "John Doe"
- *                 description: Name of the sender (optional)
+ *                 description: Recipient's email address (optional). If absent, no email will be sent from Reloadly
+ *               recipientPhoneDetails:
+ *                 type: object
+ *                 description: Recipient's phone details (optional)
+ *                 properties:
+ *                   countryCode:
+ *                     type: string
+ *                     example: "+1"
+ *                   phoneNumber:
+ *                     type: string
+ *                     example: "234567890"
+ *               productAdditionalRequirements:
+ *                 type: object
+ *                 description: Additional information required for some products (optional)
  *           examples:
  *             example1:
- *               summary: Purchase E-Code gift card
+ *               summary: Basic order (FIXED denomination)
  *               value:
  *                 productId: 1234
- *                 countryCode: "US"
- *                 cardType: "E-Code"
- *                 faceValue: 50.00
  *                 quantity: 1
- *                 currencyCode: "USD"
- *                 paymentMethod: "wallet"
- *                 recipientEmail: "recipient@example.com"
+ *                 unitPrice: 50.00
  *                 senderName: "John Doe"
  *             example2:
- *               summary: Purchase Physical gift card
+ *               summary: Order with all optional fields
  *               value:
  *                 productId: 1234
- *                 countryCode: "US"
- *                 cardType: "Physical"
- *                 faceValue: 100.00
- *                 quantity: 1
- *                 currencyCode: "USD"
- *                 paymentMethod: "wallet"
- *                 recipientEmail: "recipient@example.com"
- *                 recipientPhone: "+1234567890"
+ *                 quantity: 2
+ *                 unitPrice: 100.00
  *                 senderName: "John Doe"
+ *                 customIdentifier: "obucks10"
+ *                 preOrder: false
+ *                 recipientEmail: "recipient@example.com"
+ *                 recipientPhoneDetails:
+ *                   countryCode: "+1"
+ *                   phoneNumber: "234567890"
  *     responses:
  *       200:
  *         description: Purchase completed successfully
@@ -639,24 +494,82 @@ giftCardRouter.post(
  *             schema:
  *               type: object
  *               properties:
- *                 orderId:
- *                   type: string
- *                   description: Order ID for tracking
  *                 transactionId:
+ *                   type: integer
+ *                   example: 1
+ *                 amount:
+ *                   type: number
+ *                   example: 34536.21
+ *                 discount:
+ *                   type: number
+ *                   example: 1709.72
+ *                 currencyCode:
  *                   type: string
- *                   description: Transaction ID
+ *                   example: "NGN"
+ *                 fee:
+ *                   type: number
+ *                   example: 1880
+ *                 totalFee:
+ *                   type: number
+ *                   example: 2065.76
+ *                 recipientEmail:
+ *                   type: string
+ *                   example: "anyone@email.com"
+ *                 customIdentifier:
+ *                   type: string
+ *                   example: "obucks1dime0"
  *                 status:
  *                   type: string
- *                   example: "processing"
- *                 productName:
+ *                   enum: [SUCCESSFUL, PENDING, PROCESSING, REFUNDED, FAILED]
+ *                   example: "SUCCESSFUL"
+ *                 product:
+ *                   type: object
+ *                   properties:
+ *                     productId:
+ *                       type: integer
+ *                     productName:
+ *                       type: string
+ *                     countryCode:
+ *                       type: string
+ *                     quantity:
+ *                       type: integer
+ *                     unitPrice:
+ *                       type: number
+ *                     totalPrice:
+ *                       type: number
+ *                     currencyCode:
+ *                       type: string
+ *                     brand:
+ *                       type: object
+ *                       properties:
+ *                         brandId:
+ *                           type: integer
+ *                         brandName:
+ *                           type: string
+ *                 transactionCreatedTime:
  *                   type: string
- *                   example: "Amazon"
- *                 faceValue:
- *                   type: number
- *                   example: 50.00
- *                 totalAmount:
- *                   type: number
- *                   example: 52.50
+ *                   example: "2022-02-28 13:46:00"
+ *                 preOrdered:
+ *                   type: boolean
+ *                   example: false
+ *                 balanceInfo:
+ *                   type: object
+ *                   properties:
+ *                     oldBalance:
+ *                       type: number
+ *                     newBalance:
+ *                       type: number
+ *                     cost:
+ *                       type: number
+ *                     currencyCode:
+ *                       type: string
+ *                     currencyName:
+ *                       type: string
+ *                     updatedAt:
+ *                       type: string
+ *                 orderId:
+ *                   type: string
+ *                   description: Internal order ID for tracking
  *       400:
  *         description: Validation failed (invalid parameters, insufficient balance, etc.)
  *       401:

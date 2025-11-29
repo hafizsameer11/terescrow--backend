@@ -35,6 +35,9 @@ export interface ReloadlyProduct {
   currencyCode: string;
   minValue?: number;
   maxValue?: number;
+  denominationType?: 'FIXED' | 'RANGE';
+  minRecipientDenomination?: number;
+  maxRecipientDenomination?: number;
   fixedRecipientDenominations?: number[];
   fixedSenderDenominations?: number[];
   logoUrl?: string;
@@ -81,35 +84,60 @@ export interface ReloadlyCountriesResponse {
 }
 
 // ============================================
-// Order Types
+// Order Types (Official Reloadly API Structure)
 // ============================================
 
 export interface ReloadlyOrderRequest {
-  productId: number;
-  countryCode: string;
-  quantity: number;
-  unitPrice: number;
-  customIdentifier?: string;
-  senderName?: string;
-  recipientEmail?: string;
+  productId: number; // required
+  quantity: number; // required
+  unitPrice: number; // required - must be from fixedRecipientDenominations or within min/max range
+  senderName: string; // required
+  customIdentifier?: string; // optional
+  preOrder?: boolean; // optional, default false
+  recipientEmail?: string; // optional
   recipientPhoneDetails?: {
-    countryCode: string;
-    phoneNumber: string;
+    // optional object
+    countryCode?: string;
+    phoneNumber?: string;
   };
+  productAdditionalRequirements?: Record<string, any>; // optional object
 }
 
 export interface ReloadlyOrderResponse {
   transactionId: number;
-  orderId: number;
-  status: string;
-  productId: number;
-  productName: string;
-  countryCode: string;
-  quantity: number;
-  unitPrice: number;
-  totalPrice: number;
+  amount: number;
+  discount: number;
   currencyCode: string;
+  fee: number;
   recipientEmail?: string;
+  customIdentifier: string;
+  status: 'SUCCESSFUL' | 'PENDING' | 'PROCESSING' | 'REFUNDED' | 'FAILED';
+  product: {
+    productId: number;
+    productName: string;
+    countryCode: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    currencyCode: string;
+    brand: {
+      brandId: number;
+      brandName: string;
+    };
+  };
+  smsFee?: number;
+  totalFee: number;
+  receipientPhone?: number;
+  transactionCreatedTime: string;
+  preOrdered: boolean;
+  balanceInfo: {
+    oldBalance: number;
+    newBalance: number;
+    cost: number;
+    currencyCode: string;
+    currencyName: string;
+    updatedAt: string;
+  };
 }
 
 export interface ReloadlyCardCode {
