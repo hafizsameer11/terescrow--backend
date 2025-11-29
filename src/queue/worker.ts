@@ -1,6 +1,7 @@
 import { Worker, Processor } from 'bull';
 import { redisConfig } from '../config/redis.config';
 import { processBillPaymentStatusJob, BillPaymentStatusJobData } from './jobs/billpayment.status.job';
+import { processCreateVirtualAccountJob, CreateVirtualAccountJobData } from '../jobs/tatum/create.virtual.account.job';
 
 /**
  * Queue Worker
@@ -95,6 +96,14 @@ if (require.main === module) {
   const processors: Record<string, Processor> = {
     'bill-payments': async (job) => {
       await processBillPaymentStatusJob(job as any);
+    },
+    'tatum': async (job) => {
+      // Route to appropriate job based on job name
+      if (job.name === 'create-virtual-account') {
+        await processCreateVirtualAccountJob(job as any);
+      } else {
+        throw new Error(`Unknown job name: ${job.name}`);
+      }
     },
     // Add more processors here as needed
   };

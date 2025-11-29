@@ -34,6 +34,9 @@ import palmpayWebhookRouter from './routes/webhooks/palmpay.webhook.router';
 import kycRouter from './routes/cutomer/kyc.router';
 import billPaymentRouter from './routes/cutomer/billpayment.router';
 import supportChatRouter from './routes/cutomer/support.chat.router';
+import virtualAccountRouter from './routes/cutomer/virtual.account.router';
+import masterWalletRouter from './routes/admin/master.wallet.router';
+import tatumWebhookRouter from './routes/webhooks/tatum.webhook.router';
 const bodyParser = require('body-parser')
 
 const port = process.env.PORT || 8000;
@@ -82,6 +85,9 @@ app.use('/api/v2/webhooks', palmpayWebhookRouter);
 app.use('/api/v2/kyc', kycRouter);
 app.use('/api/v2/bill-payments', billPaymentRouter);
 app.use('/api/v2/support', supportChatRouter);
+app.use('/api/v2/wallets', virtualAccountRouter);
+app.use('/api/admin/master-wallet', masterWalletRouter);
+app.use('/api/v2/webhooks/tatum', tatumWebhookRouter);
 app.use('/.well-known', express.static(path.join(__dirname, '../public/.well-known')));
 
 // Swagger API Documentation

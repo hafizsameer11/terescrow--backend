@@ -35,11 +35,17 @@ const supportChatRouter = express.Router();
  *       - Chat status starts as "pending"
  *       - Support agents can later assign themselves and respond
  *       
+ *       **⚠️ Important:**
+ *       - If user already has a **pending** chat for the same **category**, the existing chat will be returned instead of creating a new one
+ *       - This prevents duplicate pending chats for the same category
+ *       - Only applies when `category` is provided
+ *       
  *       **💡 Example Flow:**
- *       1. User creates chat: `POST /api/v2/support/chats` with subject and message
- *       2. Chat is created with status "pending"
- *       3. Support agent assigns and responds
- *       4. User can view chat: `GET /api/v2/support/chats/{chatId}`
+ *       1. User creates chat: `POST /api/v2/support/chats` with subject, category, and message
+ *       2. If pending chat exists for category → Returns existing chat (200)
+ *       3. If no pending chat → Creates new chat with status "pending" (201)
+ *       4. Support agent assigns and responds
+ *       5. User can view chat: `GET /api/v2/support/chats/{chatId}`
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -65,8 +71,10 @@ const supportChatRouter = express.Router();
  *                 example: "I need help regarding gift cards"
  *                 description: Initial message to start the chat
  *     responses:
+ *       200:
+ *         description: Existing pending chat found and returned (if user already has pending chat for this category)
  *       201:
- *         description: Support chat created successfully
+ *         description: New support chat created successfully
  *       400:
  *         description: Validation failed
  *       401:

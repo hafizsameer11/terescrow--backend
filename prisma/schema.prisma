@@ -49,6 +49,8 @@ model User {
   userNotes            Notes[]             @relation("UserNotes")
   supportChats         SupportChat[]
   assignedSupportChats SupportChat[]       @relation("AssignedSupportChats")
+  virtualAccounts      VirtualAccount[]
+  receivedAssets       ReceivedAsset[]     @relation("ReceivedAssets")
   customRole           CustomRole?         @relation(fields: [customRoleId], references: [id])
   means                WaysOfHearing?      @relation(fields: [meansId], references: [id])
   otps                 UserOTP?
@@ -829,4 +831,158 @@ enum SupportChatStatus {
 enum SupportChatSenderType {
   user
   support
+}
+
+model MasterWallet {
+  id         Int      @id @default(autoincrement())
+  blockchain String   @db.VarChar(255)
+  xpub       String?  @db.VarChar(500)
+  address    String?  @db.VarChar(255)
+  privateKey String?  @db.Text
+  mnemonic   String?  @db.Text
+  response   String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([blockchain])
+  @@map("MasterWallet")
+}
+
+model WalletCurrency {
+  id              Int              @id @default(autoincrement())
+  blockchain      String           @db.VarChar(255)
+  currency        String           @db.VarChar(50)
+  symbol          String?          @db.VarChar(255)
+  name            String           @db.VarChar(255)
+  price           Decimal?         @db.Decimal(20, 8)
+  nairaPrice      Decimal?         @map("naira_price") @db.Decimal(20, 8)
+  tokenType       String?          @map("token_type") @db.VarChar(50)
+  contractAddress String?          @map("contract_address") @db.VarChar(255)
+  decimals        Int              @default(18)
+  isToken         Boolean          @default(false) @map("is_token")
+  blockchainName  String?          @map("blockhain_name") @db.VarChar(255)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  virtualAccounts VirtualAccount[]
+
+  @@map("wallet_currencies")
+}
+
+model VirtualAccount {
+  id                  Int                  @id @default(autoincrement())
+  userId              Int                  @map("user_id")
+  blockchain          String               @db.VarChar(255)
+  currency            String               @db.VarChar(50)
+  customerId          String?              @map("customer_id") @db.VarChar(255)
+  accountId           String               @unique @map("account_id") @db.VarChar(255)
+  accountCode         String?              @map("account_code") @db.VarChar(255)
+  active              Boolean              @default(true)
+  frozen              Boolean              @default(false)
+  accountBalance      String               @default("0") @map("account_balance") @db.VarChar(255)
+  availableBalance    String               @default("0") @map("available_balance") @db.VarChar(255)
+  xpub                String?              @db.VarChar(500)
+  accountingCurrency  String?              @map("accounting_currency") @db.VarChar(50)
+  currencyId          Int?                 @map("currency_id")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletCurrency      WalletCurrency?      @relation(fields: [currencyId], references: [id])
+  depositAddresses    DepositAddress[]
+  receiveTransactions ReceiveTransaction[]
+
+  @@index([userId])
+  @@index([blockchain])
+  @@index([currency])
+  @@index([currencyId])
+  @@map("virtual_accounts")
+}
+
+model DepositAddress {
+  id               Int            @id @default(autoincrement())
+  virtualAccountId Int            @map("virtual_account_id")
+  blockchain       String?        @db.VarChar(255)
+  currency         String?        @db.VarChar(50)
+  address          String         @unique @db.VarChar(255)
+  index            Int?           @db.Int
+  privateKey       String?        @map("private_key") @db.Text
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  virtualAccount   VirtualAccount @relation(fields: [virtualAccountId], references: [id], onDelete: Cascade)
+
+  @@index([virtualAccountId])
+  @@index([blockchain])
+  @@index([address])
+  @@map("deposit_addresses")
+}
+
+model WebhookResponse {
+  id               Int       @id @default(autoincrement())
+  accountId        String?   @map("account_id") @db.VarChar(255)
+  subscriptionType String?   @map("subscription_type") @db.VarChar(255)
+  amount           Decimal?  @db.Decimal(20, 8)
+  reference        String?   @db.VarChar(255)
+  currency         String?   @db.VarChar(50)
+  txId             String?   @map("tx_id") @db.VarChar(255)
+  blockHeight      BigInt?   @map("block_height")
+  blockHash        String?   @map("block_hash") @db.VarChar(255)
+  fromAddress      String?   @map("from_address") @db.VarChar(255)
+  toAddress        String?   @map("to_address") @db.VarChar(255)
+  transactionDate  DateTime? @map("transaction_date")
+  index            Int?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([accountId])
+  @@index([reference])
+  @@index([txId])
+  @@map("webhook_responses")
+}
+
+model ReceivedAsset {
+  id               Int       @id @default(autoincrement())
+  accountId        String?   @map("account_id") @db.VarChar(255)
+  subscriptionType String?   @map("subscription_type") @db.VarChar(255)
+  amount           Decimal?  @db.Decimal(20, 8)
+  reference        String?   @db.VarChar(255)
+  currency         String?   @db.VarChar(50)
+  txId             String?   @map("tx_id") @db.VarChar(255)
+  fromAddress      String?   @map("from_address") @db.VarChar(255)
+  toAddress        String?   @map("to_address") @db.VarChar(255)
+  transactionDate  DateTime? @map("transaction_date")
+  status           String    @default("inWallet") @db.VarChar(50)
+  index            Int?
+  userId           Int?      @map("user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  user             User?     @relation("ReceivedAssets", fields: [userId], references: [id])
+
+  @@index([accountId])
+  @@index([reference])
+  @@index([userId])
+  @@map("received_assets")
+}
+
+model ReceiveTransaction {
+  id               Int             @id @default(autoincrement())
+  userId           Int?            @map("user_id")
+  virtualAccountId Int?            @map("virtual_account_id")
+  transactionId    Int?            @map("transaction_id")
+  transactionType  String          @map("transaction_type") @db.VarChar(50)
+  senderAddress    String?         @map("sender_address") @db.VarChar(255)
+  reference        String?         @unique @db.VarChar(255)
+  txId             String?         @unique @map("tx_id") @db.VarChar(255)
+  amount           Decimal?        @db.Decimal(20, 8)
+  currency         String?         @db.VarChar(50)
+  blockchain       String?         @db.VarChar(255)
+  amountUsd        Decimal?        @map("amount_usd") @db.Decimal(20, 8)
+  status           String          @default("pending") @db.VarChar(50)
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  virtualAccount   VirtualAccount? @relation(fields: [virtualAccountId], references: [id])
+
+  @@index([userId])
+  @@index([virtualAccountId])
+  @@index([reference])
+  @@index([txId])
+  @@map("receive_transactions")
 }

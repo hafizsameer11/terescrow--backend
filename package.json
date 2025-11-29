@@ -11,7 +11,8 @@
     "migration:prod": "npx prisma migrate deploy",
     "seed": "ts-node src/utils/seed.ts",
     "queue:work": "ts-node src/queue/worker.ts",
-    "queue:work:bill-payments": "ts-node src/queue/worker.ts bill-payments"
+    "queue:work:bill-payments": "ts-node src/queue/worker.ts bill-payments",
+    "queue:work:tatum": "ts-node src/queue/worker.ts tatum"
   },
   "keywords": [],
   "author": "",

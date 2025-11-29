@@ -42,6 +42,49 @@ export const createSupportChatController = async (
       throw ApiError.badRequest('Subject and initial message are required');
     }
 
+    // Check if user already has a pending chat for the same category
+    if (category) {
+      const existingPendingChat = await prisma.supportChat.findFirst({
+        where: {
+          userId,
+          category,
+          status: 'pending',
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstname: true,
+              lastname: true,
+              email: true,
+              profilePicture: true,
+            },
+          },
+          messages: {
+            orderBy: { createdAt: 'asc' },
+            take: 1,
+          },
+        },
+      });
+
+      if (existingPendingChat) {
+        // Return existing pending chat instead of creating new one
+        return new ApiResponse(200, {
+          chat: {
+            id: existingPendingChat.id,
+            subject: existingPendingChat.subject,
+            category: existingPendingChat.category,
+            status: existingPendingChat.status,
+            createdAt: existingPendingChat.createdAt,
+            updatedAt: existingPendingChat.updatedAt,
+            user: existingPendingChat.user,
+            lastMessage: existingPendingChat.messages[0] || null,
+          },
+          message: 'You already have a pending chat for this category',
+        }, 'Existing pending chat retrieved').send(res);
+      }
+    }
+
     // Create support chat with initial message
     const supportChat = await prisma.supportChat.create({
       data: {
@@ -124,13 +167,23 @@ export const getSupportChatsController = async (
       where.status = status;
     }
 
+    // Debug: Log the query
+    console.log('[SupportChat] Query params:', { 
+      userId, 
+      userIdType: typeof userId,
+      where, 
+      skip, 
+      take: limitNum 
+    });
+
     // Get chats with last message
+    // Order by createdAt desc (lastMessageAt can be null and cause issues)
     const [chats, total] = await Promise.all([
       prisma.supportChat.findMany({
         where,
         skip,
         take: limitNum,
-        orderBy: { lastMessageAt: 'desc' },
+        orderBy: { createdAt: 'desc' },
         include: {
           user: {
             select: {
@@ -165,7 +218,10 @@ export const getSupportChatsController = async (
       prisma.supportChat.count({ where }),
     ]);
 
-    const formattedChats = chats.map((chat) => ({
+    // Debug: Log results
+    console.log('[SupportChat] Found chats:', chats.length, 'Total:', total, 'UserId:', userId, 'Where:', JSON.stringify(where));
+
+    const formattedChats = chats.map((chat: any) => ({
       id: chat.id,
       subject: chat.subject,
       category: chat.category,
@@ -278,7 +334,7 @@ export const getSupportChatByIdController = async (
         createdAt: chat.createdAt,
         updatedAt: chat.updatedAt,
       },
-      messages: messages.map((msg) => ({
+      messages: messages.map((msg: any) => ({
         id: msg.id,
         senderType: msg.senderType,
         senderId: msg.senderId,

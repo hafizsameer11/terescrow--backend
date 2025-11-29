@@ -283,6 +283,23 @@ const verifyUserController = async (
         // Create default wallet (getOrCreateWallet is idempotent)
         await fiatWalletService.getOrCreateWallet(updateUser.id, defaultCurrency);
         console.log(`Default ${defaultCurrency} wallet created for user ${updateUser.id}`);
+
+        // Create Tatum virtual accounts (async, don't block verification)
+        // Dispatch job to queue system
+        const { queueManager } = await import('../../queue/queue.manager');
+        await queueManager.addJob(
+          'tatum',
+          'create-virtual-account',
+          { userId: updateUser.id },
+          {
+            attempts: 3, // Retry 3 times on failure
+            backoff: {
+              type: 'exponential',
+              delay: 5000, // Start with 5 second delay
+            },
+          }
+        );
+        console.log(`Virtual account creation job dispatched to queue for user ${updateUser.id}`);
       } catch (walletError) {
         // Log error but don't fail verification if wallet creation fails
         console.error('Error creating default wallet during email verification:', walletError);
