@@ -15,14 +15,18 @@ export const kycTierTwoRequest = async (req: Request, res: Response, next: NextF
     }
     const userId = user.id
     const { firstName, surName, bvn, dob } = req.body
+    
+    // This is the legacy endpoint - defaulting to tier2 for backward compatibility
+    // New code should use /api/v2/kyc/tier2/submit
     const kycTierTwoRequest = await prisma.kycStateTwo.create({
       data: {
         firtName: firstName,
-        bvn: bvn,
+        bvn: bvn || '',
         surName: surName,
         dob: dob || '',
         userId: userId,
-        status: 'tier1'
+        tier: 'tier2', // Required field - defaulting to tier2
+        status: 'tier2' // Legacy field
       }
     });
     if (!kycTierTwoRequest) {

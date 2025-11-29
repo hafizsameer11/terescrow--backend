@@ -2,6 +2,8 @@ import express, { NextFunction, Request, Response, urlencoded } from 'express';
 import { app, httpServer } from './socketConfig';
 import cors from 'cors';
 import cookie from 'cookie-parser';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './config/swagger.config';
 import authRouter from './routes/cutomer/auth.router';
 // import messageRouter from './routes/message.router';
 import path from 'path';
@@ -23,6 +25,14 @@ import agentOperationsRouter from './routes/agent/agent.operations.router';
 import adminAuthRouter from './routes/admin/auth.router';
 import customerUtilityrouter from './routes/cutomer/utilities.router';
 import agentauthRouter from './routes/agent/auth.router';
+import giftCardRouter from './routes/cutomer/giftcard.router';
+import giftCardAdminRouter from './routes/admin/giftcard.admin.router';
+import palmpayDepositRouter from './routes/cutomer/palmpay.deposit.router';
+import palmpayPayoutRouter from './routes/cutomer/palmpay.payout.router';
+import fiatWalletRouter from './routes/cutomer/fiat.wallet.router';
+import palmpayWebhookRouter from './routes/webhooks/palmpay.webhook.router';
+import kycRouter from './routes/cutomer/kyc.router';
+import billPaymentRouter from './routes/cutomer/billpayment.router';
 const bodyParser = require('body-parser')
 
 const port = process.env.PORT || 8000;
@@ -62,7 +72,21 @@ app.use('/api', adminAgentRouter);
 app.use('/api/admin', adminAuthRouter);
 app.use('/api/admin', adminChatRouter);
 app.use('/api/admin/operations', operationsRouter);
+app.use('/api/v2/giftcards', giftCardRouter);
+app.use('/api/admin/giftcards', giftCardAdminRouter);
+app.use('/api/v2/payments/palmpay/deposit', palmpayDepositRouter);
+app.use('/api/v2/payments/palmpay', palmpayPayoutRouter);
+app.use('/api/v2/wallets', fiatWalletRouter);
+app.use('/api/v2/webhooks', palmpayWebhookRouter);
+app.use('/api/v2/kyc', kycRouter);
+app.use('/api/v2/bill-payments', billPaymentRouter);
 app.use('/.well-known', express.static(path.join(__dirname, '../public/.well-known')));
+
+// Swagger API Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'TereScrow API Documentation',
+}));
 
 app.post('/api/file', upload.single('file'), (req: Request, res: Response) => {
   if (req?.file) {

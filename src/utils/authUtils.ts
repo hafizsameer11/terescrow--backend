@@ -3,10 +3,9 @@ import bcryptjs from 'bcryptjs';
 import dotenv from 'dotenv';
 import ApiError from './ApiError';
 import nodemailer from 'nodemailer';
-import { PrismaClient, UserRoles } from '@prisma/client';
+import { UserRoles } from '@prisma/client';
+import { prisma } from './prisma';
 dotenv.config();
-
-const prisma = new PrismaClient();
 
 // Token generation
 const generateToken = (userId: number, username: string, role: string) => {

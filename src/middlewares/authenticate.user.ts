@@ -1,9 +1,7 @@
-import { PrismaClient } from '@prisma/client';
 import { Request, Response, NextFunction } from 'express';
 import ApiError from '../utils/ApiError';
 import { verifyToken } from '../utils/authUtils';
-
-const prisma = new PrismaClient();
+import { prisma } from '../utils/prisma';
 
 const authenticateUser = async (
   req: Request,

@@ -48,8 +48,111 @@ const driverRegisterValidation = [
     .withMessage('Passwords do not match'),
 ];
 
+const pinValidation = [
+  body('email').isEmail().withMessage('A valid email is required'),
+  body('pin')
+    .isString()
+    .notEmpty()
+    .withMessage('PIN is required')
+    .isLength({ min: 4, max: 4 })
+    .withMessage('PIN must be exactly 4 digits')
+    .matches(/^\d{4}$/)
+    .withMessage('PIN must contain only digits'),
+];
+
+// ============================================
+// Gift Card Validations
+// ============================================
+
+const giftCardPurchaseValidation = [
+  body('productId')
+    .isInt({ min: 1 })
+    .withMessage('Valid product ID is required'),
+  
+  body('countryCode')
+    .isString()
+    .notEmpty()
+    .isLength({ min: 2, max: 2 })
+    .withMessage('Country code must be 2 characters (ISO code)'),
+  
+  body('cardType')
+    .isString()
+    .notEmpty()
+    .isIn(['Physical', 'E-Code', 'Code Only', 'Paper Code', 'Horizontal Card'])
+    .withMessage('Valid card type is required'),
+  
+  body('faceValue')
+    .isFloat({ min: 0.01 })
+    .withMessage('Face value must be a positive number'),
+  
+  body('quantity')
+    .isInt({ min: 1, max: 10 })
+    .withMessage('Quantity must be between 1 and 10'),
+  
+  body('currencyCode')
+    .isString()
+    .notEmpty()
+    .isLength({ min: 3, max: 3 })
+    .withMessage('Currency code must be 3 characters (ISO code)'),
+  
+  body('paymentMethod')
+    .isString()
+    .isIn(['wallet', 'card', 'bank_transfer'])
+    .withMessage('Valid payment method is required'),
+  
+  body('recipientEmail')
+    .optional()
+    .isEmail()
+    .withMessage('Valid recipient email is required if provided'),
+  
+  body('recipientPhone')
+    .optional()
+    .isString()
+    .withMessage('Valid recipient phone is required if provided'),
+  
+  body('senderName')
+    .optional()
+    .isString()
+    .withMessage('Sender name must be a string if provided'),
+];
+
+const giftCardPurchaseValidateValidation = [
+  body('productId')
+    .isInt({ min: 1 })
+    .withMessage('Valid product ID is required'),
+  
+  body('countryCode')
+    .isString()
+    .notEmpty()
+    .isLength({ min: 2, max: 2 })
+    .withMessage('Country code must be 2 characters (ISO code)'),
+  
+  body('cardType')
+    .isString()
+    .notEmpty()
+    .isIn(['Physical', 'E-Code', 'Code Only', 'Paper Code', 'Horizontal Card'])
+    .withMessage('Valid card type is required'),
+  
+  body('faceValue')
+    .isFloat({ min: 0.01 })
+    .withMessage('Face value must be a positive number'),
+  
+  body('quantity')
+    .isInt({ min: 1, max: 10 })
+    .withMessage('Quantity must be between 1 and 10'),
+  
+  body('currencyCode')
+    .isString()
+    .notEmpty()
+    .isLength({ min: 3, max: 3 })
+    .withMessage('Currency code must be 3 characters (ISO code)'),
+];
+
 export {
   loginValidation,
   consignorRegisterValidation,
   driverRegisterValidation,
+  pinValidation,
+  giftCardPurchaseValidation,
+  giftCardPurchaseValidateValidation,
 };

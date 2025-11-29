@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { validationResult } from 'express-validator';
-import { Gender, OtpType, PrismaClient, User, UserRoles } from '@prisma/client';
+import { Gender, OtpType, User, UserRoles } from '@prisma/client';
 import {
   comparePassword,
   generateOTP,
@@ -12,8 +12,8 @@ import {
   sendWelcomeEmail,
   verifyToken,
 } from '../../utils/authUtils';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../utils/prisma';
+import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 
 const registerCustomerController = async (
   req: Request,
@@ -261,6 +261,32 @@ const verifyUserController = async (
     // console.log(updateUser.isVerified);
     if (!updateUser) {
       return next(ApiError.internal('User verification Failed!'));
+    }
+
+    // Auto-verify Tier 1 and create default wallet when user verifies email (only if not already verified)
+    if (!user.isVerified && updateUser.isVerified) {
+      try {
+        // Auto-set Tier 1 verification
+        await prisma.user.update({
+          where: { id: updateUser.id },
+          data: {
+            kycTier1Verified: true,
+            currentKycTier: 'tier1',
+          },
+        });
+        console.log(`Tier 1 auto-verified for user ${updateUser.id}`);
+        
+        // Get user's country to determine default currency
+        // Default to NGN if country is Nigeria, otherwise use NGN as default
+        const defaultCurrency = user.country?.toLowerCase().includes('nigeria') ? 'NGN' : 'NGN';
+        
+        // Create default wallet (getOrCreateWallet is idempotent)
+        await fiatWalletService.getOrCreateWallet(updateUser.id, defaultCurrency);
+        console.log(`Default ${defaultCurrency} wallet created for user ${updateUser.id}`);
+      } catch (walletError) {
+        // Log error but don't fail verification if wallet creation fails
+        console.error('Error creating default wallet during email verification:', walletError);
+      }
     }
 
     await prisma.userOTP.delete({
@@ -735,6 +761,118 @@ export const getKycDetails = async (req: Request, res: Response, next: NextFunct
     // next(ApiError.internal('Internal Server Error'));
   }
 }
+
+export const setPinController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      throw ApiError.badRequest(
+        'Please enter valid credentials',
+        errors.array()
+      );
+    }
+
+    const { email, pin } = req.body as { email: string; pin: string };
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: {
+        email,
+      },
+    });
+
+    if (!user) {
+      return next(ApiError.notFound('User not found'));
+    }
+
+    // Update user with PIN
+    const updatedUser = await prisma.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        pin: pin,
+      },
+      select: {
+        id: true,
+        email: true,
+        pin: true,
+      },
+    });
+
+    return new ApiResponse(
+      200,
+      { email: updatedUser.email, pinSet: true },
+      'PIN set successfully'
+    ).send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+};
+
+export const updatePinController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      throw ApiError.badRequest(
+        'Please enter valid credentials',
+        errors.array()
+      );
+    }
+
+    const { email, pin } = req.body as { email: string; pin: string };
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: {
+        email,
+      },
+    });
+
+    if (!user) {
+      return next(ApiError.notFound('User not found'));
+    }
+
+    // Update user with new PIN
+    const updatedUser = await prisma.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        pin: pin,
+      },
+      select: {
+        id: true,
+        email: true,
+        pin: true,
+      },
+    });
+
+    return new ApiResponse(
+      200,
+      { email: updatedUser.email, pinUpdated: true },
+      'PIN updated successfully'
+    ).send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+};
 
 export {
   registerCustomerController,

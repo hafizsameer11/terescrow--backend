@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,7 +7,704 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// enums
+model User {
+  id                Int                 @id @default(autoincrement())
+  username          String              @unique @db.VarChar(255)
+  email             String              @unique @db.VarChar(255)
+  firstname         String              @db.VarChar(255)
+  lastname          String              @db.VarChar(255)
+  country           String              @db.VarChar(255)
+  profilePicture    String?
+  phoneNumber       String              @unique @db.VarChar(20)
+  password          String              @db.VarChar(255)
+  gender            Gender
+  role              UserRoles
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  isVerified        Boolean             @default(false)
+  countryId         Int?
+  customRoleId      Int?
+  status            String              @default("active")
+  meansId           Int?
+  fcmToken          String?
+  pin               String?             @db.VarChar(4)
+  currentKycTier    KycTier?
+  kycTier1Verified  Boolean             @default(false)
+  kycTier2Verified  Boolean             @default(false)
+  kycTier3Verified  Boolean             @default(false)
+  kycTier4Verified  Boolean             @default(false)
+  AccountActivity   AccountActivity[]
+  agent             Agent?
+  groups            ChatGroup?
+  participations    ChatParticipant[]
+  fiatTransactions  FiatTransaction[]
+  fiatWallets       FiatWallet[]
+  billPayments      BillPayment[]
+  giftCardOrders    GiftCardOrder[]
+  inappNotification InAppNotification[]
+  KycStateTwo       KycStateTwo[]
+  receivedMessges   Message[]           @relation("ReceivedMessages")
+  sentMessages      Message[]           @relation("SentMessages")
+  agentNotes        Notes[]             @relation("AgentNotes")
+  userNotes         Notes[]             @relation("UserNotes")
+  customRole        CustomRole?         @relation(fields: [customRoleId], references: [id])
+  means             WaysOfHearing?      @relation(fields: [meansId], references: [id])
+  otps              UserOTP?
+
+  @@index([customRoleId], map: "User_customRoleId_fkey")
+  @@index([meansId], map: "User_meansId_fkey")
+}
+
+model CustomRole {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions RolePermission[]
+  users       User[]
+}
+
+model RolePermission {
+  id         Int        @id @default(autoincrement())
+  roleId     Int
+  moduleName String
+  canCreate  Boolean    @default(false)
+  canUpdate  Boolean    @default(false)
+  canDelete  Boolean    @default(false)
+  canSee     Boolean    @default(false)
+  Role       CustomRole @relation(fields: [roleId], references: [id])
+
+  @@index([roleId], map: "RolePermission_roleId_fkey")
+}
+
+model UserOTP {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  otp       String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  type      OtpType
+  attempts  Int      @default(0)
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Agent {
+  id                  Int                  @id @default(autoincrement())
+  userId              Int                  @unique
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  AgentStatus         AgentStatus          @default(online)
+  isDefault           Boolean              @default(false)
+  user                User                 @relation(fields: [userId], references: [id])
+  assignedDepartments AssignedDepartment[]
+  rate                Rate[]
+}
+
+model Department {
+  id                  Int                  @id @default(autoincrement())
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  description         String
+  icon                String
+  title               String               @db.VarChar(255)
+  status              DepartmentStatus
+  Type                DepartmentType       @default(buy)
+  niche               departmentNiche      @default(crypto)
+  assignedDepartments AssignedDepartment[]
+  categories          CatDepart[]
+  chatsDetails        ChatDetails[]
+  transaction         Transaction[]
+}
+
+model Category {
+  id            Int              @id @default(autoincrement())
+  title         String           @db.VarChar(255)
+  subTitle      String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  image         String?
+  status        DepartmentStatus @default(active)
+  departments   CatDepart[]
+  subCategories CatSubcat[]
+  chatsDetails  ChatDetails[]
+  transaction   Transaction[]
+}
+
+model Country {
+  id          Int           @id @default(autoincrement())
+  title       String
+  transaction Transaction[]
+}
+
+model CatDepart {
+  id           Int        @id @default(autoincrement())
+  categoryId   Int
+  departmentId Int
+  category     Category   @relation(fields: [categoryId], references: [id])
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  @@index([categoryId], map: "CatDepart_categoryId_fkey")
+  @@index([departmentId], map: "CatDepart_departmentId_fkey")
+}
+
+model AssignedDepartment {
+  id           Int        @id @default(autoincrement())
+  agentId      Int
+  departmentId Int
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  agent        Agent      @relation(fields: [agentId], references: [id])
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  @@unique([agentId, departmentId])
+  @@index([departmentId], map: "AssignedDepartment_departmentId_fkey")
+}
+
+model Subcategory {
+  id          Int           @id @default(autoincrement())
+  title       String        @db.VarChar(255)
+  price       Decimal
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  catSubcat   CatSubcat[]
+  transaction Transaction[]
+}
+
+model CatSubcat {
+  id            Int         @id @default(autoincrement())
+  categoryId    Int
+  subCategoryId Int
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  category      Category    @relation(fields: [categoryId], references: [id])
+  subCategory   Subcategory @relation(fields: [subCategoryId], references: [id])
+
+  @@unique([categoryId, subCategoryId])
+  @@index([subCategoryId], map: "CatSubcat_subCategoryId_fkey")
+}
+
+model Chat {
+  id           Int               @id @default(autoincrement())
+  chatType     ChatType
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  chatDetails  ChatDetails?
+  chatGroup    ChatGroup?
+  participants ChatParticipant[]
+  chatDeclined Chatdeclined[]
+  messages     Message[]
+  rate         Rate[]
+  transactions Transaction[]
+}
+
+model ChatParticipant {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  chatId    Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  chat      Chat     @relation(fields: [chatId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([chatId], map: "ChatParticipant_chatId_fkey")
+  @@index([userId], map: "ChatParticipant_userId_fkey")
+}
+
+model ChatDetails {
+  id           Int        @id @default(autoincrement())
+  chatId       Int        @unique
+  departmentId Int
+  categoryId   Int
+  status       ChatStatus
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  category     Category   @relation(fields: [categoryId], references: [id])
+  chat         Chat       @relation(fields: [chatId], references: [id])
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  @@index([categoryId], map: "ChatDetails_categoryId_fkey")
+  @@index([departmentId], map: "ChatDetails_departmentId_fkey")
+}
+
+model ChatGroup {
+  id           Int     @id @default(autoincrement())
+  groupName    String
+  groupProfile String?
+  chatId       Int     @unique
+  adminId      Int     @unique
+  admin        User    @relation(fields: [adminId], references: [id])
+  chat         Chat    @relation(fields: [chatId], references: [id])
+}
+
+model Message {
+  id          Int          @id @default(autoincrement())
+  senderId    Int
+  receiverId  Int?
+  chatId      Int
+  message     String?      @db.VarChar(255)
+  isRead      Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  image       String?
+  attachments Attachment[]
+  chat        Chat         @relation(fields: [chatId], references: [id])
+  receiver    User?        @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  sender      User         @relation("SentMessages", fields: [senderId], references: [id])
+
+  @@index([chatId], map: "Message_chatId_fkey")
+  @@index([receiverId], map: "Message_receiverId_fkey")
+  @@index([senderId], map: "Message_senderId_fkey")
+}
+
+model Attachment {
+  id         Int       @id @default(autoincrement())
+  messageId  Int
+  media_type MediaType
+  media_url  String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  message    Message   @relation(fields: [messageId], references: [id])
+
+  @@index([messageId], map: "Attachment_messageId_fkey")
+}
+
+model Transaction {
+  id            Int               @id @default(autoincrement())
+  subCategoryId Int
+  countryId     Int?
+  cardType      String?
+  cardNumber    String?
+  amount        Float?
+  exchangeRate  Float?
+  amountNaira   Float?
+  cryptoAmount  Float?
+  fromAddress   String?
+  toAddress     String?
+  status        TransactionStatus @default(successful)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  chatId        Int
+  categoryId    Int?              @map("Transaction_Category_FK")
+  departmentId  Int?              @map("Transaction_Department_FK")
+  profit        Float             @default(0)
+  category      Category?         @relation(fields: [categoryId], references: [id], map: "Transaction_Category_FK")
+  chat          Chat              @relation(fields: [chatId], references: [id], map: "Transaction_Chat_FK")
+  country       Country?          @relation(fields: [countryId], references: [id], map: "Transaction_Country_FK")
+  department    Department?       @relation(fields: [departmentId], references: [id], map: "Transaction_Department_FK")
+  subCategory   Subcategory       @relation(fields: [subCategoryId], references: [id], map: "Transaction_SubCategory_FK")
+
+  @@index([categoryId], map: "Transaction_Category_FK")
+  @@index([chatId], map: "Transaction_Chat_FK")
+  @@index([countryId], map: "Transaction_Country_FK")
+  @@index([departmentId], map: "Transaction_Department_FK")
+  @@index([subCategoryId], map: "Transaction_SubCategory_FK")
+}
+
+model Notes {
+  id             Int      @id @default(autoincrement())
+  title          String?
+  agentId        Int
+  isHighlighited Boolean?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  userId         Int
+  note           String?
+  agent          User     @relation("AgentNotes", fields: [agentId], references: [id])
+  user           User     @relation("UserNotes", fields: [userId], references: [id])
+
+  @@index([agentId], map: "Notes_agentId_fkey")
+  @@index([userId], map: "Notes_userId_fkey")
+}
+
+model Rate {
+  id          Int      @id @default(autoincrement())
+  rate        Float?
+  amount      Float?
+  amountNaira Float?
+  agentId     Int
+  chatId      Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  agent       Agent    @relation(fields: [agentId], references: [id])
+  chat        Chat     @relation(fields: [chatId], references: [id])
+
+  @@index([agentId], map: "Rate_agentId_fkey")
+  @@index([chatId], map: "Rate_chatId_fkey")
+}
+
+model Notification {
+  id        Int       @id @default(autoincrement())
+  title     String
+  message   String
+  type      UserRoles
+  isSingle  Boolean
+  userId    Int?
+  createdAt DateTime  @default(now())
+  image     String?
+}
+
+model NotificationAttachment {
+  id             Int    @id @default(autoincrement())
+  mediUrl        String
+  motificationId Int
+}
+
+model InAppNotification {
+  id          Int                   @id @default(autoincrement())
+  title       String
+  description String
+  userId      Int
+  isRead      Boolean               @default(false)
+  createdAt   DateTime              @default(now())
+  type        InAppNotificationType @default(customeer)
+  user        User                  @relation(fields: [userId], references: [id])
+
+  @@index([userId], map: "InAppNotification_userId_fkey")
+}
+
+model Chatdeclined {
+  id        Int      @id @default(autoincrement())
+  message   String?
+  chatId    Int
+  createdAt DateTime @default(now())
+  chat      Chat     @relation(fields: [chatId], references: [id])
+
+  @@index([chatId], map: "Chatdeclined_chatId_fkey")
+}
+
+model KycStateTwo {
+  id                Int      @id @default(autoincrement())
+  userId            Int
+  bvn               String?
+  surName           String?
+  firtName          String?
+  dob               String?
+  status            KycTier
+  createdAt         DateTime @default(now())
+  state             String   @default("pending")
+  reason            String?  @db.Text
+  address           String?  @db.VarChar(500)
+  country           String?  @db.VarChar(100)
+  documentNumber    String?  @db.VarChar(50)
+  documentType      String?  @db.VarChar(50)
+  idDocumentUrl     String?  @db.VarChar(500)
+  nin               String?  @db.VarChar(50)
+  proofOfAddressUrl String?  @db.VarChar(500)
+  proofOfFundsUrl   String?  @db.VarChar(500)
+  selfieUrl         String?  @db.VarChar(500)
+  tier              KycTier
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([tier])
+  @@index([state])
+  @@index([createdAt])
+}
+
+model AccountActivity {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  description String
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId], map: "AccountActivity_userId_fkey")
+}
+
+model Banner {
+  id        Int      @id @default(autoincrement())
+  image     String
+  createdAt DateTime @default(now())
+}
+
+model KycLimits {
+  id                     Int     @id @default(autoincrement())
+  tier                   KycTier @unique
+  cryptoBuyLimit         String?
+  cryptoSellLimit        String?
+  giftCardBuyLimit       String?
+  giftCardSellLimit      String?
+  depositDailyLimit      String? @db.VarChar(50)
+  depositMonthlyLimit    String? @db.VarChar(50)
+  withdrawalDailyLimit   String? @db.VarChar(50)
+  withdrawalMonthlyLimit String? @db.VarChar(50)
+}
+
+model smtp {
+  id         Int      @id @default(autoincrement())
+  host       String
+  from       String
+  email      String
+  port       Int
+  password   String
+  encryption String
+  createdAt  DateTime @default(now())
+}
+
+model privacyPage {
+  id              Int    @id @default(autoincrement())
+  privacyPageLink String
+  termsPageLink   String
+}
+
+model quickReplies {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  message   String
+  createdAt DateTime @default(now())
+}
+
+model WaysOfHearing {
+  id        Int      @id @default(autoincrement())
+  means     String
+  createdAt DateTime @default(now())
+  User      User[]
+}
+
+model GiftCardProduct {
+  id                     Int                      @id @default(autoincrement())
+  reloadlyProductId      Int                      @unique
+  productName            String
+  brandName              String?
+  countryCode            String
+  currencyCode           String
+  minValue               Decimal?                 @db.Decimal(10, 2)
+  maxValue               Decimal?                 @db.Decimal(10, 2)
+  fixedValue             Decimal?                 @db.Decimal(10, 2)
+  isVariableDenomination Boolean                  @default(true)
+  isGlobal               Boolean                  @default(false)
+  reloadlyImageUrl       String?
+  reloadlyLogoUrls       String?                  @db.LongText
+  imageUrl               String?
+  description            String?                  @db.Text
+  redemptionInstructions String?                  @db.Text
+  terms                  String?                  @db.Text
+  status                 String                   @default("active")
+  category               String?
+  productType            String?
+  supportedCardTypes     String?                  @db.LongText
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  lastSyncedAt           DateTime?
+  orders                 GiftCardOrder[]
+  productCountries       GiftCardProductCountry[]
+
+  @@index([countryCode])
+  @@index([status])
+  @@index([brandName])
+}
+
+model GiftCardProductCountry {
+  id           Int             @id @default(autoincrement())
+  productId    Int
+  countryCode  String
+  currencyCode String
+  minValue     Decimal?        @db.Decimal(10, 2)
+  maxValue     Decimal?        @db.Decimal(10, 2)
+  fixedValue   Decimal?        @db.Decimal(10, 2)
+  isAvailable  Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  product      GiftCardProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, countryCode])
+  @@index([countryCode])
+}
+
+model GiftCardOrder {
+  id                    String          @id @default(uuid())
+  userId                Int
+  productId             Int
+  reloadlyOrderId       String?         @unique
+  reloadlyTransactionId String?         @unique
+  quantity              Int             @default(1)
+  cardType              String
+  countryCode           String
+  currencyCode          String
+  faceValue             Decimal         @db.Decimal(10, 2)
+  totalAmount           Decimal         @db.Decimal(10, 2)
+  fees                  Decimal         @db.Decimal(10, 2)
+  exchangeRate          Decimal?        @db.Decimal(10, 6)
+  paymentMethod         String?
+  paymentStatus         String          @default("pending")
+  paymentTransactionId  String?
+  status                String          @default("pending")
+  reloadlyStatus        String?
+  cardCode              String?
+  cardPin               String?
+  cardNumber            String?
+  expiryDate            DateTime?
+  cardImageUrl          String?
+  recipientEmail        String?
+  recipientPhone        String?
+  senderName            String?
+  metadata              String?         @db.LongText
+  errorMessage          String?         @db.Text
+  refundedAt            DateTime?
+  refundReason          String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  completedAt           DateTime?
+  product               GiftCardProduct @relation(fields: [productId], references: [id])
+  user                  User            @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([reloadlyTransactionId])
+  @@index([createdAt])
+  @@index([productId], map: "GiftCardOrder_productId_fkey")
+}
+
+model ReloadlyConfig {
+  id             Int       @id @default(autoincrement())
+  environment    String    @unique @default("sandbox")
+  clientId       String    @db.VarChar(255)
+  clientSecret   String    @db.VarChar(255)
+  accessToken    String?   @db.Text
+  tokenExpiresAt DateTime?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model GiftCardProductSyncLog {
+  id              Int       @id @default(autoincrement())
+  syncType        String
+  productsSynced  Int       @default(0)
+  productsCreated Int       @default(0)
+  productsUpdated Int       @default(0)
+  productsFailed  Int       @default(0)
+  status          String
+  errorMessage    String?   @db.Text
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  @@index([startedAt])
+}
+
+model FiatWallet {
+  id           String            @id @default(uuid())
+  userId       Int
+  currency     String            @db.VarChar(10)
+  balance      Decimal           @default(0.00) @db.Decimal(15, 2)
+  isPrimary    Boolean           @default(false)
+  status       String            @default("active")
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  transactions FiatTransaction[]
+  billPayments BillPayment[]
+  user         User              @relation(fields: [userId], references: [id])
+
+  @@unique([userId, currency])
+  @@index([userId])
+  @@index([currency])
+}
+
+model FiatTransaction {
+  id               String     @id @default(uuid())
+  userId           Int
+  walletId         String
+  type             String
+  status           String     @default("pending")
+  currency         String     @db.VarChar(10)
+  amount           Decimal    @db.Decimal(15, 2)
+  fees             Decimal    @default(0.00) @db.Decimal(15, 2)
+  totalAmount      Decimal    @db.Decimal(15, 2)
+  balanceBefore    Decimal?   @db.Decimal(15, 2)
+  balanceAfter     Decimal?   @db.Decimal(15, 2)
+  palmpayOrderId   String?
+  palmpayOrderNo   String?    @unique
+  palmpayStatus    String?
+  palmpaySessionId String?
+  checkoutUrl      String?
+  redirectUrl      String?
+  payeeName        String?    @db.VarChar(200)
+  payeeBankCode    String?    @db.VarChar(50)
+  payeeBankAccNo   String?    @db.VarChar(50)
+  payeePhoneNo     String?    @db.VarChar(50)
+  billType         String?
+  billProvider     String?
+  billAccount      String?
+  billAmount       Decimal?   @db.Decimal(15, 2)
+  billReference    String?
+  description      String?    @db.VarChar(500)
+  metadata         String?    @db.LongText
+  errorMessage     String?    @db.Text
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  completedAt      DateTime?
+  user             User       @relation(fields: [userId], references: [id])
+  wallet           FiatWallet @relation(fields: [walletId], references: [id])
+  billPayment      BillPayment?
+
+  @@index([userId])
+  @@index([walletId])
+  @@index([palmpayOrderNo])
+  @@index([palmpayOrderId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model BillPayment {
+  id              String   @id @default(uuid())
+  userId          Int
+  walletId        String
+  transactionId   String   @unique
+  sceneCode       String   @db.VarChar(20)
+  billType        String   @db.VarChar(50)
+  billerId        String   @db.VarChar(100)
+  billerName      String?  @db.VarChar(200)
+  itemId          String   @db.VarChar(100)
+  itemName        String?  @db.VarChar(200)
+  rechargeAccount String   @db.VarChar(50)
+  amount          Decimal  @db.Decimal(15, 2)
+  currency        String   @db.VarChar(10) @default("NGN")
+  status          String   @default("pending")
+  palmpayOrderId  String?  @unique
+  palmpayOrderNo  String?  @unique
+  palmpayStatus   String?
+  billReference   String?  @db.VarChar(200)
+  providerResponse String? @db.LongText
+  errorMessage    String?  @db.Text
+  retryCount      Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  completedAt     DateTime?
+  user            User     @relation(fields: [userId], references: [id])
+  wallet          FiatWallet @relation(fields: [walletId], references: [id])
+  transaction     FiatTransaction @relation(fields: [transactionId], references: [id])
+
+  @@index([userId])
+  @@index([walletId])
+  @@index([transactionId])
+  @@index([palmpayOrderId])
+  @@index([palmpayOrderNo])
+  @@index([status])
+  @@index([sceneCode])
+  @@index([billType])
+  @@index([billerId])
+  @@index([createdAt])
+  @@map("BillPayment")
+}
+
+model PalmPayConfig {
+  id          Int      @id @default(autoincrement())
+  environment String   @unique @default("sandbox")
+  apiKey      String   @db.VarChar(255)
+  apiSecret   String   @db.VarChar(255)
+  merchantId  String?  @db.VarChar(255)
+  appId       String?  @db.VarChar(255)
+  publicKey   String?  @db.Text
+  baseUrl     String   @db.VarChar(500)
+  countryCode String   @default("NG") @db.VarChar(10)
+  version     String   @default("V1.1") @db.VarChar(10)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 enum UserRoles {
   admin
   agent
@@ -63,6 +757,7 @@ enum KycTier {
   tier1
   tier2
   tier3
+  tier4
 }
 
 enum AgentStatus {
@@ -83,425 +778,4 @@ enum departmentNiche {
 enum InAppNotificationType {
   customeer
   team
-}
-
-model User {
-  id                Int                 @id @default(autoincrement())
-  username          String              @unique @db.VarChar(255)
-  email             String              @unique @db.VarChar(255)
-  firstname         String              @db.VarChar(255)
-  lastname          String              @db.VarChar(255)
-  country           String              @db.VarChar(255)
-  countryId         Int?
-  phoneNumber       String              @unique @db.VarChar(20)
-  profilePicture    String?
-   
-  password          String              @db.VarChar(255)
-  gender            Gender
-  role              UserRoles
-  isVerified        Boolean             @default(false)
-  otps              UserOTP[]
-  agent             Agent?
-  sentMessages      Message[]           @relation("SentMessages")
-  receivedMessges   Message[]           @relation("ReceivedMessages")
-  participations    ChatParticipant[]
-  groups            ChatGroup[]
-  inappNotification InAppNotification[]
-
-  // transaction       Transaction[]
-  agentNotes      Notes[]           @relation("AgentNotes") // Updated relation name
-  userNotes       Notes[]           @relation("UserNotes") // Updated relation name
-  KycStateTwo     KycStateTwo[]
-  AccountActivity AccountActivity[]
-  customRole      CustomRole?       @relation(fields: [customRoleId], references: [id])
-  customRoleId    Int?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  // means     String?  @default("others")
-  meansId    Int?
-  means WaysOfHearing?  @relation(fields: [meansId], references: [id])     
-  status    String   @default("active")
-   fcmToken  String? // ✅ Add this line if it doesn't exist already
-
-  // agentNotes Notes[] @relation("Notes_agentId")
-  // userNotes  Notes[] @relation("Notes_userId")
-}
-
-model CustomRole {
-  id          Int              @id @default(autoincrement())
-  name        String           @unique // E.g., 'Manager', 'Accountant'
-  permissions RolePermission[] // Relation to RolePermission table
-  users       User[] // Users assigned to this role
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-}
-
-model RolePermission {
-  id         Int        @id @default(autoincrement())
-  roleId     Int
-  moduleName String // E.g., 'Customer', 'Chat', 'Transactions'
-  canCreate  Boolean    @default(false)
-  canUpdate  Boolean    @default(false)
-  canDelete  Boolean    @default(false)
-  canSee     Boolean    @default(false)
-  Role       CustomRole @relation(fields: [roleId], references: [id])
-}
-
-model UserOTP {
-  id        Int      @id @default(autoincrement())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    Int      @unique
-  otp       String
-  type      OtpType
-  attempts  Int      @default(0)
-  createdAt DateTime @default(now())
-  expiresAt DateTime
-}
-
-model Agent {
-  id                  Int                  @id @default(autoincrement())
-  user                User                 @relation(fields: [userId], references: [id])
-  userId              Int                  @unique
-  AgentStatus         AgentStatus          @default(online)
-  assignedDepartments AssignedDepartment[]
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-
-  rate      Rate[]
-  isDefault Boolean @default(false)
-}
-
-model Department {
-  id                  Int                  @id @default(autoincrement())
-  title               String               @db.VarChar(255)
-  description         String
-  icon                String
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  status              DepartmentStatus
-  categories          CatDepart[]
-  chatsDetails        ChatDetails[]
-  transaction         Transaction[]
-  assignedDepartments AssignedDepartment[] // Relation to AssignedDepartmen
-  Type                DepartmentType       @default(buy)
-  niche               departmentNiche      @default(crypto)
-}
-
-model Category {
-  id            Int              @id @default(autoincrement())
-  title         String           @db.VarChar(255)
-  subTitle      String?
-  image         String?
-  departments   CatDepart[]
-  chatsDetails  ChatDetails[]
-  subCategories CatSubcat[]
-  // transaction   Transaction[]
-  status        DepartmentStatus @default(active)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  transaction   Transaction[]
-}
-
-model Country {
-  id          Int           @id @default(autoincrement())
-  title       String
-  transaction Transaction[]
-}
-
-model CatDepart {
-  id           Int        @id @default(autoincrement())
-  categoryId   Int
-  category     Category   @relation(fields: [categoryId], references: [id])
-  departmentId Int
-  department   Department @relation(fields: [departmentId], references: [id])
-}
-
-model AssignedDepartment {
-  id           Int @id @default(autoincrement())
-  agentId      Int
-  departmentId Int
-
-  agent      Agent      @relation(fields: [agentId], references: [id])
-  department Department @relation(fields: [departmentId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([agentId, departmentId])
-}
-
-model Subcategory {
-  id          Int           @id @default(autoincrement())
-  title       String        @db.VarChar(255)
-  price       Decimal
-  catSubcat   CatSubcat[]
-  // chat         Chat[]
-  transaction Transaction[]
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-}
-
-model CatSubcat {
-  id            Int         @id @default(autoincrement())
-  categoryId    Int
-  category      Category    @relation(fields: [categoryId], references: [id])
-  subCategoryId Int
-  subCategory   Subcategory @relation(fields: [subCategoryId], references: [id])
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-
-  @@unique([categoryId, subCategoryId])
-}
-
-model Chat {
-  id           Int               @id @default(autoincrement())
-  participants ChatParticipant[]
-  chatType     ChatType
-  chatDetails  ChatDetails?
-  chatGroup    ChatGroup?
-  messages     Message[]
-  transactions Transaction[]
-  rate         Rate[]
-  chatDeclined Chatdeclined[]
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-}
-
-model ChatParticipant {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  chatId    Int
-  chat      Chat     @relation(fields: [chatId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model ChatDetails {
-  id           Int        @id @default(autoincrement())
-  chatId       Int        @unique
-  chat         Chat       @relation(fields: [chatId], references: [id])
-  departmentId Int
-  department   Department @relation(fields: [departmentId], references: [id])
-  categoryId   Int
-  category     Category   @relation(fields: [categoryId], references: [id])
-  status       ChatStatus
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-}
-
-model ChatGroup {
-  id           Int     @id @default(autoincrement())
-  groupName    String
-  groupProfile String?
-  chatId       Int     @unique
-  chat         Chat    @relation(fields: [chatId], references: [id])
-  adminId      Int     @unique
-  admin        User    @relation(fields: [adminId], references: [id])
-}
-
-// model GroupChat {
-//   id          Int           @id @default(autoincrement())
-//   agentId     Int
-//   agent       Agent         @relation(fields: [agentId], references: [id])
-//   adminId     Int
-//   admin       User          @relation(fields: [adminId], references: [id])
-//   messages    Message[]     @relation("GroupMessages", references: [id])
-//   createdAt   DateTime      @default(now())
-//   updatedAt   DateTime      @updatedAt
-//   GroupMember GroupMember[]
-// }
-
-// model GroupMember {
-//   id        Int       @id @default(autoincrement())
-//   groupId   Int
-//   group     GroupChat @relation(fields: [groupId], references: [id])
-//   agentId   Int
-//   agent     Agent     @relation(fields: [agentId], references: [id])
-//   createdAt DateTime  @default(now())
-//   updatedAt DateTime  @updatedAt
-// }
-
-model Message {
-  id          Int          @id @default(autoincrement())
-  senderId    Int
-  receiverId  Int?
-  sender      User         @relation("SentMessages", fields: [senderId], references: [id])
-  receiver    User?        @relation("ReceivedMessages", fields: [receiverId], references: [id])
-  attachments Attachment[]
-  chatId      Int
-  chat        Chat         @relation(fields: [chatId], references: [id])
-  message     String?      @db.VarChar(255)
-  image       String?
-  isRead      Boolean      @default(false)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-}
-
-model Attachment {
-  id         Int       @id @default(autoincrement())
-  messageId  Int
-  message    Message   @relation(fields: [messageId], references: [id])
-  media_type MediaType
-  media_url  String
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-}
-
-model Transaction {
-  id            Int               @id @default(autoincrement())
-  chatId        Int
-  subCategoryId Int
-  countryId     Int?
-  cardType      String?
-  departmentId  Int?              @map("Transaction_Department_FK")
-  categoryId    Int?              @map("Transaction_Category_FK")
-  cardNumber    String?
-  amount        Float?
-  exchangeRate  Float?
-  amountNaira   Float?
-  cryptoAmount  Float?
-  fromAddress   String?
-  toAddress     String?
-  status        TransactionStatus @default(successful)
-  profit        Float             @default(0)
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-
-  chat        Chat        @relation(fields: [chatId], references: [id], map: "Transaction_Chat_FK")
-  subCategory Subcategory @relation(fields: [subCategoryId], references: [id], map: "Transaction_SubCategory_FK")
-  country     Country?    @relation(fields: [countryId], references: [id], map: "Transaction_Country_FK")
-  department  Department? @relation(fields: [departmentId], references: [id], map: "Transaction_Department_FK")
-  category    Category?   @relation(fields: [categoryId], references: [id], map: "Transaction_Category_FK")
-}
-
-model Notes {
-  id             Int      @id @default(autoincrement())
-  title          String?
-  userId         Int
-  agentId        Int
-  isHighlighited Boolean?
-  note           String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  agent          User     @relation("AgentNotes", fields: [agentId], references: [id]) // Updated relation name
-  user           User     @relation("UserNotes", fields: [userId], references: [id]) // Updated relation name
-}
-
-model Rate {
-  id          Int      @id @default(autoincrement())
-  rate        Float?
-  amount      Float?
-  amountNaira Float?
-  agentId     Int
-  chatId      Int
-  chat        Chat     @relation(fields: [chatId], references: [id])
-  agent       Agent    @relation(fields: [agentId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model Notification {
-  id        Int       @id @default(autoincrement())
-  title     String
-  message   String
-  type      UserRoles
-  isSingle  Boolean
-  image     String?
-  userId    Int?
-  createdAt DateTime  @default(now())
-}
-
-model NotificationAttachment {
-  id             Int    @id @default(autoincrement())
-  mediUrl        String
-  motificationId Int
-}
-
-model InAppNotification {
-  id          Int                   @id @default(autoincrement())
-  title       String
-  description String
-  userId      Int
-  isRead      Boolean               @default(false)
-  user        User                  @relation(fields: [userId], references: [id])
-  createdAt   DateTime              @default(now())
-  type        InAppNotificationType @default(customeer)
-}
-
-model Chatdeclined {
-  id        Int      @id @default(autoincrement())
-  message   String?
-  chatId    Int
-  chat      Chat     @relation(fields: [chatId], references: [id])
-  createdAt DateTime @default(now())
-}
-
-model KycStateTwo {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  bvn       String
-  surName   String?
-  firtName  String?
-  dob       String?
-  status    KycTier
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
-  state     String   @default("pending")
-  reason    String?   
-}
-
-model AccountActivity {
-  id          Int      @id @default(autoincrement())
-  userId      Int
-  description String
-  createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id])
-}
-
-model Banner {
-  id        Int      @id @default(autoincrement())
-  image     String
-  createdAt DateTime @default(now())
-}
-
-model KycLimits {
-  id                Int     @id @default(autoincrement())
-  tier              KycTier
-  cryptoBuyLimit    String?
-  cryptoSellLimit   String?
-  giftCardBuyLimit  String?
-  giftCardSellLimit String?
-}
-
-model smtp {
-  id    Int    @id @default(autoincrement())
-  host  String
-  from  String
-  email String
-  port  Int
-
-  password   String
-  encryption String
-  createdAt  DateTime @default(now())
-}
-
-model privacyPage {
-  id              Int    @id @default(autoincrement())
-  privacyPageLink String
-  termsPageLink   String
-}
-
-model quickReplies {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  message   String
-  createdAt DateTime @default(now())
-}
-
-model WaysOfHearing{
-  id        Int      @id @default(autoincrement())
-  means     String
-  User     User[]
-  createdAt DateTime @default(now())
 }

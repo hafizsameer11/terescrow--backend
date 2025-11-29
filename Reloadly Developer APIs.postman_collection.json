@@ -1,0 +1,1150 @@
+{
+	"info": {
+		"_postman_id": "09eb5544-abd1-4823-bb8d-03ab3021715c",
+		"name": "Reloadly Developer APIs",
+		"description": "## About Reloadly\n\nReloadly's APIs facilitates connections to mobile credits, digital gift cards and fintech services to end users. You can learn more by checking out our [API documentation](https://developers.reloadly.com)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "38646127",
+		"_collection_link": "https://hmstech-4596.postman.co/workspace/d2c07da4-4c10-4856-8b37-d4b8a8dbfefe/collection/38646127-09eb5544-abd1-4823-bb8d-03ab3021715c?action=share&source=collection_link&creator=38646127"
+	},
+	"item": [
+	
+		{
+			"name": "GiftCard API",
+			"item": [
+				{
+					"name": "Production",
+					"item": [
+						{
+							"name": "Access Token",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n\t\"client_id\":\"CLIENT_ID_GOES_HERE\",\r\n\t\"client_secret\":\"CLIENT_SECRET_GOES_HERE\",\r\n\t\"grant_type\":\"client_credentials\",\r\n\t\"audience\":\"https://giftcards.reloadly.com\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://auth.reloadly.com/oauth/token",
+									"protocol": "https",
+									"host": [
+										"auth",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"oauth",
+										"token"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Account Balance",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/accounts/balance",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"accounts",
+										"balance"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Countries",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/countries",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"countries"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Country By ISO",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/countries/US",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"countries",
+										"US"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Products",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/products",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"products"
+									],
+									"query": [
+										{
+											"key": "includeRange",
+											"value": "true",
+											"disabled": true
+										},
+										{
+											"key": "includeFixed",
+											"value": "true",
+											"disabled": true
+										},
+										{
+											"key": "productName",
+											"value": "\"Amazon\"",
+											"disabled": true
+										},
+										{
+											"key": "countryCode",
+											"value": "\"US\"",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Product By ID",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/products/10",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"products",
+										"10"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Product By ISO",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/countries/es/products",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"countries",
+										"es",
+										"products"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Redeem Instructions",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/redeem-instructions",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"redeem-instructions"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Redeem Instructions By Brand ID",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/redeem-instructions/4",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"redeem-instructions",
+										"4"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Discounts",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/discounts",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"discounts"
+									],
+									"query": [
+										{
+											"key": "page",
+											"value": "1",
+											"disabled": true
+										},
+										{
+											"key": "size",
+											"value": "200",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Discount By Product ID",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/products/10/discounts",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"products",
+										"10",
+										"discounts"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Transactions",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/reports/transactions",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"reports",
+										"transactions"
+									],
+									"query": [
+										{
+											"key": "size",
+											"value": "1",
+											"disabled": true
+										},
+										{
+											"key": "page",
+											"value": "200",
+											"disabled": true
+										},
+										{
+											"key": "startDate",
+											"value": "2021-06-01%2000:00:00",
+											"disabled": true
+										},
+										{
+											"key": "endDate",
+											"value": "2021-07-20%2023:17:02",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Transaction By ID",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/reports/transactions/10",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"reports",
+										"transactions",
+										"10"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Order",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer YOUR_ACCESS_TOKEN_HERE",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"productId\": 120,\r\n    \"countryCode\": \"US\",\r\n    \"quantity\": 1,\r\n    \"unitPrice\": 1,\r\n    \"customIdentifier\": \"obucks10\",\r\n    \"senderName\": \"John Doe\",\r\n    \"recipientEmail\": \"anyone@email.com\",\r\n     \"recipientPhoneDetails\": {\r\n        \"countryCode\": \"ES\",\r\n        \"phoneNumber\": \"657228901\"\r\n    }\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://giftcards.reloadly.com/orders",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"orders"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Redeem Codes",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards.reloadly.com/orders/transactions/2/cards",
+									"protocol": "https",
+									"host": [
+										"giftcards",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"orders",
+										"transactions",
+										"2",
+										"cards"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"description": "This folder contains all the endpoints to be used when working with live applications."
+				},
+				{
+					"name": "Sandbox",
+					"item": [
+						{
+							"name": "Access Token - Sandbox",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n\t\"client_id\":\"TEST_CLIENT_ID_GOES_HERE\",\r\n\t\"client_secret\":\"TEST_CLIENT_SECRET_GOES_HERE\",\r\n\t\"grant_type\":\"client_credentials\",\r\n\t\"audience\":\"https://giftcards-sandbox.reloadly.com\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://auth.reloadly.com/oauth/token",
+									"protocol": "https",
+									"host": [
+										"auth",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"oauth",
+										"token"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Account Balance - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/accounts/balance",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"accounts",
+										"balance"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Countries - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/countries",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"countries"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Country By ISO - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/countries/US",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"countries",
+										"US"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Products - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/products",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"products"
+									],
+									"query": [
+										{
+											"key": "includeRange",
+											"value": "true",
+											"disabled": true
+										},
+										{
+											"key": "includeFixed",
+											"value": "true",
+											"disabled": true
+										},
+										{
+											"key": "productName",
+											"value": "\"Amazon\"",
+											"disabled": true
+										},
+										{
+											"key": "countryCode",
+											"value": "\"US\"",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Product By ID - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/products/10",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"products",
+										"10"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Product By ISO - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/countries/es/products",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"countries",
+										"es",
+										"products"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Redeem Instructions - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/redeem-instructions",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"redeem-instructions"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Redeem Instructions By Brand ID - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/redeem-instructions/4",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"redeem-instructions",
+										"4"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Discounts - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/discounts",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"discounts"
+									],
+									"query": [
+										{
+											"key": "page",
+											"value": "1",
+											"disabled": true
+										},
+										{
+											"key": "size",
+											"value": "200",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Discount By Product ID - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/products/10/discounts",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"products",
+										"10",
+										"discounts"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Transactions - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/reports/transactions",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"reports",
+										"transactions"
+									],
+									"query": [
+										{
+											"key": "startDate",
+											"value": "2021-06-01%2000:00:00",
+											"disabled": true
+										},
+										{
+											"key": "endDate",
+											"value": "2021-07-20%2023:17:02",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Transaction By ID - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/reports/transactions/10",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"reports",
+										"transactions",
+										"10"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Order - Sandbox",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer YOUR_ACCESS_TOKEN_HERE",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"productId\": 120,\r\n    \"countryCode\": \"US\",\r\n    \"quantity\": 1,\r\n    \"unitPrice\": 1,\r\n    \"customIdentifier\": \"obucks10\",\r\n    \"senderName\": \"John Doe\",\r\n    \"recipientEmail\": \"anyone@email.com\",\r\n     \"recipientPhoneDetails\": {\r\n        \"countryCode\": \"ES\",\r\n        \"phoneNumber\": \"657228901\"\r\n    }\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/orders",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"orders"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Redeem Codes - Sandbox",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{vault:bearer-token}}",
+										"type": "text"
+									},
+									{
+										"key": "Accept",
+										"value": "application/com.reloadly.giftcards-v1+json",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "https://giftcards-sandbox.reloadly.com/orders/transactions/2/cards",
+									"protocol": "https",
+									"host": [
+										"giftcards-sandbox",
+										"reloadly",
+										"com"
+									],
+									"path": [
+										"orders",
+										"transactions",
+										"2",
+										"cards"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"description": "This folder contains all the endpoints to be used when working in test mode and simulating real-like scenarios.",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									""
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									""
+								]
+							}
+						}
+					]
+				}
+			],
+			"description": "GiftCard API: This collection contains Reloadly's GiftCard API endpoints. With this, you can have access to gift card products, brands, discounts, redeem instructions and ordering of a gift card."
+		}
+		
+	]
+}

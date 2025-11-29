@@ -124,21 +124,158 @@ operationsRouter.get(
   authenticateUser,
   getCustomerDetails
 );
+/**
+ * @swagger
+ * /api/admin/operations/get-all-customers:
+ *   get:
+ *     summary: Get all customers
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Customers retrieved successfully
+ */
 operationsRouter.get('/get-all-customers', authenticateUser, getAllCustomers);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-agent-by-department/{id}:
+ *   get:
+ *     summary: Get agents by department
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Agents retrieved successfully
+ */
 operationsRouter.get(
   '/get-agent-by-department/:id',
   authenticateUser,
   getAgentsByDepartment
 );
-// operationsRouter.get('/get-all-agents', authenticateUser, getAllAgents);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-all-agents:
+ *   get:
+ *     summary: Get all agents
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Agents retrieved successfully
+ */
 operationsRouter.get('/get-all-agents', authenticateUser, getAllAgents);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-all-users:
+ *   get:
+ *     summary: Get all users
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Users retrieved successfully
+ */
 operationsRouter.get('/get-all-users', authenticateUser, getAllUsers);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-team-members:
+ *   get:
+ *     summary: Get team members
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Team members retrieved successfully
+ */
 operationsRouter.get('/get-team-members', authenticateUser, getAgents);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-team-members-2:
+ *   get:
+ *     summary: Get team members (alternative endpoint)
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Team members retrieved successfully
+ */
 operationsRouter.get('/get-team-members-2', authenticateUser, getTeamMembers);
 
 /*  operational routes for rates , sub categories */
+/**
+ * @swagger
+ * /api/admin/operations/create-rate:
+ *   post:
+ *     summary: Create exchange rate
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               rate:
+ *                 type: number
+ *               amount:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Rate created successfully
+ */
 operationsRouter.post('/create-rate', authenticateUser, createRate);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-rate:
+ *   get:
+ *     summary: Get exchange rates
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Rates retrieved successfully
+ */
 operationsRouter.get('/get-rate', authenticateUser, getRates);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-all-subcategories:
+ *   get:
+ *     summary: Get all subcategories
+ *     tags: [Admin Operations]
+ *     responses:
+ *       200:
+ *         description: Subcategories retrieved successfully
+ */
 operationsRouter.get('/get-all-subcategories', getallSubCategories);
 
 //app banner routes
@@ -191,9 +328,55 @@ operationsRouter.get(
   getAccountActivityofUser
 );
 
+/**
+ * @swagger
+ * /api/admin/operations/get-all-transactions:
+ *   get:
+ *     summary: Get all transactions
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Transactions retrieved successfully
+ */
 operationsRouter.get('/get-all-transactions', authenticateUser, getAllTrsansactions);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-customer-transactions/{id}:
+ *   get:
+ *     summary: Get customer transactions
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Customer transactions retrieved successfully
+ */
 operationsRouter.get('/get-customer-transactions/:id', authenticateUser, getTransactionForCustomer);
-// operationsRouter.get('/get-customer-stats', authenticateUser, getCustomerStats);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-department-transaction:
+ *   get:
+ *     summary: Get department transaction statistics
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Department transaction stats retrieved successfully
+ */
 operationsRouter.get('/get-department-transaction', authenticateUser, getDepartmentStatsByTransaction);
 operationsRouter.get('/get-all-agent-to-customer-chats', authenticateUser, getAllCustomerWithAgentsChats); //all chats
 operationsRouter.get('/get-agent-customer-chats/:agentId', authenticateUser, getSingleAgentWithCustomerChats); //agent with customer chats
@@ -201,9 +384,55 @@ operationsRouter.get('/get-agent-team-chats/:agentId', authenticateUser, getSing
 operationsRouter.get('/get-agent-customer-chatdetails/:chatId', authenticateUser, getAgentCustomerChatDetails);
 operationsRouter.get('/get-agent-agent-chatdetails/:chatId', authenticateUser, getAgentTeamChatDetailsController);
 operationsRouter.get('/get-chat-stats', authenticateUser, getChatStats);
+/**
+ * @swagger
+ * /api/admin/operations/get-dashboard-stats:
+ *   get:
+ *     summary: Get dashboard statistics
+ *     tags: [Admin Operations]
+ *     responses:
+ *       200:
+ *         description: Dashboard stats retrieved successfully
+ */
 operationsRouter.get('/get-dashboard-stats', getDashBoardStats);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-customer-stats:
+ *   get:
+ *     summary: Get customer statistics
+ *     tags: [Admin Operations]
+ *     responses:
+ *       200:
+ *         description: Customer stats retrieved successfully
+ */
 operationsRouter.get('/get-customer-stats', customerStats);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-team-stats:
+ *   get:
+ *     summary: Get team statistics
+ *     tags: [Admin Operations]
+ *     responses:
+ *       200:
+ *         description: Team stats retrieved successfully
+ */
 operationsRouter.get('/get-team-stats', teamStats);
+
+/**
+ * @swagger
+ * /api/admin/operations/get-transaction-stats:
+ *   get:
+ *     summary: Get transaction statistics
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Transaction stats retrieved successfully
+ */
 operationsRouter.get('/get-transaction-stats', authenticateUser, transactionStats);
 
 operationsRouter.post('/update-kycstatus/:userId', authenticateUser, updateKycStatus);

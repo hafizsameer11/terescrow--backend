@@ -856,25 +856,115 @@ export const getDepartmentStatsByTransaction = async (
 };
 export const updateKycStatus = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const userId = req.params.userId;
-        const { kycStatus } = req.body;
-        const { reason } = req.body;
-        const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
-        if (!user) {
-            return next(ApiError.notFound('User not found'));
+        const submissionId = req.params.submissionId || req.params.userId; // Support both old and new format
+        const { kycStatus, tier, reason } = req.body;
+        
+        if (!kycStatus) {
+            return next(ApiError.badRequest('kycStatus is required'));
         }
-        const updateKycStates = await prisma.kycStateTwo.updateMany({
-            where: {
-                userId: parseInt(userId)
-            }, data: {
-                state: kycStatus,
-                reason: reason || "Your Information has been verified successfully"
+
+        // If submissionId is provided, update specific submission
+        let submission;
+        if (submissionId && !isNaN(parseInt(submissionId))) {
+            submission = await prisma.kycStateTwo.findUnique({
+                where: { id: parseInt(submissionId) },
+            });
+        }
+
+        // If tier is provided, find the latest pending submission for that tier
+        if (!submission && tier) {
+            const userId = req.params.userId ? parseInt(req.params.userId) : undefined;
+            if (!userId) {
+                return next(ApiError.badRequest('userId is required when using tier'));
             }
-        })
-        if (!updateKycStates) {
-            return next(ApiError.badRequest('Failed to update kyc status'))
+
+            submission = await prisma.kycStateTwo.findFirst({
+                where: {
+                    userId,
+                    tier: tier,
+                    state: 'pending',
+                },
+                orderBy: { createdAt: 'desc' },
+            });
         }
-        return new ApiResponse(200, updateKycStates, 'Kyc status updated successfully').send(res);
+
+        // Fallback to old behavior: update all pending submissions for user
+        if (!submission && req.params.userId) {
+            const userId = parseInt(req.params.userId);
+            const user = await prisma.user.findUnique({ where: { id: userId } });
+            if (!user) {
+                return next(ApiError.notFound('User not found'));
+            }
+
+            const updateKycStates = await prisma.kycStateTwo.updateMany({
+                where: {
+                    userId: userId,
+                    state: 'pending',
+                },
+                data: {
+                    state: kycStatus,
+                    reason: reason || "Your Information has been verified successfully"
+                }
+            });
+
+            return new ApiResponse(200, updateKycStates, 'Kyc status updated successfully').send(res);
+        }
+
+        if (!submission) {
+            return next(ApiError.notFound('KYC submission not found'));
+        }
+
+        // Update the specific submission
+        const updatedSubmission = await prisma.kycStateTwo.update({
+            where: { id: submission.id },
+            data: {
+                state: kycStatus,
+                reason: reason || (kycStatus === 'approved' ? "Your Information has been verified successfully" : reason),
+            },
+        });
+
+        // If approved, update user's tier verification flags
+        if (kycStatus === 'approved' && submission.tier) {
+            const updateData: any = {};
+            
+            switch (submission.tier) {
+                case 'tier1':
+                    updateData.kycTier1Verified = true;
+                    updateData.currentKycTier = 'tier1';
+                    break;
+                case 'tier2':
+                    updateData.kycTier2Verified = true;
+                    updateData.currentKycTier = 'tier2';
+                    break;
+                case 'tier3':
+                    updateData.kycTier3Verified = true;
+                    updateData.currentKycTier = 'tier3';
+                    break;
+                case 'tier4':
+                    updateData.kycTier4Verified = true;
+                    updateData.currentKycTier = 'tier4';
+                    break;
+            }
+
+            // Only update if the new tier is higher than current
+            const user = await prisma.user.findUnique({
+                where: { id: submission.userId },
+                select: { currentKycTier: true },
+            });
+
+            const tierOrder = { tier1: 1, tier2: 2, tier3: 3, tier4: 4 };
+            const currentTierOrder = user?.currentKycTier ? tierOrder[user.currentKycTier] : 0;
+            const newTierOrder = tierOrder[submission.tier];
+
+            if (newTierOrder > currentTierOrder) {
+                await prisma.user.update({
+                    where: { id: submission.userId },
+                    data: updateData,
+                });
+            }
+        }
+
+        return new ApiResponse(200, updatedSubmission, 'Kyc status updated successfully').send(res);
 
     } catch (error) {
         console.log(error);
