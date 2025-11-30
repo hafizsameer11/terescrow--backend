@@ -14,9 +14,11 @@ class VirtualAccountService {
    */
   async createVirtualAccountsForUser(userId: number) {
     try {
-      // Get all supported wallet currencies
+      // Get all supported wallet currencies (both native and tokens)
+      // Token currencies like USDT, USDC will share addresses with their base blockchain
       const walletCurrencies = await prisma.walletCurrency.findMany({
-        where: { isToken: false }, // Only create for native currencies initially
+        // Create virtual accounts for all currencies (native and tokens)
+        // Address sharing logic is handled in deposit.address.service.ts
       });
 
       const createdAccounts = [];

@@ -10,10 +10,21 @@ import masterWalletService from './master.wallet.service';
 import crypto from 'crypto';
 
 // Blockchain groups that share the same address
-const BLOCKCHAIN_GROUPS: { [key: string]: string[] } = {
-  tron: ['tron', 'usdt_tron'],
-  ethereum: ['eth', 'usdt', 'usdc'],
-  bsc: ['bsc', 'usdt_bsc', 'usdc_bsc'],
+// All currencies on the same base blockchain share the same address
+// This maps blockchain name variations to the base blockchain name used for master wallet lookup
+// Note: In the database, blockchain field stores the actual blockchain name (e.g., 'ethereum', 'tron', 'bsc')
+// Currencies with the same blockchain value share the same address
+const BLOCKCHAIN_NORMALIZATION: { [key: string]: string } = {
+  // Ethereum variations
+  'ethereum': 'ethereum',
+  'eth': 'ethereum',
+  // Tron variations  
+  'tron': 'tron',
+  'trx': 'tron',
+  // BSC variations
+  'bsc': 'bsc',
+  'binance': 'bsc',
+  'binancesmartchain': 'bsc',
 };
 
 /**
@@ -48,15 +59,30 @@ function decryptPrivateKey(encryptedKey: string): string {
 
 class DepositAddressService {
   /**
-   * Get blockchain group for a currency
+   * Normalize blockchain name to base blockchain for master wallet lookup
+   * e.g., 'ethereum' -> 'ethereum', 'eth' -> 'ethereum', 'tron' -> 'tron'
+   */
+  private normalizeBlockchain(blockchain: string): string {
+    const normalized = blockchain.toLowerCase();
+    return BLOCKCHAIN_NORMALIZATION[normalized] || normalized;
+  }
+  
+  /**
+   * Get all blockchain name variations that map to the same base blockchain
+   * Used for finding existing addresses within the same blockchain group
    */
   private getBlockchainGroup(blockchain: string): string[] {
-    for (const [key, group] of Object.entries(BLOCKCHAIN_GROUPS)) {
-      if (group.includes(blockchain.toLowerCase())) {
-        return group;
+    const baseBlockchain = this.normalizeBlockchain(blockchain);
+    
+    // Find all blockchain variations that map to the same base blockchain
+    const variations: string[] = [baseBlockchain];
+    for (const [variant, base] of Object.entries(BLOCKCHAIN_NORMALIZATION)) {
+      if (base === baseBlockchain && variant !== baseBlockchain) {
+        variations.push(variant);
       }
     }
-    return [blockchain.toLowerCase()];
+    
+    return variations;
   }
 
   /**
@@ -77,24 +103,42 @@ class DepositAddressService {
       const blockchain = virtualAccount.blockchain.toLowerCase();
       const currency = virtualAccount.currency.toLowerCase();
 
-      // Check for existing address in the same blockchain group
-      const blockchainGroup = this.getBlockchainGroup(blockchain);
-      const existingAddress = await prisma.depositAddress.findFirst({
+      console.log(`Checking for existing address - Blockchain: ${blockchain}, Currency: ${currency}`);
+
+      // Normalize blockchain name for consistent comparison
+      // All currencies on the same blockchain share the same address
+      const normalizedBlockchain = this.normalizeBlockchain(blockchain);
+      console.log(`Normalized blockchain: ${normalizedBlockchain}`);
+
+      // Check for existing deposit address on the same blockchain for this user
+      // Get all deposit addresses for this user first, then filter by normalized blockchain
+      const allUserAddresses = await prisma.depositAddress.findMany({
         where: {
           virtualAccount: {
             userId: virtualAccount.userId,
-            blockchain: {
-              in: blockchainGroup.map((b) => b.charAt(0).toUpperCase() + b.slice(1)),
-            },
           },
         },
         include: {
           virtualAccount: true,
         },
+        orderBy: {
+          createdAt: 'asc', // Get the first created address
+        },
+      });
+
+      // Find existing address on the same normalized blockchain (case-insensitive comparison)
+      // All currencies on the same blockchain share the same address
+      const existingAddress = allUserAddresses.find((addr) => {
+        if (!addr.blockchain) return false;
+        const addrNormalizedBlockchain = this.normalizeBlockchain(addr.blockchain);
+        // If normalized blockchains match, they share the same address
+        return addrNormalizedBlockchain === normalizedBlockchain;
       });
 
       // If address exists in the same group, reuse it
       if (existingAddress) {
+        console.log(`Found existing address in group: ${existingAddress.address} for blockchain ${existingAddress.blockchain}`);
+        
         // Check if this virtual account already has this address
         const existingForThisAccount = await prisma.depositAddress.findFirst({
           where: {
@@ -111,34 +155,36 @@ class DepositAddressService {
           }
 
           // Assign existing address to this virtual account
+          // Store with current virtual account's currency and blockchain, but reuse the address and private key
           const depositAddress = await prisma.depositAddress.create({
             data: {
               virtualAccountId,
-              blockchain: existingAddress.blockchain,
-              currency: existingAddress.currency,
-              address: existingAddress.address,
+              blockchain: blockchain, // Use current virtual account's blockchain
+              currency: currency, // Use current virtual account's currency
+              address: existingAddress.address, // Reuse the address
               index: existingAddress.index, // Store the index used for this address
               privateKey: existingAddress.privateKey, // Reuse encrypted key
             },
           });
 
-          console.log(`Reused address ${existingAddress.address} with index ${existingAddress.index} for virtual account ${virtualAccountId}`);
+          console.log(`Reused address ${existingAddress.address} with index ${existingAddress.index} for virtual account ${virtualAccountId} (${blockchain}/${currency})`);
 
           // Register webhook for this address (V4 API)
-          if (existingAddress.blockchain) {
+          // Use the normalized base blockchain for webhook registration
+          const baseBlockchain = this.normalizeBlockchain(existingAddress.blockchain || blockchain);
+          if (baseBlockchain) {
             try {
               const webhookUrl = process.env.TATUM_WEBHOOK_URL || `${process.env.BASE_URL}/api/v2/webhooks/tatum`;
-              const addressBlockchain = existingAddress.blockchain; // Type narrowing
               await tatumService.registerAddressWebhookV4(
                 existingAddress.address,
-                addressBlockchain,
+                baseBlockchain,
                 webhookUrl,
                 {
                   type: 'ADDRESS_EVENT',
                   templateId: 'enriched',
                 }
               );
-              console.log(`Webhook registered for address ${existingAddress.address}`);
+              console.log(`Webhook registered for address ${existingAddress.address} on ${baseBlockchain}`);
             } catch (error: any) {
               console.error(`Failed to register webhook for address ${existingAddress.address}:`, error.message);
               // Don't fail the whole process if webhook registration fails
@@ -146,13 +192,21 @@ class DepositAddressService {
           }
 
           return depositAddress;
+        } else {
+          console.log(`Address ${existingAddress.address} already assigned to this virtual account`);
+          return existingForThisAccount;
         }
       }
 
       // Generate new address
-      const masterWallet = await masterWalletService.lockMasterWallet(blockchain);
+      // Use the normalized base blockchain for master wallet lookup
+      // All currencies on the same blockchain share the same address
+      const baseBlockchain = this.normalizeBlockchain(blockchain);
+      console.log(`Generating new address using base blockchain: ${baseBlockchain} (requested: ${blockchain})`);
+      
+      const masterWallet = await masterWalletService.lockMasterWallet(baseBlockchain);
       if (!masterWallet || !masterWallet.xpub || !masterWallet.mnemonic) {
-        throw new Error(`Master wallet not found or incomplete for ${blockchain}`);
+        throw new Error(`Master wallet not found or incomplete for ${baseBlockchain}`);
       }
 
       // Decrypt mnemonic (it's stored encrypted)
@@ -167,33 +221,47 @@ class DepositAddressService {
       // Calculate next index (starting from 5, incrementing by 1)
       // Master wallet uses index 0, so we start user addresses at 5 to avoid conflicts
       // Standard HD wallet derivation uses sequential indices (5, 6, 7, 8...)
-      const maxIndex = await prisma.depositAddress.findFirst({
+      // All currencies in the same blockchain group share the same index sequence
+      // Query all addresses and filter by blockchain group to find max index (handles case-insensitive)
+      const allAddressesForIndex = await prisma.depositAddress.findMany({
         where: {
-          blockchain: blockchain,
-          index: { not: null }, // Only consider addresses with valid indexes
+          index: { not: null },
         },
-        orderBy: { index: 'desc' },
-        select: { index: true },
+        select: { index: true, blockchain: true },
       });
+
+      // Filter by normalized blockchain and find max index (case-insensitive)
+      // All currencies on the same blockchain share the same index sequence
+      const normalizedBlockchainForIndex = this.normalizeBlockchain(blockchain);
+      const groupAddresses = allAddressesForIndex.filter((addr) => {
+        if (!addr.blockchain) return false;
+        const addrNormalizedBlockchain = this.normalizeBlockchain(addr.blockchain);
+        return addrNormalizedBlockchain === normalizedBlockchainForIndex;
+      });
+
+      const maxIndexValue = groupAddresses.length > 0
+        ? Math.max(...groupAddresses.map((addr) => addr.index!).filter((idx) => idx !== null))
+        : null;
 
       // Use sequential indexing: next index = max + 1, or 5 if no addresses exist yet
       // Starting at 5 leaves room for master wallet (index 0) and system addresses
-      const nextIndex = maxIndex?.index !== null && maxIndex?.index !== undefined 
-        ? maxIndex.index + 1 
+      const nextIndex = maxIndexValue !== null && maxIndexValue !== undefined 
+        ? maxIndexValue + 1 
         : 5;
 
-      console.log(`Generating new address for ${blockchain} using index ${nextIndex} (previous max: ${maxIndex?.index || 'none'})`);
+      console.log(`Generating new address for ${blockchain} using base blockchain ${baseBlockchain} with index ${nextIndex} (previous max: ${maxIndexValue || 'none'})`);
 
-      // Generate address using the calculated index
+      // Generate address using the base blockchain and calculated index
+      // All currencies in a group share the same address from the base blockchain
       const address = await tatumService.generateAddress(
-        blockchain,
+        baseBlockchain, // Use base blockchain (e.g., 'tron' for 'usdt_tron')
         masterWallet.xpub!, // Already checked above that xpub exists
         nextIndex
       );
 
-      // Generate private key using the same index (mnemonic already decrypted above)
+      // Generate private key using the base blockchain and same index
       const privateKey = await tatumService.generatePrivateKey(
-        blockchain,
+        baseBlockchain, // Use base blockchain
         mnemonic,
         nextIndex
       );
@@ -216,18 +284,19 @@ class DepositAddressService {
       console.log(`Generated new address ${address} with index ${nextIndex} for virtual account ${virtualAccountId}`);
 
       // Register webhook for this address (V4 API)
+      // Use base blockchain for webhook registration
       try {
         const webhookUrl = process.env.TATUM_WEBHOOK_URL || `${process.env.BASE_URL}/api/v2/webhooks/tatum`;
         await tatumService.registerAddressWebhookV4(
           address,
-          blockchain,
+          baseBlockchain, // Use base blockchain for webhook
           webhookUrl,
           {
             type: 'ADDRESS_EVENT',
             templateId: 'enriched',
           }
         );
-        console.log(`Webhook registered for address ${address}`);
+        console.log(`Webhook registered for address ${address} on ${baseBlockchain}`);
       } catch (error: any) {
         console.error(`Failed to register webhook for address ${address}:`, error.message);
         // Don't fail the whole process if webhook registration fails

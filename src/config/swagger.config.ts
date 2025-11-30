@@ -12,6 +12,35 @@ const swaggerDefinition: SwaggerDefinition = {
       email: 'support@tercescrow.io',
     },
   },
+  tags: [
+    // V2 API Routes (New - Top Priority)
+    { name: 'V2 - Crypto Assets', description: 'Crypto asset management endpoints' },
+    { name: 'Admin - Crypto Rates', description: 'Crypto trade rate management (buy, sell, swap, send, receive)' },
+    { name: 'Admin - Tatum', description: 'Tatum master wallet management' },
+    { name: 'Webhooks', description: 'Webhook endpoints' },
+    // V2 API Routes (Existing)
+    { name: 'V2 - Gift Cards', description: 'Gift card management endpoints' },
+    { name: 'V2 - PalmPay Deposit', description: 'PalmPay wallet deposit (top-up) endpoints' },
+    { name: 'V2 - PalmPay Payout', description: 'PalmPay withdrawal (payout) endpoints' },
+    { name: 'V2 - Fiat Wallet', description: 'Fiat wallet management endpoints' },
+    { name: 'V2 - KYC Management', description: 'KYC tier verification endpoints' },
+    { name: 'V2 - Bill Payments', description: 'Bill payment endpoints (Airtime, Data, Betting) using PalmPay' },
+    { name: 'V2 - Support Chat', description: 'Support chat endpoints' },
+    { name: 'V2 - PIN Management', description: 'PIN management endpoints' },
+    // Admin Routes
+    { name: 'Admin', description: 'Admin operations' },
+    { name: 'Admin - Gift Cards', description: 'Admin gift card management' },
+    { name: 'Admin Operations', description: 'Admin operations and management' },
+    // Agent Routes
+    { name: 'Agent Auth', description: 'Agent authentication endpoints' },
+    { name: 'Agent Chat', description: 'Agent chat endpoints' },
+    // Customer Routes
+    { name: 'Customer Auth', description: 'Customer authentication endpoints' },
+    { name: 'Customer Chat', description: 'Customer chat endpoints' },
+    { name: 'Customer Utilities', description: 'Customer utility endpoints' },
+    // Public Routes
+    { name: 'Public', description: 'Public endpoints' },
+  ],
   servers: [
     {
       url: 'http://localhost:8000',

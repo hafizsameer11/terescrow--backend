@@ -986,3 +986,38 @@ model ReceiveTransaction {
   @@index([txId])
   @@map("receive_transactions")
 }
+
+model CryptoRate {
+  id              Int              @id @default(autoincrement())
+  transactionType String           @map("transaction_type") @db.VarChar(50) // 'BUY', 'SELL', 'SWAP', 'SEND', 'RECEIVE'
+  minAmount       Decimal          @map("min_amount") @db.Decimal(20, 2) // Minimum USD amount for this rate tier
+  maxAmount       Decimal?         @map("max_amount") @db.Decimal(20, 2) // Maximum USD amount (null for unlimited)
+  rate            Decimal          @db.Decimal(20, 2) // Rate in Naira per $1
+  isActive        Boolean          @default(true) @map("is_active")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  history         CryptoRateHistory[]
+
+  @@unique([transactionType, minAmount, maxAmount])
+  @@index([transactionType])
+  @@index([isActive])
+  @@map("crypto_rates")
+}
+
+model CryptoRateHistory {
+  id              Int       @id @default(autoincrement())
+  cryptoRateId    Int       @map("crypto_rate_id")
+  transactionType String    @map("transaction_type") @db.VarChar(50)
+  minAmount       Decimal   @map("min_amount") @db.Decimal(20, 2)
+  maxAmount       Decimal?  @map("max_amount") @db.Decimal(20, 2)
+  oldRate         Decimal?  @map("old_rate") @db.Decimal(20, 2)
+  newRate         Decimal   @map("new_rate") @db.Decimal(20, 2)
+  changedBy       Int?      @map("changed_by") // User ID who made the change
+  createdAt       DateTime  @default(now()) @map("created_at")
+  cryptoRate      CryptoRate @relation(fields: [cryptoRateId], references: [id], onDelete: Cascade)
+
+  @@index([cryptoRateId])
+  @@index([transactionType])
+  @@index([createdAt])
+  @@map("crypto_rate_history")
+}
