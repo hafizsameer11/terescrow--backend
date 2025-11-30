@@ -12,7 +12,11 @@
     "seed": "ts-node src/utils/seed.ts",
     "queue:work": "ts-node src/queue/worker.ts",
     "queue:work:bill-payments": "ts-node src/queue/worker.ts bill-payments",
-    "queue:work:tatum": "ts-node src/queue/worker.ts tatum"
+    "queue:work:tatum": "ts-node src/queue/worker.ts tatum",
+    "queue:clear": "ts-node src/queue/clear.queue.ts",
+    "queue:clear:tatum": "ts-node src/queue/clear.queue.ts tatum",
+    "queue:clear:tatum:waiting": "ts-node src/queue/clear.queue.ts tatum waiting",
+    "queue:clear:bill-payments": "ts-node src/queue/clear.queue.ts bill-payments"
   },
   "keywords": [],
   "author": "",

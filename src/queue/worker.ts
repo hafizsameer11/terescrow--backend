@@ -1,4 +1,4 @@
-import { Worker, Processor } from 'bull';
+import Queue, { Job } from 'bull';
 import { redisConfig } from '../config/redis.config';
 import { processBillPaymentStatusJob, BillPaymentStatusJobData } from './jobs/billpayment.status.job';
 import { processCreateVirtualAccountJob, CreateVirtualAccountJobData } from '../jobs/tatum/create.virtual.account.job';
@@ -12,13 +12,13 @@ import { processCreateVirtualAccountJob, CreateVirtualAccountJobData } from '../
  *   ts-node src/queue/worker.ts bill-payments
  */
 class QueueWorker {
-  private workers: Map<string, Worker> = new Map();
+  private queues: Map<string, Queue.Queue> = new Map();
 
   /**
-   * Start a worker for a specific queue
+   * Start a worker for a specific queue with job name processors
    */
-  startWorker(queueName: string, processor: Processor) {
-    if (this.workers.has(queueName)) {
+  startWorker(queueName: string, jobProcessors: Record<string, (job: Job) => Promise<void>>) {
+    if (this.queues.has(queueName)) {
       console.log(`[Worker] Worker for queue "${queueName}" is already running`);
       return;
     }
@@ -29,33 +29,55 @@ class QueueWorker {
       password: process.env.REDIS_PASSWORD || undefined,
     };
 
-    const worker = new Worker(queueName, processor, {
+    const queue = new Queue(queueName, {
       redis: redisConnection,
-      concurrency: parseInt(process.env.QUEUE_CONCURRENCY || '1'), // Process 1 job at a time by default
-      limiter: {
-        max: parseInt(process.env.QUEUE_MAX_JOBS || '10'), // Max 10 jobs per interval
-        duration: parseInt(process.env.QUEUE_INTERVAL || '1000'), // Per 1 second
+      defaultJobOptions: {
+        removeOnComplete: {
+          age: 24 * 3600, // Keep completed jobs for 24 hours
+          count: 1000, // Keep max 1000 completed jobs
+        },
+        removeOnFail: {
+          age: 7 * 24 * 3600, // Keep failed jobs for 7 days
+          count: 5000, // Keep max 5000 failed jobs
+        },
+        attempts: 3, // Retry failed jobs 3 times
+        backoff: {
+          type: 'exponential',
+          delay: 2000, // Start with 2 second delay
+        },
       },
     });
 
+    // Register processors for each job name
+    for (const [jobName, processor] of Object.entries(jobProcessors)) {
+      queue.process(
+        jobName,
+        parseInt(process.env.QUEUE_CONCURRENCY || '1'),
+        async (job: Job) => {
+          await processor(job);
+        }
+      );
+      console.log(`[Worker:${queueName}] Registered processor for job: "${jobName}"`);
+    }
+
     // Event handlers
-    worker.on('completed', (job) => {
+    queue.on('completed', (job: Job) => {
       console.log(`[Worker:${queueName}] Job ${job.id} completed`);
     });
 
-    worker.on('failed', (job, err) => {
+    queue.on('failed', (job: Job | undefined, err: Error) => {
       console.error(`[Worker:${queueName}] Job ${job?.id} failed:`, err.message);
     });
 
-    worker.on('error', (error) => {
+    queue.on('error', (error: Error) => {
       console.error(`[Worker:${queueName}] Error:`, error.message);
     });
 
-    worker.on('stalled', (jobId) => {
+    queue.on('stalled', (jobId: string) => {
       console.warn(`[Worker:${queueName}] Job ${jobId} stalled`);
     });
 
-    this.workers.set(queueName, worker);
+    this.queues.set(queueName, queue);
     console.log(`[Worker] Started worker for queue: "${queueName}"`);
   }
 
@@ -63,10 +85,10 @@ class QueueWorker {
    * Stop a worker
    */
   async stopWorker(queueName: string): Promise<void> {
-    const worker = this.workers.get(queueName);
-    if (worker) {
-      await worker.close();
-      this.workers.delete(queueName);
+    const queue = this.queues.get(queueName);
+    if (queue) {
+      await queue.close();
+      this.queues.delete(queueName);
       console.log(`[Worker] Stopped worker for queue: "${queueName}"`);
     }
   }
@@ -75,7 +97,7 @@ class QueueWorker {
    * Stop all workers
    */
   async stopAll(): Promise<void> {
-    const stopPromises = Array.from(this.workers.keys()).map((queueName) =>
+    const stopPromises = Array.from(this.queues.keys()).map((queueName) =>
       this.stopWorker(queueName)
     );
     await Promise.all(stopPromises);
@@ -92,31 +114,31 @@ export const queueWorker = new QueueWorker();
 if (require.main === module) {
   const queueName = process.argv[2] || 'default';
 
-  // Register job processors
-  const processors: Record<string, Processor> = {
-    'bill-payments': async (job) => {
-      await processBillPaymentStatusJob(job as any);
+  // Register job processors by queue name
+  const queueProcessors: Record<string, Record<string, (job: Job) => Promise<void>>> = {
+    'bill-payments': {
+      'bill-payment-status': async (job: Job) => {
+        await processBillPaymentStatusJob(job as Job<BillPaymentStatusJobData>);
+      },
     },
-    'tatum': async (job) => {
-      // Route to appropriate job based on job name
-      if (job.name === 'create-virtual-account') {
-        await processCreateVirtualAccountJob(job as any);
-      } else {
-        throw new Error(`Unknown job name: ${job.name}`);
-      }
+    'tatum': {
+      'create-virtual-account': async (job: Job) => {
+        await processCreateVirtualAccountJob(job as Job<CreateVirtualAccountJobData>);
+      },
+      // Add more tatum job processors here as needed
     },
-    // Add more processors here as needed
+    // Add more queues here as needed
   };
 
-  const processor = processors[queueName];
-  if (!processor) {
-    console.error(`[Worker] No processor found for queue: "${queueName}"`);
-    console.error(`[Worker] Available queues: ${Object.keys(processors).join(', ')}`);
+  const jobProcessors = queueProcessors[queueName];
+  if (!jobProcessors) {
+    console.error(`[Worker] No processors found for queue: "${queueName}"`);
+    console.error(`[Worker] Available queues: ${Object.keys(queueProcessors).join(', ')}`);
     process.exit(1);
   }
 
-  // Start the worker
-  queueWorker.startWorker(queueName, processor);
+  // Start the worker with job name processors
+  queueWorker.startWorker(queueName, jobProcessors);
 
   // Graceful shutdown
   process.on('SIGTERM', async () => {

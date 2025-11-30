@@ -72,3 +72,91 @@ export const getAllMasterWalletsController = async (
   }
 };
 
+/**
+ * Create master wallets for all supported blockchains
+ * POST /api/admin/master-wallet/create-all
+ */
+export const createAllMasterWalletsController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const result = await masterWalletService.createAllMasterWallets();
+
+    // Remove sensitive data from results
+    const safeResults = result.results.map((item: any) => ({
+      blockchain: item.blockchain,
+      status: item.status,
+      wallet: item.wallet
+        ? {
+            id: item.wallet.id,
+            blockchain: item.wallet.blockchain,
+            address: item.wallet.address,
+            createdAt: item.wallet.createdAt,
+            updatedAt: item.wallet.updatedAt,
+          }
+        : null,
+    }));
+
+    return new ApiResponse(200, {
+      summary: {
+        created: result.success,
+        existing: result.existing,
+        errorCount: result.errorCount,
+      },
+      results: safeResults,
+      errors: result.errors,
+    }, 'Master wallets creation completed').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(ApiError.internal('Failed to create master wallets'));
+  }
+};
+
+/**
+ * Update all existing master wallets with missing address and private key
+ * POST /api/admin/master-wallet/update-all
+ */
+export const updateAllMasterWalletsController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const result = await masterWalletService.updateAllMasterWallets();
+
+    // Remove sensitive data from results
+    const safeResults = result.results.map((item: any) => ({
+      blockchain: item.blockchain,
+      status: item.status,
+      wallet: item.wallet
+        ? {
+            id: item.wallet.id,
+            blockchain: item.wallet.blockchain,
+            address: item.wallet.address,
+            createdAt: item.wallet.createdAt,
+            updatedAt: item.wallet.updatedAt,
+          }
+        : null,
+      error: item.error || undefined,
+    }));
+
+    return new ApiResponse(200, {
+      summary: {
+        total: result.total,
+        updated: result.updated,
+        errors: result.errors,
+      },
+      results: safeResults,
+    }, 'Master wallets update completed').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(ApiError.internal('Failed to update master wallets'));
+  }
+};
+

@@ -7,6 +7,8 @@ import { body } from 'express-validator';
 import {
   createMasterWalletController,
   getAllMasterWalletsController,
+  createAllMasterWalletsController,
+  updateAllMasterWalletsController,
 } from '../../controllers/admin/master.wallet.controller';
 // import authenticateAdmin from '../../middlewares/authenticate.admin'; // Add admin auth if needed
 
@@ -59,6 +61,72 @@ masterWalletRouter.post(
  *         description: Master wallets retrieved successfully
  */
 masterWalletRouter.get('/', getAllMasterWalletsController);
+
+/**
+ * @swagger
+ * /api/admin/master-wallet/create-all:
+ *   post:
+ *     summary: Create master wallets for all supported blockchains
+ *     tags: [Admin - Tatum]
+ *     description: |
+ *       Creates master wallets for all supported blockchains at once:
+ *       - Bitcoin
+ *       - Ethereum
+ *       - Tron
+ *       - BSC
+ *       - Solana
+ *       - Litecoin
+ *       
+ *       If a master wallet already exists for a blockchain, it will be skipped.
+ *     responses:
+ *       200:
+ *         description: Master wallets creation completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     created:
+ *                       type: integer
+ *                       description: Number of new wallets created
+ *                     existing:
+ *                       type: integer
+ *                       description: Number of wallets that already existed
+ *                     errorCount:
+ *                       type: integer
+ *                       description: Number of errors encountered
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       blockchain:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                         enum: [created, exists]
+ *                       wallet:
+ *                         type: object
+ */
+masterWalletRouter.post('/create-all', createAllMasterWalletsController);
+
+/**
+ * @swagger
+ * /api/admin/master-wallet/update-all:
+ *   post:
+ *     summary: Update existing master wallets with missing address and private key
+ *     tags: [Admin - Tatum]
+ *     description: |
+ *       Updates all existing master wallets by generating missing addresses and private keys.
+ *       This is useful if wallets were created before the encryption/address generation was implemented.
+ *     responses:
+ *       200:
+ *         description: Master wallets update completed
+ */
+masterWalletRouter.post('/update-all', updateAllMasterWalletsController);
 
 export default masterWalletRouter;
 
