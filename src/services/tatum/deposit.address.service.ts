@@ -23,6 +23,7 @@ function encryptPrivateKey(privateKey: string): string {
   const algorithm = 'aes-256-cbc';
   const key = Buffer.from(process.env.ENCRYPTION_KEY || 'default-key-32-characters-long!!', 'utf8');
   const iv = crypto.randomBytes(16);
+  // @ts-ignore - Buffer is valid for CipherKey, TypeScript type definition issue
   const cipher = crypto.createCipheriv(algorithm, key, iv);
   let encrypted = cipher.update(privateKey, 'utf8', 'hex');
   encrypted += cipher.final('hex');
@@ -38,6 +39,7 @@ function decryptPrivateKey(encryptedKey: string): string {
   const parts = encryptedKey.split(':');
   const iv = Buffer.from(parts[0], 'hex');
   const encrypted = parts[1];
+  // @ts-ignore - Buffer is valid for CipherKey, TypeScript type definition issue
   const decipher = crypto.createDecipheriv(algorithm, key, iv);
   let decrypted = decipher.update(encrypted, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
@@ -102,26 +104,48 @@ class DepositAddressService {
         });
 
         if (!existingForThisAccount) {
+          // Ensure index exists (should always be present, but add safeguard)
+          if (existingAddress.index === null || existingAddress.index === undefined) {
+            console.warn(`Warning: Existing address ${existingAddress.address} has no index stored. This should not happen.`);
+            throw new Error(`Cannot reuse address ${existingAddress.address}: index is missing`);
+          }
+
           // Assign existing address to this virtual account
-          await prisma.depositAddress.create({
+          const depositAddress = await prisma.depositAddress.create({
             data: {
               virtualAccountId,
               blockchain: existingAddress.blockchain,
               currency: existingAddress.currency,
               address: existingAddress.address,
-              index: existingAddress.index,
+              index: existingAddress.index, // Store the index used for this address
               privateKey: existingAddress.privateKey, // Reuse encrypted key
             },
           });
 
-          // Assign to Tatum virtual account
-          await tatumService.assignAddressToVirtualAccount(
-            virtualAccount.accountId,
-            existingAddress.address
-          );
+          console.log(`Reused address ${existingAddress.address} with index ${existingAddress.index} for virtual account ${virtualAccountId}`);
 
-          console.log(`Reused address ${existingAddress.address} for virtual account ${virtualAccountId}`);
-          return existingAddress;
+          // Register webhook for this address (V4 API)
+          if (existingAddress.blockchain) {
+            try {
+              const webhookUrl = process.env.TATUM_WEBHOOK_URL || `${process.env.BASE_URL}/api/v2/webhooks/tatum`;
+              const addressBlockchain = existingAddress.blockchain; // Type narrowing
+              await tatumService.registerAddressWebhookV4(
+                existingAddress.address,
+                addressBlockchain,
+                webhookUrl,
+                {
+                  type: 'ADDRESS_EVENT',
+                  templateId: 'enriched',
+                }
+              );
+              console.log(`Webhook registered for address ${existingAddress.address}`);
+            } catch (error: any) {
+              console.error(`Failed to register webhook for address ${existingAddress.address}:`, error.message);
+              // Don't fail the whole process if webhook registration fails
+            }
+          }
+
+          return depositAddress;
         }
       }
 
@@ -131,50 +155,84 @@ class DepositAddressService {
         throw new Error(`Master wallet not found or incomplete for ${blockchain}`);
       }
 
-      // Calculate next index (starting from 5, incrementing by 40)
+      // Decrypt mnemonic (it's stored encrypted)
+      let mnemonic: string;
+      try {
+        mnemonic = decryptPrivateKey(masterWallet.mnemonic);
+      } catch (error) {
+        // If decryption fails, mnemonic might be stored in plaintext (old format)
+        mnemonic = masterWallet.mnemonic;
+      }
+
+      // Calculate next index (starting from 5, incrementing by 1)
+      // Master wallet uses index 0, so we start user addresses at 5 to avoid conflicts
+      // Standard HD wallet derivation uses sequential indices (5, 6, 7, 8...)
       const maxIndex = await prisma.depositAddress.findFirst({
         where: {
           blockchain: blockchain,
+          index: { not: null }, // Only consider addresses with valid indexes
         },
         orderBy: { index: 'desc' },
         select: { index: true },
       });
 
-      const nextIndex = maxIndex?.index ? maxIndex.index + 40 : 5;
+      // Use sequential indexing: next index = max + 1, or 5 if no addresses exist yet
+      // Starting at 5 leaves room for master wallet (index 0) and system addresses
+      const nextIndex = maxIndex?.index !== null && maxIndex?.index !== undefined 
+        ? maxIndex.index + 1 
+        : 5;
 
-      // Generate address
+      console.log(`Generating new address for ${blockchain} using index ${nextIndex} (previous max: ${maxIndex?.index || 'none'})`);
+
+      // Generate address using the calculated index
       const address = await tatumService.generateAddress(
         blockchain,
-        masterWallet.xpub,
+        masterWallet.xpub!, // Already checked above that xpub exists
         nextIndex
       );
 
-      // Generate private key
+      // Generate private key using the same index (mnemonic already decrypted above)
       const privateKey = await tatumService.generatePrivateKey(
         blockchain,
-        masterWallet.mnemonic,
+        mnemonic,
         nextIndex
       );
 
       // Encrypt private key
       const encryptedPrivateKey = encryptPrivateKey(privateKey);
 
-      // Assign to Tatum virtual account
-      await tatumService.assignAddressToVirtualAccount(virtualAccount.accountId, address);
-
-      // Store in database
+      // Store in database with the index used for address and private key generation
       const depositAddress = await prisma.depositAddress.create({
         data: {
           virtualAccountId,
           blockchain,
           currency,
           address,
-          index: nextIndex,
+          index: nextIndex, // Store the index used for generating address and private key
           privateKey: encryptedPrivateKey,
         },
       });
 
-      console.log(`Generated new address ${address} for virtual account ${virtualAccountId}`);
+      console.log(`Generated new address ${address} with index ${nextIndex} for virtual account ${virtualAccountId}`);
+
+      // Register webhook for this address (V4 API)
+      try {
+        const webhookUrl = process.env.TATUM_WEBHOOK_URL || `${process.env.BASE_URL}/api/v2/webhooks/tatum`;
+        await tatumService.registerAddressWebhookV4(
+          address,
+          blockchain,
+          webhookUrl,
+          {
+            type: 'ADDRESS_EVENT',
+            templateId: 'enriched',
+          }
+        );
+        console.log(`Webhook registered for address ${address}`);
+      } catch (error: any) {
+        console.error(`Failed to register webhook for address ${address}:`, error.message);
+        // Don't fail the whole process if webhook registration fails
+      }
+
       return depositAddress;
     } catch (error: any) {
       console.error(`Error generating deposit address:`, error);

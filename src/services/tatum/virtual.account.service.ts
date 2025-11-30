@@ -6,6 +6,7 @@
 
 import { prisma } from '../../utils/prisma';
 import tatumService from './tatum.service';
+import { randomUUID } from 'crypto';
 
 class VirtualAccountService {
   /**
@@ -37,32 +38,24 @@ class VirtualAccountService {
             continue;
           }
 
-          // Create virtual account via Tatum API
-          const accountData = await tatumService.createVirtualAccount({
-            currency: currency.currency,
-            customer: {
-              externalId: String(userId),
-            },
-            accountCode: `user_${userId}_${currency.currency}`,
-            accountingCurrency: 'USD',
-            // xpub is commented out as per the analysis document
-            // xpub: masterWallet?.xpub,
-          });
+          // Generate our own accountId (UUID)
+          const accountId = randomUUID();
+          const accountCode = `user_${userId}_${currency.currency}`;
 
-          // Store in database
+          // Create virtual account in our own system (not in Tatum)
           const virtualAccount = await prisma.virtualAccount.create({
             data: {
               userId,
               blockchain: currency.blockchain,
               currency: currency.currency,
-              customerId: accountData.customerId || null,
-              accountId: accountData.id,
-              accountCode: `user_${userId}_${currency.currency}`,
-              active: accountData.active,
-              frozen: accountData.frozen,
-              accountBalance: accountData.balance.accountBalance,
-              availableBalance: accountData.balance.availableBalance,
-              accountingCurrency: accountData.accountingCurrency || 'USD',
+              customerId: String(userId), // Use userId as customerId
+              accountId: accountId,
+              accountCode: accountCode,
+              active: true,
+              frozen: false,
+              accountBalance: '0',
+              availableBalance: '0',
+              accountingCurrency: 'USD',
               currencyId: currency.id,
             },
           });
@@ -121,6 +114,8 @@ class VirtualAccountService {
 
   /**
    * Update virtual account balance from Tatum
+   * Note: Since we're not using Tatum virtual accounts, this method is kept for compatibility
+   * but balance updates should be handled through webhook processing or manual updates
    */
   async updateBalanceFromTatum(accountId: string) {
     try {
@@ -129,19 +124,12 @@ class VirtualAccountService {
         throw new Error('Virtual account not found');
       }
 
-      // Fetch latest balance from Tatum
-      const tatumAccount = await tatumService.getVirtualAccount(accountId);
-
-      // Update in database
-      return await prisma.virtualAccount.update({
-        where: { accountId },
-        data: {
-          accountBalance: tatumAccount.balance.accountBalance,
-          availableBalance: tatumAccount.balance.availableBalance,
-          active: tatumAccount.active,
-          frozen: tatumAccount.frozen,
-        },
-      });
+      // Since we're not using Tatum virtual accounts, we can't fetch balance from Tatum
+      // Balance updates should be handled through webhook processing or manual updates
+      console.log(`Balance update requested for account ${accountId}, but Tatum account doesn't exist`);
+      
+      // Return the current account without updating
+      return account;
     } catch (error: any) {
       console.error(`Error updating balance for account ${accountId}:`, error);
       throw new Error(`Failed to update balance: ${error.message}`);

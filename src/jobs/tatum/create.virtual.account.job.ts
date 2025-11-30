@@ -32,17 +32,14 @@ export async function processCreateVirtualAccountJob(
 
     console.log(`[Queue:Tatum] Created ${virtualAccounts.length} virtual accounts for user ${userId}`);
 
-    // For each virtual account, assign deposit address and register webhook
+    // For each virtual account, assign deposit address
+    // Note: Webhook registration is now handled automatically in deposit.address.service.ts
+    // after address generation using Tatum V4 API (address-based subscriptions)
     for (const account of virtualAccounts) {
       try {
-        // Assign deposit address
+        // Assign deposit address (this will also register webhook automatically)
         await depositAddressService.generateAndAssignToVirtualAccount(account.id);
         console.log(`[Queue:Tatum] Deposit address assigned for account ${account.accountId}`);
-
-        // Register webhook
-        const webhookUrl = process.env.TATUM_WEBHOOK_URL || `${process.env.BASE_URL}/api/v2/webhooks/tatum`;
-        await tatumService.registerWebhook(account.accountId, webhookUrl);
-        console.log(`[Queue:Tatum] Webhook registered for account ${account.accountId}`);
       } catch (error: any) {
         console.error(`[Queue:Tatum] Error processing account ${account.accountId}:`, error.message);
         // Continue with other accounts even if one fails
