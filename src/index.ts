@@ -12,6 +12,7 @@ import upload from './middlewares/multer.middleware';
 // V2 API Routes (New Routes - Top Priority)
 // ============================================
 import cryptoAssetRouter from './routes/cutomer/crypto.asset.router';
+import cryptoTransactionRouter from './routes/cutomer/crypto.transaction.router';
 import cryptoRateRouter from './routes/admin/crypto.rate.router';
 import masterWalletRouter from './routes/admin/master.wallet.router';
 import tatumWebhookRouter from './routes/webhooks/tatum.webhook.router';
@@ -83,6 +84,9 @@ app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }));
 // ============================================
 // Crypto Assets (User)
 app.use('/api/v2/crypto', cryptoAssetRouter);
+
+// Crypto Transactions (User) - Combined with crypto assets router
+app.use('/api/v2/crypto', cryptoTransactionRouter);
 
 // Crypto Rates (Admin)
 app.use('/api/admin/crypto', cryptoRateRouter);

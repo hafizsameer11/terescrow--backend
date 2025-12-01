@@ -257,9 +257,6 @@ class CryptoAssetService {
   /**
    * Get transaction history for a specific asset (virtual account)
    * 
-   * TODO: This method will be implemented when crypto transaction models are created.
-   * It will fetch transactions (Send, Receive, Swap, Sell, Buy) for a specific virtual account.
-   * 
    * @param userId - User ID
    * @param virtualAccountId - Virtual account ID
    * @param limit - Number of transactions to return (default: 50)
@@ -271,17 +268,13 @@ class CryptoAssetService {
     limit: number = 50,
     offset: number = 0
   ) {
-    // TODO: Implement when crypto transaction models are created
-    // This will query SendTransaction, ReceiveTransaction, SwapTransaction, etc.
-    // and return formatted transaction history for the asset
-    
-    return {
-      transactions: [],
-      total: 0,
+    const cryptoTransactionService = (await import('./crypto.transaction.service')).default;
+    return await cryptoTransactionService.getVirtualAccountTransactions(
+      userId,
+      virtualAccountId,
       limit,
-      offset,
-      message: 'Transaction history will be available when crypto transaction models are implemented',
-    };
+      offset
+    );
   }
 }
 

@@ -13,6 +13,7 @@ import {
   setPinController,
   updatePinController,
   verifyForgotPasswordOtp,
+  verifyPinController,
   verifyUserController,
 } from '../../controllers/customer/auth.controllers';
 import authenticateUser from '../../middlewares/authenticate.user';
@@ -432,5 +433,62 @@ authRouter.post('/set-pin', pinValidation, setPinController);
  *         description: Validation error
  */
 authRouter.post('/update-pin', pinValidation, updatePinController);
+
+/**
+ * @swagger
+ * /api/auth/verify-pin:
+ *   post:
+ *     summary: Verify user PIN
+ *     tags: [V2 - PIN Management]
+ *     description: |
+ *       **V2 API** - Verify user's 4-digit PIN.
+ *       Requires user authentication. Used for transaction confirmations and sensitive operations.
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - pin
+ *             properties:
+ *               pin:
+ *                 type: string
+ *                 pattern: '^\d{4}$'
+ *                 example: "1234"
+ *                 description: Must be exactly 4 digits
+ *     responses:
+ *       200:
+ *         description: PIN verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: integer
+ *                   example: 200
+ *                 message:
+ *                   type: string
+ *                   example: "PIN verified successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     verified:
+ *                       type: boolean
+ *                       example: true
+ *                     email:
+ *                       type: string
+ *                       format: email
+ *       400:
+ *         description: Invalid PIN format or PIN not set
+ *       401:
+ *         description: Invalid PIN or unauthorized
+ *       404:
+ *         description: User not found
+ */
+authRouter.post('/verify-pin', authenticateUser, verifyPinController);
 
 export default authRouter;

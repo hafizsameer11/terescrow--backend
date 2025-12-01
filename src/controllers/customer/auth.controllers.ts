@@ -891,6 +891,64 @@ export const updatePinController = async (
   }
 };
 
+export const verifyPinController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const authenticatedUser = (req as any).user;
+    if (!authenticatedUser || !authenticatedUser.id) {
+      return next(ApiError.unauthorized('User not authenticated'));
+    }
+
+    const { pin } = req.body as { pin: string };
+
+    // Validate PIN format
+    if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+      return next(ApiError.badRequest('Invalid PIN. Must be exactly 4 digits'));
+    }
+
+    // Get user with PIN
+    const user = await prisma.user.findUnique({
+      where: {
+        id: authenticatedUser.id,
+      },
+      select: {
+        id: true,
+        email: true,
+        pin: true,
+      },
+    });
+
+    if (!user) {
+      return next(ApiError.notFound('User not found'));
+    }
+
+    // Check if user has a PIN set
+    if (!user.pin) {
+      return next(ApiError.badRequest('PIN not set. Please set a PIN first.'));
+    }
+
+    // Verify PIN
+    if (user.pin !== pin) {
+      return next(ApiError.unauthorized('Invalid PIN'));
+    }
+
+    return new ApiResponse(
+      200,
+      { verified: true, email: user.email },
+      'PIN verified successfully'
+    ).send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+};
+
 export {
   registerCustomerController,
   logoutController,
