@@ -122,6 +122,16 @@ app.use('/api/v2/crypto', cryptoBuyRouter);
 app.use('/api/v2/crypto', cryptoSellRouter);
 
 // ────────────────────────────────────────────
+// Swap Crypto Flow
+// ────────────────────────────────────────────
+// GET  /api/v2/crypto/swap/currencies - Get available currencies (with balance)
+// POST /api/v2/crypto/swap/quote       - Calculate quote (fromCurrency → toCurrency + gas)
+// POST /api/v2/crypto/swap/preview     - Preview transaction
+// POST /api/v2/crypto/swap             - Execute swap
+import cryptoSwapRouter from './routes/cutomer/crypto.swap.router';
+app.use('/api/v2/crypto', cryptoSwapRouter);
+
+// ────────────────────────────────────────────
 // Crypto Assets Flow
 // ────────────────────────────────────────────
 // GET /api/v2/crypto/assets                    - Get all user assets
@@ -145,6 +155,13 @@ app.use('/api/v2/crypto', cryptoTransactionRouter);
 // POST /api/v2/crypto/wallets/export    - Export mnemonic
 // POST /api/v2/crypto/wallets/export-key - Export private key
 app.use('/api/v2/crypto', userWalletRouter);
+
+// ────────────────────────────────────────────
+// Transaction Overview Flow
+// ────────────────────────────────────────────
+// GET /api/v2/transactions/overview     - Get transaction overview with chart data
+import transactionOverviewRouter from './routes/cutomer/transaction.overview.router';
+app.use('/api/v2/transactions', transactionOverviewRouter);
 
 // ============================================
 // V2 API Routes - Other Services
@@ -265,6 +282,15 @@ const customOperationsSorter = (a: any, b: any) => {
     // Sell Crypto Flow
     if (tagA === 'V2 - Crypto - Sell') {
       const order: Record<string, number> = { '/sell/currencies': 1, '/sell/quote': 2, '/sell/preview': 3, '/sell': 4 };
+      const keyA = Object.keys(order).find(k => pathA.includes(k));
+      const keyB = Object.keys(order).find(k => pathB.includes(k));
+      const orderA = keyA && keyA in order ? order[keyA] : 10;
+      const orderB = keyB && keyB in order ? order[keyB] : 10;
+      if (orderA !== orderB) return orderA - orderB;
+    }
+    // Swap Crypto Flow
+    if (tagA === 'V2 - Crypto - Swap') {
+      const order: Record<string, number> = { '/swap/currencies': 1, '/swap/quote': 2, '/swap/preview': 3, '/swap': 4 };
       const keyA = Object.keys(order).find(k => pathA.includes(k));
       const keyB = Object.keys(order).find(k => pathB.includes(k));
       const orderA = keyA && keyA in order ? order[keyA] : 10;

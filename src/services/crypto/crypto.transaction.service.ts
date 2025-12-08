@@ -7,7 +7,7 @@
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 
-export type CryptoTxType = 'BUY' | 'SELL' | 'SEND' | 'RECEIVE';
+export type CryptoTxType = 'BUY' | 'SELL' | 'SEND' | 'RECEIVE' | 'SWAP';
 export type CryptoTxStatus = 'pending' | 'processing' | 'successful' | 'failed' | 'cancelled';
 
 interface CreateCryptoBuyData {
@@ -70,6 +70,31 @@ interface CreateCryptoReceiveData {
   txHash: string;
   blockNumber?: bigint | number;
   confirmations?: number;
+  status?: CryptoTxStatus;
+}
+
+interface CreateCryptoSwapData {
+  userId: number;
+  fromVirtualAccountId?: number;
+  toVirtualAccountId?: number;
+  transactionId: string;
+  fromAddress?: string;
+  toAddress?: string;
+  fromCurrency: string;
+  fromBlockchain: string;
+  fromAmount: string | number;
+  fromAmountUsd: string | number;
+  toCurrency: string;
+  toBlockchain: string;
+  toAmount: string | number;
+  toAmountUsd: string | number;
+  rateFromToUsd?: string | number;
+  rateToToUsd?: string | number;
+  gasFee: string | number;
+  gasFeeUsd: string | number;
+  totalAmount: string | number;
+  totalAmountUsd: string | number;
+  txHash?: string;
   status?: CryptoTxStatus;
 }
 
@@ -263,6 +288,65 @@ class CryptoTransactionService {
   }
 
   /**
+   * Create a crypto swap transaction
+   */
+  async createSwapTransaction(data: CreateCryptoSwapData) {
+    const { userId, fromVirtualAccountId, toVirtualAccountId, transactionId, status = 'successful', ...swapData } = data;
+    
+    // Get virtual accounts to determine currencies and blockchains
+    const fromVirtualAccount = fromVirtualAccountId
+      ? await prisma.virtualAccount.findUnique({ where: { id: fromVirtualAccountId } })
+      : null;
+    const toVirtualAccount = toVirtualAccountId
+      ? await prisma.virtualAccount.findUnique({ where: { id: toVirtualAccountId } })
+      : null;
+
+    const cryptoTransaction = await prisma.cryptoTransaction.create({
+      data: {
+        id: transactionId,
+        userId,
+        virtualAccountId: fromVirtualAccountId, // Primary virtual account (the one being debited)
+        transactionType: 'SWAP',
+        transactionId,
+        status,
+        currency: swapData.fromCurrency,
+        blockchain: swapData.fromBlockchain,
+        cryptoSwap: {
+          create: {
+            fromAddress: swapData.fromAddress || null,
+            toAddress: swapData.toAddress || null,
+            fromCurrency: swapData.fromCurrency,
+            fromBlockchain: swapData.fromBlockchain,
+            fromAmount: new Decimal(swapData.fromAmount),
+            fromAmountUsd: new Decimal(swapData.fromAmountUsd),
+            toCurrency: swapData.toCurrency,
+            toBlockchain: swapData.toBlockchain,
+            toAmount: new Decimal(swapData.toAmount),
+            toAmountUsd: new Decimal(swapData.toAmountUsd),
+            rateFromToUsd: swapData.rateFromToUsd ? new Decimal(swapData.rateFromToUsd) : null,
+            rateToToUsd: swapData.rateToToUsd ? new Decimal(swapData.rateToToUsd) : null,
+            gasFee: new Decimal(swapData.gasFee),
+            gasFeeUsd: new Decimal(swapData.gasFeeUsd),
+            totalAmount: new Decimal(swapData.totalAmount),
+            totalAmountUsd: new Decimal(swapData.totalAmountUsd),
+            txHash: swapData.txHash || null,
+          },
+        },
+      },
+      include: {
+        cryptoSwap: true,
+        virtualAccount: {
+          include: {
+            walletCurrency: true,
+          },
+        },
+      },
+    });
+
+    return cryptoTransaction;
+  }
+
+  /**
    * Get user's crypto transactions
    */
   async getUserTransactions(
@@ -284,6 +368,7 @@ class CryptoTransactionService {
           cryptoSell: true,
           cryptoSend: true,
           cryptoReceive: true,
+          cryptoSwap: true,
           virtualAccount: {
             include: {
               walletCurrency: true,
@@ -356,6 +441,7 @@ class CryptoTransactionService {
           cryptoSell: true,
           cryptoSend: true,
           cryptoReceive: true,
+          cryptoSwap: true,
           virtualAccount: {
             include: {
               walletCurrency: true,
@@ -457,6 +543,27 @@ class CryptoTransactionService {
       };
     }
 
+    if (transaction.cryptoSwap) {
+      return {
+        ...base,
+        from: transaction.cryptoSwap.fromAddress || 'Your Crypto wallet',
+        to: transaction.cryptoSwap.toAddress || 'Your Crypto wallet',
+        fromCurrency: transaction.cryptoSwap.fromCurrency,
+        fromBlockchain: transaction.cryptoSwap.fromBlockchain,
+        fromAmount: `${transaction.cryptoSwap.fromAmount.toString()}${transaction.cryptoSwap.fromCurrency}`,
+        fromAmountUsd: `$${transaction.cryptoSwap.fromAmountUsd.toString()}`,
+        toCurrency: transaction.cryptoSwap.toCurrency,
+        toBlockchain: transaction.cryptoSwap.toBlockchain,
+        toAmount: `${transaction.cryptoSwap.toAmount.toString()}${transaction.cryptoSwap.toCurrency}`,
+        toAmountUsd: `$${transaction.cryptoSwap.toAmountUsd.toString()}`,
+        gasFee: `${transaction.cryptoSwap.gasFee.toString()}${transaction.cryptoSwap.fromCurrency}`,
+        gasFeeUsd: `$${transaction.cryptoSwap.gasFeeUsd.toString()}`,
+        totalAmount: `${transaction.cryptoSwap.totalAmount.toString()}${transaction.cryptoSwap.fromCurrency}`,
+        totalAmountUsd: `$${transaction.cryptoSwap.totalAmountUsd.toString()}`,
+        txHash: transaction.cryptoSwap.txHash,
+      };
+    }
+
     return base;
   }
 
@@ -469,6 +576,7 @@ class CryptoTransactionService {
       SELL: 'Crypto Sell',
       SEND: 'Crypto Transfer',
       RECEIVE: 'Crypto Deposit',
+      SWAP: 'Crypto Swap',
     };
     return labels[type] || type;
   }

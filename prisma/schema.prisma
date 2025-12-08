@@ -1064,6 +1064,7 @@ model CryptoTransaction {
   cryptoSell       CryptoSell?
   cryptoSend       CryptoSend?
   cryptoReceive    CryptoReceive?
+  cryptoSwap       CryptoSwap?
   
   // Relations
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1172,11 +1173,50 @@ model CryptoReceive {
   @@map("crypto_receive")
 }
 
+// Crypto Swap Transaction
+model CryptoSwap {
+  id                  Int               @id @default(autoincrement())
+  cryptoTransactionId String            @unique @map("crypto_transaction_id") @db.VarChar(255)
+  fromAddress         String?           @map("from_address") @db.VarChar(255)
+  toAddress           String?           @map("to_address") @db.VarChar(255)
+  // Asset being swapped FROM
+  fromCurrency        String            @map("from_currency") @db.VarChar(50)
+  fromBlockchain      String            @map("from_blockchain") @db.VarChar(255)
+  fromAmount          Decimal           @map("from_amount") @db.Decimal(20, 8) // Amount of fromCurrency being swapped
+  fromAmountUsd       Decimal           @map("from_amount_usd") @db.Decimal(20, 8) // USD value of fromAmount
+  // Asset being swapped TO
+  toCurrency          String            @map("to_currency") @db.VarChar(50)
+  toBlockchain        String            @map("to_blockchain") @db.VarChar(255)
+  toAmount            Decimal           @map("to_amount") @db.Decimal(20, 8) // Amount of toCurrency received
+  toAmountUsd        Decimal           @map("to_amount_usd") @db.Decimal(20, 8) // USD value of toAmount
+  // Rates
+  rateFromToUsd       Decimal?          @map("rate_from_to_usd") @db.Decimal(20, 8) // From currency price in USD
+  rateToToUsd         Decimal?          @map("rate_to_to_usd") @db.Decimal(20, 8) // To currency price in USD
+  // Gas fees
+  gasFee              Decimal           @map("gas_fee") @db.Decimal(20, 8) // Gas fee in fromCurrency
+  gasFeeUsd           Decimal           @map("gas_fee_usd") @db.Decimal(20, 8) // Gas fee in USD
+  // Total
+  totalAmount         Decimal           @map("total_amount") @db.Decimal(20, 8) // fromAmount + gasFee
+  totalAmountUsd      Decimal           @map("total_amount_usd") @db.Decimal(20, 8) // Total in USD
+  txHash              String?           @unique @map("tx_hash") @db.VarChar(255)
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+  
+  cryptoTransaction   CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
+  
+  @@index([cryptoTransactionId])
+  @@index([txHash])
+  @@index([fromCurrency])
+  @@index([toCurrency])
+  @@map("crypto_swap")
+}
+
 enum CryptoTxType {
   BUY
   SELL
   SEND
   RECEIVE
+  SWAP
 }
 
 enum CryptoTxStatus {
