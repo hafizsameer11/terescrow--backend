@@ -19,7 +19,8 @@ const cryptoTransactionRouter = express.Router();
  * /api/v2/crypto/transactions:
  *   get:
  *     summary: Get user's crypto transactions
- *     tags: [V2 - Crypto]
+ *     tags: [V2 - Crypto - Transactions]
+ *     x-order: 1
  *     description: |
  *       Get all crypto transactions for the authenticated user with optional filtering.
  *       If IS_MOCK_DATA=true and user has no transactions, returns mock data for frontend development.
@@ -80,7 +81,8 @@ cryptoTransactionRouter.get('/transactions', authenticateUser, getUserCryptoTran
  * /api/v2/crypto/transactions/{transactionId}:
  *   get:
  *     summary: Get transaction by ID
- *     tags: [V2 - Crypto]
+ *     tags: [V2 - Crypto - Transactions]
+ *     x-order: 2
  *     description: Get detailed information about a specific crypto transaction
  *     security:
  *       - bearerAuth: []
@@ -104,7 +106,8 @@ cryptoTransactionRouter.get('/transactions/:transactionId', authenticateUser, ge
  * /api/v2/crypto/assets/{virtualAccountId}/transactions:
  *   get:
  *     summary: Get transactions for a virtual account
- *     tags: [V2 - Crypto]
+ *     tags: [V2 - Crypto - Transactions]
+ *     x-order: 3
  *     description: Get all transactions for a specific virtual account (asset)
  *     security:
  *       - bearerAuth: []

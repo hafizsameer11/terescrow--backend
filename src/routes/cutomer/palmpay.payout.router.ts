@@ -22,6 +22,10 @@ const payoutRouter = Router();
  *   get:
  *     summary: Get bank list
  *     tags: [V2 - PalmPay Payout]
+ *     x-order: 1
+ *     description: |
+ *       **Flow Step 1:** Get list of supported banks for payout.
+ *       Use this to populate bank selection dropdown.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -43,6 +47,10 @@ payoutRouter.get('/banks', authenticateUser, getBankListController);
  *   post:
  *     summary: Verify bank account
  *     tags: [V2 - PalmPay Payout]
+ *     x-order: 2
+ *     description: |
+ *       **Flow Step 2:** Verify bank account details before initiating payout.
+ *       Validates account number and bank code, returns account name.
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -73,6 +81,10 @@ payoutRouter.post('/verify-account', authenticateUser, verifyBankAccountControll
  *   post:
  *     summary: Initiate payout (withdrawal)
  *     tags: [V2 - PalmPay Payout]
+ *     x-order: 3
+ *     description: |
+ *       **Flow Step 3:** Initiate bank transfer payout after verifying account.
+ *       Transfers NGN from user's fiat wallet to their bank account.
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -112,6 +124,10 @@ payoutRouter.post('/payout/initiate', authenticateUser, initiatePayoutController
  *   get:
  *     summary: Check payout status
  *     tags: [V2 - PalmPay Payout]
+ *     x-order: 4
+ *     description: |
+ *       **Flow Step 4:** Check the status of a payout transaction.
+ *       Use this to poll for transaction updates or check completion status.
  *     security:
  *       - bearerAuth: []
  *     parameters:

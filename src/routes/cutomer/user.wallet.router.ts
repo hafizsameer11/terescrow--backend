@@ -26,7 +26,8 @@ const router = Router();
  * /api/v2/crypto/wallets:
  *   get:
  *     summary: Get all user wallets
- *     tags: [V2 - Crypto]
+ *     tags: [V2 - Crypto - Wallets]
+ *     x-order: 1
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -65,7 +66,8 @@ router.get('/wallets', authenticateUser, getUserWalletsController);
  * /api/v2/crypto/wallets/export:
  *   post:
  *     summary: Export user wallet (mnemonic + addresses)
- *     tags: [V2 - Crypto]
+ *     tags: [V2 - Crypto - Wallets]
+ *     x-order: 2
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -117,7 +119,8 @@ router.post('/wallets/export', authenticateUser, exportUserWalletController);
  * /api/v2/crypto/wallets/export-key:
  *   post:
  *     summary: Export private key for a specific address
- *     tags: [V2 - Crypto]
+ *     tags: [V2 - Crypto - Wallets]
+ *     x-order: 3
  *     security:
  *       - bearerAuth: []
  *     requestBody:

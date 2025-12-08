@@ -25,7 +25,8 @@ export const calculateSellQuoteController = async (
       return next(ApiError.badRequest('Validation failed', errors.array()));
     }
 
-    const userId = (req as any).user?.id;
+    const user = (req as any).body?._user;
+    const userId = user?.id;
     if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
@@ -59,7 +60,8 @@ export const previewSellController = async (
       return next(ApiError.badRequest('Validation failed', errors.array()));
     }
 
-    const userId = (req as any).user?.id;
+    const user = (req as any).body?._user;
+    const userId = user?.id;
     if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
@@ -88,7 +90,8 @@ export const getAvailableCurrenciesForSellController = async (
   next: NextFunction
 ) => {
   try {
-    const userId = (req as any).user?.id;
+    const user = (req as any).body?._user;
+    const userId = user?.id;
     if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
@@ -116,7 +119,8 @@ export const sellCryptoController = async (
       return next(ApiError.badRequest('Validation failed', errors.array()));
     }
 
-    const userId = (req as any).user?.id;
+    const user = (req as any).body?._user;
+    const userId = user?.id;
     if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }

@@ -12,7 +12,8 @@ import cryptoAssetService from '../../services/crypto/crypto.asset.service';
  */
 export async function getUserAssetsController(req: Request, res: Response) {
   try {
-    const userId = (req as any).user?.id;
+    const user = (req as any).body?._user;
+    const userId = user?.id;
 
     if (!userId) {
       return res.status(401).json({
@@ -42,7 +43,8 @@ export async function getUserAssetsController(req: Request, res: Response) {
  */
 export async function getAssetDetailController(req: Request, res: Response) {
   try {
-    const userId = (req as any).user?.id;
+    const user = (req as any).body?._user;
+    const userId = user?.id;
     const { id } = req.params;
 
     if (!userId) {
@@ -88,7 +90,8 @@ export async function getAssetDetailController(req: Request, res: Response) {
  */
 export async function getDepositAddressController(req: Request, res: Response) {
   try {
-    const userId = (req as any).user?.id;
+    const user = (req as any).body?._user;
+    const userId = user?.id;
     const { currency, blockchain } = req.params;
 
     if (!userId) {
@@ -139,7 +142,8 @@ export async function getDepositAddressController(req: Request, res: Response) {
  */
 export async function getReceiveAddressController(req: Request, res: Response) {
   try {
-    const userId = (req as any).user?.id;
+    const user = (req as any).body?._user;
+    const userId = user?.id;
     const { accountId } = req.params;
 
     if (!userId) {

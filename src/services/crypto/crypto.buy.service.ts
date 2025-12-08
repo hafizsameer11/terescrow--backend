@@ -16,7 +16,7 @@ import cryptoTransactionService from './crypto.transaction.service';
 
 export interface BuyCryptoInput {
   userId: number;
-  amount: number; // Amount in NGN (fiat currency)
+  amount: number; // Amount in crypto currency (e.g., 15 USDT, 0.001 BTC)
   currency: string; // Crypto currency to buy (e.g., BTC, ETH, USDT)
   blockchain: string; // Blockchain (e.g., bitcoin, ethereum, bsc)
 }
@@ -41,13 +41,13 @@ class CryptoBuyService {
    * Buy cryptocurrency with fiat (NGN)
    * 
    * Current Implementation (Internal Ledger):
-   * 1. Validate user has sufficient fiat balance
-   * 2. Get NGN to USD rate from crypto_rates table (BUY transaction type)
-   * 3. Convert NGN to USD
-   * 4. Get crypto price from wallet_currencies table
-   * 5. Calculate crypto amount
-   * 6. Debit fiat wallet
-   * 7. Credit virtual account (internal ledger)
+   * 1. Validate crypto currency exists and get price
+   * 2. Calculate USD value of crypto amount
+   * 3. Get USD to NGN rate from crypto_rates table (BUY transaction type)
+   * 4. Calculate NGN cost
+   * 5. Validate user has sufficient fiat balance
+   * 6. Debit fiat wallet (NGN)
+   * 7. Credit virtual account (crypto)
    * 8. Create transaction record
    * 
    * TODO: Future Blockchain Implementation:
@@ -104,41 +104,33 @@ class CryptoBuyService {
         throw new Error(`Price not set for ${currency}`);
       }
 
-      // Step 2: Get user's fiat wallet (NGN)
+      // Step 2: Get crypto price from wallet_currencies
+      const cryptoPrice = new Decimal(walletCurrency.price.toString());
+      
+      // Step 3: Calculate USD value of crypto amount
+      const amountCryptoDecimal = new Decimal(amount); // Amount is in crypto currency
+      const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
+
+      // Step 4: Get USD to NGN rate from crypto_rates (BUY transaction type)
+      const estimatedUsdAmount = parseFloat(amountUsd.toString());
+      const usdToNgnRate = await cryptoRateService.getRateForAmount('BUY', estimatedUsdAmount);
+      
+      if (!usdToNgnRate) {
+        throw new Error('No rate found for BUY transaction. Please contact support.');
+      }
+
+      // Step 5: Calculate NGN cost
+      const amountNgn = amountUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
+
+      // Step 6: Get user's fiat wallet (NGN)
       const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
       
       // Check sufficient balance
       const balanceBefore = new Decimal(fiatWallet.balance);
-      const amountDecimal = new Decimal(amount);
       
-      if (balanceBefore.lessThan(amountDecimal)) {
+      if (balanceBefore.lessThan(amountNgn)) {
         throw new Error('Insufficient fiat balance');
       }
-
-      // Step 3: Get NGN to USD rate from crypto_rates (BUY transaction type)
-      // Convert amount to USD for rate lookup
-      // We'll use a rough estimate first, then recalculate
-      const estimatedUsdAmount = amount / 1500; // Rough estimate
-      const ngnToUsdRate = await cryptoRateService.getRateForAmount('BUY', estimatedUsdAmount);
-      
-      if (!ngnToUsdRate) {
-        throw new Error('No rate found for BUY transaction. Please contact support.');
-      }
-
-      // Step 4: Convert NGN to USD
-      const amountUsd = amountDecimal.dividedBy(new Decimal(ngnToUsdRate.rate.toString()));
-      
-      // Recalculate with actual USD amount if needed (for tiered rates)
-      const actualNgnToUsdRate = await cryptoRateService.getRateForAmount('BUY', parseFloat(amountUsd.toString()));
-      const finalAmountUsd = actualNgnToUsdRate 
-        ? amountDecimal.dividedBy(new Decimal(actualNgnToUsdRate.rate.toString()))
-        : amountUsd;
-
-      // Step 5: Get crypto price from wallet_currencies
-      const cryptoPrice = new Decimal(walletCurrency.price.toString());
-      
-      // Step 6: Calculate crypto amount
-      const amountCrypto = finalAmountUsd.dividedBy(cryptoPrice);
 
       // TODO: Future Implementation - Check Master Wallet Balance
       // Before proceeding, verify master wallet has sufficient balance:
@@ -153,7 +145,7 @@ class CryptoBuyService {
       // 2. Add gas fees to total cost
       // 3. Recalculate if needed or show to user for confirmation
 
-      // Step 7: Get or find user's virtual account for this currency
+      // Step 7: Get user's virtual account for this currency
       let virtualAccount = await tx.virtualAccount.findFirst({
         where: {
           userId,
@@ -167,9 +159,9 @@ class CryptoBuyService {
       }
 
       const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
-      const cryptoBalanceAfter = cryptoBalanceBefore.plus(amountCrypto);
+      const cryptoBalanceAfter = cryptoBalanceBefore.plus(amountCryptoDecimal);
 
-      // Step 8: Debit fiat wallet
+      // Step 8: Debit fiat wallet (NGN)
       // Create fiat transaction first
       const fiatTransaction = await tx.fiatTransaction.create({
         data: {
@@ -178,16 +170,16 @@ class CryptoBuyService {
           type: 'CRYPTO_BUY',
           status: 'pending',
           currency: 'NGN',
-          amount: amountDecimal,
+          amount: amountNgn,
           fees: new Decimal('0'),
-          totalAmount: amountDecimal,
+          totalAmount: amountNgn,
           balanceBefore: balanceBefore,
-          description: `Buy ${amountCrypto.toString()} ${currency}`,
+          description: `Buy ${amountCryptoDecimal.toString()} ${currency}`,
         },
       });
 
       // Debit wallet
-      const balanceAfter = balanceBefore.minus(amountDecimal);
+      const balanceAfter = balanceBefore.minus(amountNgn);
       await tx.fiatWallet.update({
         where: { id: fiatWallet.id },
         data: { balance: balanceAfter },
@@ -214,16 +206,15 @@ class CryptoBuyService {
 
       // Step 10: Create crypto transaction record with all rates logged
       const transactionId = `BUY-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
-      const ngnToUsdRateValue = actualNgnToUsdRate?.rate.toString() || ngnToUsdRate.rate.toString();
       const cryptoTransaction = await cryptoTransactionService.createBuyTransaction({
         userId,
         virtualAccountId: virtualAccount.id,
         transactionId,
-        amount: amountCrypto.toString(),
-        amountUsd: finalAmountUsd.toString(),
-        amountNaira: amountDecimal.toString(),
+        amount: amountCryptoDecimal.toString(),
+        amountUsd: amountUsd.toString(),
+        amountNaira: amountNgn.toString(),
         rate: cryptoPrice.toString(), // Legacy field
-        rateNgnToUsd: ngnToUsdRateValue, // NGN to USD rate (logged)
+        rateNgnToUsd: usdToNgnRate.rate.toString(), // USD to NGN rate (logged)
         rateUsdToCrypto: cryptoPrice.toString(), // USD to Crypto rate (logged)
       });
 
@@ -243,11 +234,11 @@ class CryptoBuyService {
 
       return {
         transactionId: cryptoTransaction.id,
-        amountNgn: amountDecimal.toString(),
-        amountUsd: finalAmountUsd.toString(),
-        amountCrypto: amountCrypto.toString(),
-        rateNgnToUsd: actualNgnToUsdRate?.rate.toString() || ngnToUsdRate.rate.toString(),
+        amountCrypto: amountCryptoDecimal.toString(),
+        amountUsd: amountUsd.toString(),
+        amountNgn: amountNgn.toString(),
         rateUsdToCrypto: cryptoPrice.toString(),
+        rateNgnToUsd: usdToNgnRate.rate.toString(),
         fiatWalletId: fiatWallet.id,
         virtualAccountId: virtualAccount.id,
         balanceBefore: balanceBefore.toString(),
@@ -260,9 +251,9 @@ class CryptoBuyService {
 
   /**
    * Calculate buy quote (preview before actual purchase)
-   * Returns estimated amounts without executing the transaction
+   * Returns estimated NGN cost for a given crypto amount
    */
-  async calculateBuyQuote(amountNgn: number, currency: string, blockchain: string) {
+  async calculateBuyQuote(amountCrypto: number, currency: string, blockchain: string) {
     // Get wallet currency
     const walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
@@ -275,33 +266,30 @@ class CryptoBuyService {
       throw new Error(`Currency ${currency} on ${blockchain} is not supported or price not set`);
     }
 
-    // Get NGN to USD rate
-    const estimatedUsdAmount = amountNgn / 1500; // Rough estimate
-    const ngnToUsdRate = await cryptoRateService.getRateForAmount('BUY', estimatedUsdAmount);
+    // Get crypto price
+    const cryptoPrice = new Decimal(walletCurrency.price.toString());
+    const amountCryptoDecimal = new Decimal(amountCrypto);
     
-    if (!ngnToUsdRate) {
+    // Calculate USD value
+    const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
+
+    // Get USD to NGN rate
+    const estimatedUsdAmount = parseFloat(amountUsd.toString());
+    const usdToNgnRate = await cryptoRateService.getRateForAmount('BUY', estimatedUsdAmount);
+    
+    if (!usdToNgnRate) {
       throw new Error('No rate found for BUY transaction');
     }
 
-    const amountDecimal = new Decimal(amountNgn);
-    const amountUsd = amountDecimal.dividedBy(new Decimal(ngnToUsdRate.rate.toString()));
-    
-    // Recalculate with actual USD amount
-    const actualNgnToUsdRate = await cryptoRateService.getRateForAmount('BUY', parseFloat(amountUsd.toString()));
-    const finalAmountUsd = actualNgnToUsdRate 
-      ? amountDecimal.dividedBy(new Decimal(actualNgnToUsdRate.rate.toString()))
-      : amountUsd;
-
-    // Calculate crypto amount
-    const cryptoPrice = new Decimal(walletCurrency.price.toString());
-    const amountCrypto = finalAmountUsd.dividedBy(cryptoPrice);
+    // Calculate NGN cost
+    const amountNgn = amountUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
 
     return {
-      amountNgn: amountDecimal.toString(),
-      amountUsd: finalAmountUsd.toString(),
-      amountCrypto: amountCrypto.toString(),
-      rateNgnToUsd: actualNgnToUsdRate?.rate.toString() || ngnToUsdRate.rate.toString(),
+      amountCrypto: amountCryptoDecimal.toString(),
+      amountUsd: amountUsd.toString(),
+      amountNgn: amountNgn.toString(),
       rateUsdToCrypto: cryptoPrice.toString(),
+      rateNgnToUsd: usdToNgnRate.rate.toString(),
       currency: currency.toUpperCase(),
       blockchain: blockchain.toLowerCase(),
       currencyName: walletCurrency.name,
@@ -313,7 +301,7 @@ class CryptoBuyService {
    * Preview buy transaction with complete details (finalize step)
    * Includes current balances, rates, and all transaction details
    */
-  async previewBuyTransaction(userId: number, amountNgn: number, currency: string, blockchain: string) {
+  async previewBuyTransaction(userId: number, amountCrypto: number, currency: string, blockchain: string) {
     // Get wallet currency
     const walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
@@ -346,16 +334,16 @@ class CryptoBuyService {
     const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
 
     // Calculate quote
-    const quote = await this.calculateBuyQuote(amountNgn, currency, blockchain);
-    const amountDecimal = new Decimal(amountNgn);
-    const amountCryptoDecimal = new Decimal(quote.amountCrypto);
+    const quote = await this.calculateBuyQuote(amountCrypto, currency, blockchain);
+    const amountCryptoDecimal = new Decimal(amountCrypto);
+    const amountNgnDecimal = new Decimal(quote.amountNgn);
 
     // Calculate balances after transaction
-    const fiatBalanceAfter = fiatBalance.minus(amountDecimal);
+    const fiatBalanceAfter = fiatBalance.minus(amountNgnDecimal);
     const cryptoBalanceAfter = cryptoBalanceBefore.plus(amountCryptoDecimal);
 
     // Check if sufficient balance
-    const hasSufficientBalance = fiatBalance.gte(amountDecimal);
+    const hasSufficientBalance = fiatBalance.gte(amountNgnDecimal);
 
     return {
       // Transaction details
@@ -365,13 +353,13 @@ class CryptoBuyService {
       currencySymbol: quote.currencySymbol,
       
       // Amounts
-      amountNgn: quote.amountNgn,
-      amountUsd: quote.amountUsd,
       amountCrypto: quote.amountCrypto,
+      amountUsd: quote.amountUsd,
+      amountNgn: quote.amountNgn,
       
       // Rates
-      rateNgnToUsd: quote.rateNgnToUsd,
       rateUsdToCrypto: quote.rateUsdToCrypto,
+      rateNgnToUsd: quote.rateNgnToUsd,
       
       // Current balances
       fiatBalanceBefore: fiatBalance.toString(),

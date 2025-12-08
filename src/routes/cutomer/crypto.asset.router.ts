@@ -26,7 +26,8 @@ const cryptoAssetRouter = express.Router();
  * /api/v2/crypto/assets:
  *   get:
  *     summary: Get user's complete crypto assets portfolio
- *     tags: [V2 - Crypto]
+ *     tags: [V2 - Crypto - Assets]
+ *     x-order: 1
  *     description: |
  *       Retrieves all user's virtual accounts (crypto assets) with:
  *       - Current balances from virtual_account table
@@ -122,7 +123,8 @@ cryptoAssetRouter.get('/assets', authenticateUser, getUserAssetsController);
  * /api/v2/crypto/assets/{id}:
  *   get:
  *     summary: Get detailed information about a specific asset/currency
- *     tags: [V2 - Crypto]
+ *     tags: [V2 - Crypto - Assets]
+ *     x-order: 2
  *     description: |
  *       Retrieves comprehensive details for a specific virtual account/currency including:
  *       - Current balance and account balance
@@ -256,7 +258,8 @@ cryptoAssetRouter.get('/assets/:id', authenticateUser, getAssetDetailController)
  * /api/v2/crypto/deposit-address/{currency}/{blockchain}:
  *   get:
  *     summary: Get receiving deposit address for a specific currency
- *     tags: [V2 - Crypto]
+ *     tags: [V2 - Crypto - Assets]
+ *     x-order: 3
  *     description: |
  *       Retrieves the deposit address where users can receive a specific cryptocurrency.
  *       
@@ -360,7 +363,8 @@ cryptoAssetRouter.get(
  * /api/v2/crypto/receive/{accountId}:
  *   get:
  *     summary: Get deposit address for receiving crypto (by virtual account ID)
- *     tags: [V2 - Crypto]
+ *     tags: [V2 - Crypto - Assets]
+ *     x-order: 4
  *     description: |
  *       **Receive Flow:**
  *       1. User clicks "Receive" button

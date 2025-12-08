@@ -13,8 +13,12 @@ const swaggerDefinition: SwaggerDefinition = {
     },
   },
   tags: [
-    // V2 API Routes (New - Top Priority)
-    { name: 'V2 - Crypto', description: 'Complete crypto management: assets, transactions (buy/sell), deposit addresses, wallet export' },
+    // V2 API Routes - Crypto (Grouped by Flow)
+    { name: 'V2 - Crypto - Buy', description: 'Buy cryptocurrency flow: currencies → quote → preview → buy' },
+    { name: 'V2 - Crypto - Sell', description: 'Sell cryptocurrency flow: currencies → quote → preview → sell' },
+    { name: 'V2 - Crypto - Assets', description: 'Crypto assets management: view assets, get details, deposit addresses' },
+    { name: 'V2 - Crypto - Transactions', description: 'Crypto transaction history: list, details, asset transactions' },
+    { name: 'V2 - Crypto - Wallets', description: 'User wallet management: export mnemonic, export private keys' },
     { name: 'Admin - Crypto Rates', description: 'Crypto trade rate management (buy, sell, swap, send, receive)' },
     { name: 'Admin - Tatum', description: 'Tatum master wallet management' },
     { name: 'Webhooks', description: 'Webhook endpoints' },

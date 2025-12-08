@@ -25,7 +25,8 @@ export const calculateBuyQuoteController = async (
       return next(ApiError.badRequest('Validation failed', errors.array()));
     }
 
-    const userId = (req as any).user?.id;
+    const user = (req as any).body?._user;
+    const userId = user?.id;
     if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
@@ -59,7 +60,8 @@ export const previewBuyController = async (
       return next(ApiError.badRequest('Validation failed', errors.array()));
     }
 
-    const userId = (req as any).user?.id;
+    const user = (req as any).body?._user;
+    const userId = user?.id;
     if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
@@ -111,7 +113,8 @@ export const buyCryptoController = async (
       return next(ApiError.badRequest('Validation failed', errors.array()));
     }
 
-    const userId = (req as any).user?.id;
+    const user = (req as any).body?._user;
+    const userId = user?.id;
     if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
