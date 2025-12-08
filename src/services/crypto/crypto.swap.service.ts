@@ -271,49 +271,51 @@ class CryptoSwapService {
    * - Keep detailed blockchain transaction records
    */
   async swapCrypto(input: SwapCryptoInput): Promise<SwapCryptoResult> {
+    const { userId, fromAmount, fromCurrency, fromBlockchain, toCurrency, toBlockchain } = input;
+
+    // Pre-transaction: Calculate quote and get virtual accounts (outside transaction to avoid timeout)
+    const quote = await this.calculateSwapQuote(input);
+    const totalAmountDecimal = new Decimal(quote.totalAmount);
+    const toAmountDecimal = new Decimal(quote.toAmount);
+
+    // Get virtual accounts (outside transaction)
+    const fromVirtualAccount = await prisma.virtualAccount.findFirst({
+      where: {
+        userId,
+        currency: fromCurrency.toUpperCase(),
+        blockchain: fromBlockchain.toLowerCase(),
+      },
+    });
+
+    const toVirtualAccount = await prisma.virtualAccount.findFirst({
+      where: {
+        userId,
+        currency: toCurrency.toUpperCase(),
+        blockchain: toBlockchain.toLowerCase(),
+      },
+    });
+
+    if (!fromVirtualAccount) {
+      throw new Error(`Virtual account not found for ${fromCurrency} on ${fromBlockchain}`);
+    }
+    if (!toVirtualAccount) {
+      throw new Error(`Virtual account not found for ${toCurrency} on ${toBlockchain}`);
+    }
+
+    // Check balance
+    const fromBalanceBefore = new Decimal(fromVirtualAccount.availableBalance || '0');
+    if (fromBalanceBefore.lessThan(totalAmountDecimal)) {
+      throw new Error(`Insufficient ${fromCurrency} balance. Required: ${totalAmountDecimal.toString()}, Available: ${fromBalanceBefore.toString()}`);
+    }
+
+    const toBalanceBefore = new Decimal(toVirtualAccount.availableBalance || '0');
+    const fromBalanceAfter = fromBalanceBefore.minus(totalAmountDecimal);
+    const toBalanceAfter = toBalanceBefore.plus(toAmountDecimal);
+
+    // Now execute the transaction with increased timeout
     return await prisma.$transaction(async (tx) => {
-      const { userId, fromAmount, fromCurrency, fromBlockchain, toCurrency, toBlockchain } = input;
-
-      // Step 1: Calculate quote
-      const quote = await this.calculateSwapQuote(input);
-      const totalAmountDecimal = new Decimal(quote.totalAmount);
-      const toAmountDecimal = new Decimal(quote.toAmount);
-      const gasFeeDecimal = new Decimal(quote.gasFee);
-
-      // Step 2: Get virtual accounts
-      const fromVirtualAccount = await tx.virtualAccount.findFirst({
-        where: {
-          userId,
-          currency: fromCurrency.toUpperCase(),
-          blockchain: fromBlockchain.toLowerCase(),
-        },
-      });
-
-      const toVirtualAccount = await tx.virtualAccount.findFirst({
-        where: {
-          userId,
-          currency: toCurrency.toUpperCase(),
-          blockchain: toBlockchain.toLowerCase(),
-        },
-      });
-
-      if (!fromVirtualAccount) {
-        throw new Error(`Virtual account not found for ${fromCurrency} on ${fromBlockchain}`);
-      }
-      if (!toVirtualAccount) {
-        throw new Error(`Virtual account not found for ${toCurrency} on ${toBlockchain}`);
-      }
-
-      // Step 3: Check balance
-      const fromBalanceBefore = new Decimal(fromVirtualAccount.availableBalance || '0');
-      if (fromBalanceBefore.lessThan(totalAmountDecimal)) {
-        throw new Error(`Insufficient ${fromCurrency} balance. Required: ${totalAmountDecimal.toString()}, Available: ${fromBalanceBefore.toString()}`);
-      }
-
-      const toBalanceBefore = new Decimal(toVirtualAccount.availableBalance || '0');
 
       // Step 4: Debit fromCurrency (including gas fee)
-      const fromBalanceAfter = fromBalanceBefore.minus(totalAmountDecimal);
       await tx.virtualAccount.update({
         where: { id: fromVirtualAccount.id },
         data: {
@@ -323,7 +325,6 @@ class CryptoSwapService {
       });
 
       // Step 5: Credit toCurrency
-      const toBalanceAfter = toBalanceBefore.plus(toAmountDecimal);
       await tx.virtualAccount.update({
         where: { id: toVirtualAccount.id },
         data: {
@@ -332,28 +333,37 @@ class CryptoSwapService {
         },
       });
 
-      // Step 6: Create transaction record
+      // Step 6: Create transaction record (using transaction client)
       const transactionId = randomUUID();
-      await cryptoTransactionService.createSwapTransaction({
-        userId,
-        fromVirtualAccountId: fromVirtualAccount.id,
-        toVirtualAccountId: toVirtualAccount.id,
-        transactionId,
-        fromCurrency: quote.fromCurrency,
-        fromBlockchain: quote.fromBlockchain,
-        fromAmount: quote.fromAmount,
-        fromAmountUsd: quote.fromAmountUsd,
-        toCurrency: quote.toCurrency,
-        toBlockchain: quote.toBlockchain,
-        toAmount: quote.toAmount,
-        toAmountUsd: quote.toAmountUsd,
-        rateFromToUsd: quote.rateFromToUsd,
-        rateToToUsd: quote.rateToToUsd,
-        gasFee: quote.gasFee,
-        gasFeeUsd: quote.gasFeeUsd,
-        totalAmount: quote.totalAmount,
-        totalAmountUsd: quote.totalAmountUsd,
-        status: 'successful',
+      await tx.cryptoTransaction.create({
+        data: {
+          id: transactionId,
+          userId,
+          virtualAccountId: fromVirtualAccount.id,
+          transactionType: 'SWAP',
+          transactionId,
+          status: 'successful',
+          currency: fromVirtualAccount.currency,
+          blockchain: fromVirtualAccount.blockchain,
+          cryptoSwap: {
+            create: {
+              fromCurrency: quote.fromCurrency,
+              fromBlockchain: quote.fromBlockchain,
+              fromAmount: new Decimal(quote.fromAmount),
+              fromAmountUsd: new Decimal(quote.fromAmountUsd),
+              toCurrency: quote.toCurrency,
+              toBlockchain: quote.toBlockchain,
+              toAmount: new Decimal(quote.toAmount),
+              toAmountUsd: new Decimal(quote.toAmountUsd),
+              rateFromToUsd: quote.rateFromToUsd ? new Decimal(quote.rateFromToUsd) : null,
+              rateToToUsd: quote.rateToToUsd ? new Decimal(quote.rateToToUsd) : null,
+              gasFee: new Decimal(quote.gasFee),
+              gasFeeUsd: new Decimal(quote.gasFeeUsd),
+              totalAmount: new Decimal(quote.totalAmount),
+              totalAmountUsd: new Decimal(quote.totalAmountUsd),
+            },
+          },
+        },
       });
 
       return {
@@ -375,6 +385,9 @@ class CryptoSwapService {
         toBalanceBefore: toBalanceBefore.toString(),
         toBalanceAfter: toBalanceAfter.toString(),
       };
+    }, {
+      maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
+      timeout: 15000, // Maximum time the transaction can run (15 seconds)
     });
   }
 }

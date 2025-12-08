@@ -85,71 +85,73 @@ class CryptoSellService {
    * but no actual blockchain transfer occurs yet.
    */
   async sellCrypto(input: SellCryptoInput): Promise<SellCryptoResult> {
+    const { userId, amount, currency, blockchain } = input;
+
+    // Pre-transaction: Get wallet currency and rates (outside transaction to avoid timeout)
+    const walletCurrency = await prisma.walletCurrency.findFirst({
+      where: {
+        currency: currency.toUpperCase(),
+        blockchain: blockchain.toLowerCase(),
+      },
+    });
+
+    if (!walletCurrency) {
+      throw new Error(`Currency ${currency} on ${blockchain} is not supported`);
+    }
+
+    if (!walletCurrency.price) {
+      throw new Error(`Price not set for ${currency}`);
+    }
+
+    // Get user's virtual account (outside transaction)
+    const virtualAccount = await prisma.virtualAccount.findFirst({
+      where: {
+        userId,
+        currency: currency.toUpperCase(),
+        blockchain: blockchain.toLowerCase(),
+      },
+    });
+
+    if (!virtualAccount) {
+      throw new Error(`Virtual account not found for ${currency} on ${blockchain}. Please contact support.`);
+    }
+
+    // Check sufficient crypto balance
+    const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
+    const amountCryptoDecimal = new Decimal(amount);
+    
+    if (cryptoBalanceBefore.lessThan(amountCryptoDecimal)) {
+      throw new Error('Insufficient crypto balance');
+    }
+
+    // Get crypto price
+    const cryptoPrice = new Decimal(walletCurrency.price.toString());
+    
+    // Convert crypto to USD
+    const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
+
+    // Get USD to NGN rate (outside transaction)
+    const estimatedUsdAmount = parseFloat(amountUsd.toString());
+    const usdToNgnRate = await cryptoRateService.getRateForAmount('SELL', estimatedUsdAmount);
+    
+    if (!usdToNgnRate) {
+      throw new Error('No rate found for SELL transaction. Please contact support.');
+    }
+
+    // Convert USD to NGN
+    const amountNgn = amountUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
+
+    // Get user's fiat wallet (outside transaction)
+    const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
+    const balanceBefore = new Decimal(fiatWallet.balance);
+    const balanceAfter = balanceBefore.plus(amountNgn);
+
+    const cryptoBalanceAfter = cryptoBalanceBefore.minus(amountCryptoDecimal);
+
+    // Now execute the transaction with increased timeout
     return await prisma.$transaction(async (tx) => {
-      const { userId, amount, currency, blockchain } = input;
-
-      // Step 1: Validate crypto currency exists in wallet_currencies
-      const walletCurrency = await tx.walletCurrency.findFirst({
-        where: {
-          currency: currency.toUpperCase(),
-          blockchain: blockchain.toLowerCase(),
-        },
-      });
-
-      if (!walletCurrency) {
-        throw new Error(`Currency ${currency} on ${blockchain} is not supported`);
-      }
-
-      if (!walletCurrency.price) {
-        throw new Error(`Price not set for ${currency}`);
-      }
-
-      // Step 2: Get user's virtual account for this currency
-      const virtualAccount = await tx.virtualAccount.findFirst({
-        where: {
-          userId,
-          currency: currency.toUpperCase(),
-          blockchain: blockchain.toLowerCase(),
-        },
-      });
-
-      if (!virtualAccount) {
-        throw new Error(`Virtual account not found for ${currency} on ${blockchain}. Please contact support.`);
-      }
-
-      // Step 3: Check sufficient crypto balance
-      const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
-      const amountCryptoDecimal = new Decimal(amount);
-      
-      if (cryptoBalanceBefore.lessThan(amountCryptoDecimal)) {
-        throw new Error('Insufficient crypto balance');
-      }
-
-      // Step 4: Get crypto price from wallet_currencies
-      const cryptoPrice = new Decimal(walletCurrency.price.toString());
-      
-      // Step 5: Convert crypto to USD
-      const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
-
-      // Step 6: Get USD to NGN rate from crypto_rates (SELL transaction type)
-      const estimatedUsdAmount = parseFloat(amountUsd.toString());
-      const usdToNgnRate = await cryptoRateService.getRateForAmount('SELL', estimatedUsdAmount);
-      
-      if (!usdToNgnRate) {
-        throw new Error('No rate found for SELL transaction. Please contact support.');
-      }
-
-      // Step 7: Convert USD to NGN
-      const amountNgn = amountUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
-
-      // Step 8: Get user's fiat wallet (NGN)
-      const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
-      const balanceBefore = new Decimal(fiatWallet.balance);
-      const balanceAfter = balanceBefore.plus(amountNgn);
 
       // Step 9: Debit virtual account (crypto)
-      const cryptoBalanceAfter = cryptoBalanceBefore.minus(amountCryptoDecimal);
-      
       await tx.virtualAccount.update({
         where: { id: virtualAccount.id },
         data: {
@@ -204,17 +206,28 @@ class CryptoSellService {
       // 2. Deduct gas fees from amountCrypto
       // 3. Recalculate amounts if needed or show to user for confirmation
 
-      // Step 11: Create crypto transaction record with all rates logged
+      // Step 11: Create crypto transaction record with all rates logged (using transaction client)
       const transactionId = `SELL-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
-      const cryptoTransaction = await cryptoTransactionService.createSellTransaction({
-        userId,
-        virtualAccountId: virtualAccount.id,
-        transactionId,
-        amount: amountCryptoDecimal.toString(),
-        amountUsd: amountUsd.toString(),
-        amountNaira: amountNgn.toString(),
-        rateCryptoToUsd: cryptoPrice.toString(), // Crypto to USD rate (logged)
-        rateUsdToNgn: usdToNgnRate.rate.toString(), // USD to NGN rate (logged)
+      const cryptoTransaction = await tx.cryptoTransaction.create({
+        data: {
+          id: transactionId,
+          userId,
+          virtualAccountId: virtualAccount.id,
+          transactionType: 'SELL',
+          transactionId,
+          status: 'successful',
+          currency: virtualAccount.currency,
+          blockchain: virtualAccount.blockchain,
+          cryptoSell: {
+            create: {
+              amount: amountCryptoDecimal,
+              amountUsd: amountUsd,
+              amountNaira: amountNgn,
+              rateCryptoToUsd: cryptoPrice,
+              rateUsdToNgn: new Decimal(usdToNgnRate.rate.toString()),
+            },
+          },
+        },
       });
 
       // TODO: Future Implementation - Execute Blockchain Transfer
@@ -245,6 +258,9 @@ class CryptoSellService {
         balanceBefore: balanceBefore.toString(),
         balanceAfter: balanceAfter.toString(),
       };
+    }, {
+      maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
+      timeout: 15000, // Maximum time the transaction can run (15 seconds)
     });
   }
 
