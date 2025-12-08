@@ -5,6 +5,8 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import { Decimal } from '@prisma/client/runtime/library';
+import { prisma } from '../../utils/prisma';
 
 export interface TatumWalletResponse {
   mnemonic: string;
@@ -304,25 +306,26 @@ class TatumService {
     webhookUrl: string,
     options?: {
       type?: 'INCOMING_NATIVE_TX' | 'INCOMING_FUNGIBLE_TX' | 'ADDRESS_EVENT';
-      templateId?: 'enriched' | 'enriched_with_raw_data' | 'legacy';
       finality?: 'confirmed' | 'final';
     }
   ): Promise<TatumV4WebhookSubscriptionResponse> {
     try {
       const chain = this.getTatumV4Chain(blockchain);
       const subscriptionType = options?.type || 'INCOMING_NATIVE_TX';
-      const templateId = options?.templateId || 'enriched';
-
-      const data: TatumV4AddressWebhookRequest = {
+      
+      const data: any = {
         type: subscriptionType,
         attr: {
           address,
           chain,
           url: webhookUrl,
         },
-        templateId,
-        ...(options?.finality && { finality: options.finality }),
       };
+
+      // Only add finality if provided (only supported for certain chains like TRON)
+      if (options?.finality) {
+        data.finality = options.finality;
+      }
 
       const response = await this.axiosInstanceV4.post<TatumV4WebhookSubscriptionResponse>(
         '/subscription',
@@ -350,6 +353,366 @@ class TatumService {
       console.error('Error getting virtual account:', error.response?.data || error.message);
       throw new Error(
         `Failed to get virtual account: ${error.response?.data?.message || error.message}`
+      );
+    }
+  }
+
+  /**
+   * Get fungible token balances for supported tokens only (from wallet_currencies table)
+   * Fetches balances for tokens that have contract addresses in our wallet_currencies table
+   * GET /v3/blockchain/token/address/{chain}/{address}
+   * Supported chains: ETH, MATIC, CELO, SOL, ALGO, BSC
+   */
+  async getSupportedTokenBalances(blockchain: string, address: string): Promise<any[]> {
+    try {
+      const normalizedBlockchain = blockchain.toLowerCase();
+      
+      // Map blockchain names to Tatum chain codes
+      const chainMap: { [key: string]: string } = {
+        'ethereum': 'ETH',
+        'eth': 'ETH',
+        'polygon': 'MATIC',
+        'matic': 'MATIC',
+        'celo': 'CELO',
+        'solana': 'SOL',
+        'sol': 'SOL',
+        'algorand': 'ALGO',
+        'algo': 'ALGO',
+        'bsc': 'BSC',
+        'binance': 'BSC',
+        'binancesmartchain': 'BSC',
+      };
+
+      const chainCode = chainMap[normalizedBlockchain];
+      
+      if (!chainCode) {
+        // Chain not supported for token balances
+        return [];
+      }
+
+      // Get all supported tokens for this blockchain from wallet_currencies
+      const supportedTokens = await prisma.walletCurrency.findMany({
+        where: {
+          blockchain: normalizedBlockchain,
+          isToken: true,
+          contractAddress: {
+            not: null,
+          },
+        },
+        select: {
+          id: true,
+          currency: true,
+          name: true,
+          symbol: true,
+          contractAddress: true,
+          decimals: true,
+          tokenType: true,
+        },
+      });
+
+      if (supportedTokens.length === 0) {
+        // No supported tokens for this blockchain
+        return [];
+      }
+
+      const encodedAddress = encodeURIComponent(address);
+      
+      // BSC uses a different endpoint: GET /v3/bsc/token/balance/{contractAddress}/{address}
+      // For other chains, use: GET /v3/blockchain/token/address/{chain}/{address}
+      if (chainCode === 'BSC') {
+        // For BSC, fetch balance for each supported token individually
+        const tokenBalances = await Promise.all(
+          supportedTokens.map(async (token) => {
+            try {
+              if (!token.contractAddress) return null;
+              
+              // BSC uses ERC-20 compatible endpoint: GET /v3/bsc/erc20/balance/{contractAddress}/{address}
+              const endpoint = `/bsc/erc20/balance/${encodeURIComponent(token.contractAddress)}/${encodedAddress}`;
+              console.log(`Fetching BSC token balance: ${this.baseUrl}${endpoint}`);
+              
+              const response = await this.axiosInstance.get(endpoint);
+              
+              // Response format: { balance: "1000.0" }
+              const balance = response.data.balance || '0';
+              
+              // Only return if balance > 0
+              if (parseFloat(balance) > 0) {
+                return {
+                  contractAddress: token.contractAddress,
+                  amount: balance,
+                  currency: token.currency,
+                  name: token.name,
+                  symbol: token.symbol,
+                  decimals: token.decimals,
+                  tokenType: token.tokenType,
+                  walletCurrencyId: token.id,
+                };
+              }
+              return null;
+            } catch (error: any) {
+              // Log but don't fail - some tokens might not exist or have errors
+              console.error(`Error fetching balance for token ${token.contractAddress}:`, error.response?.data?.message || error.message);
+              return null;
+            }
+          })
+        );
+        
+        return tokenBalances.filter((balance: any) => balance !== null);
+      } else {
+        // For other chains (ETH, MATIC, CELO, SOL, ALGO), use the bulk endpoint
+        const endpoint = `/blockchain/token/address/${chainCode}/${encodedAddress}`;
+
+        console.log(`Fetching token balances from Tatum: ${this.baseUrl}${endpoint}`);
+        const response = await this.axiosInstance.get(endpoint);
+        
+        // Response is an array of { contractAddress: string, amount: string }
+        const allTokenBalances = Array.isArray(response.data) ? response.data : [];
+        
+        // Filter to only include tokens we support, and enrich with our token data
+        const supportedBalances = allTokenBalances
+          .map((tokenBalance: any) => {
+            // Find matching token in our supported tokens (case-insensitive comparison)
+            const tokenInfo = supportedTokens.find(
+              (token) => token.contractAddress?.toLowerCase() === tokenBalance.contractAddress?.toLowerCase()
+            );
+            
+            if (tokenInfo) {
+              return {
+                contractAddress: tokenBalance.contractAddress,
+                amount: tokenBalance.amount,
+                // Add our token metadata
+                currency: tokenInfo.currency,
+                name: tokenInfo.name,
+                symbol: tokenInfo.symbol,
+                decimals: tokenInfo.decimals,
+                tokenType: tokenInfo.tokenType,
+                walletCurrencyId: tokenInfo.id,
+              };
+            }
+            return null;
+          })
+          .filter((balance: any) => balance !== null);
+
+        return supportedBalances;
+      }
+    } catch (error: any) {
+      // Log error but don't throw - token balances are optional
+      console.error(`Error getting supported token balances for ${blockchain}:`, error.response?.data || error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Get fungible token balances (ERC-20, etc.) for an address
+   * GET /v3/blockchain/token/address/{chain}/{address}
+   * Supported chains: ETH, MATIC, CELO, SOL, ALGO
+   * @deprecated Use getSupportedTokenBalances instead to get only tokens from wallet_currencies
+   */
+  async getFungibleTokenBalances(blockchain: string, address: string): Promise<any[]> {
+    try {
+      const normalizedBlockchain = blockchain.toLowerCase();
+      
+      // Map blockchain names to Tatum chain codes
+      const chainMap: { [key: string]: string } = {
+        'ethereum': 'ETH',
+        'eth': 'ETH',
+        'polygon': 'MATIC',
+        'matic': 'MATIC',
+        'celo': 'CELO',
+        'solana': 'SOL',
+        'sol': 'SOL',
+        'algorand': 'ALGO',
+        'algo': 'ALGO',
+        'bsc': 'BSC',
+        'binance': 'BSC',
+        'binancesmartchain': 'BSC',
+      };
+
+      const chainCode = chainMap[normalizedBlockchain];
+      
+      if (!chainCode) {
+        // Chain not supported for token balances
+        return [];
+      }
+
+      const encodedAddress = encodeURIComponent(address);
+      const endpoint = `/blockchain/token/address/${chainCode}/${encodedAddress}`;
+
+      console.log(`Fetching fungible token balances from Tatum: ${this.baseUrl}${endpoint}`);
+      const response = await this.axiosInstance.get(endpoint);
+      
+      // Response is an array of { contractAddress: string, amount: string }
+      return Array.isArray(response.data) ? response.data : [];
+    } catch (error: any) {
+      // Log error but don't throw - token balances are optional
+      console.error(`Error getting fungible token balances for ${blockchain}:`, error.response?.data || error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Get balance for an address on a blockchain
+   * Uses blockchain-specific endpoints based on Tatum API documentation
+   * Note: Tatum v3 balance endpoints vary by blockchain
+   * For Ethereum and other supported chains, also fetches fungible token balances
+   */
+  async getAddressBalance(blockchain: string, address: string, includeTokens: boolean = true): Promise<any> {
+    try {
+      const normalizedBlockchain = blockchain.toLowerCase();
+      let endpoint: string;
+
+      // Different blockchains have different balance endpoint formats in Tatum v3
+      // Based on Tatum API documentation:
+      // - Bitcoin/Litecoin: GET /v3/{blockchain}/address/{address}/balance
+      // - Ethereum: GET /v3/ethereum/account/balance/{address}
+      // - EVM chains: GET /v3/{blockchain}/account/balance/{address}
+      // - Tron: GET /v3/tron/account/{address}
+      switch (normalizedBlockchain) {
+        case 'bitcoin':
+        case 'litecoin':
+          // UTXO-based chains: GET /v3/{blockchain}/address/balance/{address}
+          // Note: The /balance comes BEFORE the address in the path!
+          endpoint = `/${normalizedBlockchain}/address/balance/${address}`;
+          break;
+        case 'ethereum':
+        case 'eth':
+          // Ethereum: GET /v3/ethereum/account/balance/{address}
+          endpoint = `/ethereum/account/balance/${address}`;
+          break;
+        case 'bsc':
+        case 'binance':
+        case 'binancesmartchain':
+          // BSC: GET /v3/bsc/account/balance/{address}
+          endpoint = `/bsc/account/balance/${address}`;
+          break;
+        case 'polygon':
+          endpoint = `/polygon/account/balance/${address}`;
+          break;
+        case 'arbitrum':
+          endpoint = `/arbitrum/account/balance/${address}`;
+          break;
+        case 'optimism':
+          endpoint = `/optimism/account/balance/${address}`;
+          break;
+        case 'base':
+          endpoint = `/base/account/balance/${address}`;
+          break;
+        case 'avalanche':
+        case 'avax':
+          endpoint = `/avalanche/account/balance/${address}`;
+          break;
+        case 'fantom':
+          endpoint = `/fantom/account/balance/${address}`;
+          break;
+        case 'celo':
+          endpoint = `/celo/account/balance/${address}`;
+          break;
+        case 'tron':
+        case 'trx':
+          // Tron: GET /v3/tron/account/{address} (returns account object with balance field)
+          endpoint = `/tron/account/${address}`;
+          break;
+        case 'solana':
+        case 'sol':
+          // Solana: GET /v3/solana/account/{address} (may not have direct balance endpoint)
+          endpoint = `/solana/account/${address}`;
+          break;
+        default:
+          // Try EVM format for unknown chains
+          endpoint = `/${normalizedBlockchain}/account/balance/${address}`;
+      }
+
+      // Ensure address is properly URL-encoded
+      const encodedAddress = encodeURIComponent(address);
+      
+      // Rebuild endpoint with encoded address for Bitcoin/Litecoin
+      if (normalizedBlockchain === 'bitcoin' || normalizedBlockchain === 'litecoin') {
+        endpoint = `/${normalizedBlockchain}/address/balance/${encodedAddress}`;
+      } else if (normalizedBlockchain === 'ethereum' || normalizedBlockchain === 'eth') {
+        endpoint = `/ethereum/account/balance/${encodedAddress}`;
+      } else if (normalizedBlockchain === 'bsc' || normalizedBlockchain === 'binance' || normalizedBlockchain === 'binancesmartchain') {
+        endpoint = `/bsc/account/balance/${encodedAddress}`;
+      } else if (normalizedBlockchain === 'tron' || normalizedBlockchain === 'trx') {
+        endpoint = `/tron/account/${encodedAddress}`;
+      } else {
+        // For other chains, encode the address in the endpoint
+        endpoint = endpoint.replace(address, encodedAddress);
+      }
+
+      console.log(`Fetching balance from Tatum: ${this.baseUrl}${endpoint}`);
+      const response = await this.axiosInstance.get(endpoint);
+      
+      // Normalize response format for different blockchains
+      // Bitcoin/Litecoin returns: { incoming, outgoing, incomingPending, outgoingPending }
+      // Ethereum/EVM returns: { balance: "0.5" }
+      // Tron returns: { balance: "0.5", ... } or { account: { balance: "0.5", ... }, ... }
+      if (normalizedBlockchain === 'bitcoin' || normalizedBlockchain === 'litecoin') {
+        // Bitcoin/Litecoin returns incoming/outgoing, calculate net balance
+        const incoming = new Decimal(response.data.incoming || '0');
+        const outgoing = new Decimal(response.data.outgoing || '0');
+        const balance = incoming.minus(outgoing);
+        return {
+          balance: balance.toString(),
+          incoming: response.data.incoming,
+          outgoing: response.data.outgoing,
+          incomingPending: response.data.incomingPending,
+          outgoingPending: response.data.outgoingPending,
+          ...response.data,
+        };
+      } else if (normalizedBlockchain === 'tron' || normalizedBlockchain === 'trx') {
+        // Tron account endpoint returns account object with balance
+        // Check multiple possible response structures
+        if (response.data.balance !== undefined) {
+          return { balance: response.data.balance.toString(), ...response.data };
+        } else if (response.data.account?.balance !== undefined) {
+          return { 
+            balance: response.data.account.balance.toString(),
+            account: response.data.account,
+            ...response.data 
+          };
+        } else if (response.data.data?.balance !== undefined) {
+          return { balance: response.data.data.balance.toString(), ...response.data };
+        } else if (response.data.trc20?.length > 0) {
+          // Tron might return TRC20 tokens, calculate total balance
+          const nativeBalance = response.data.balance || '0';
+          return { balance: nativeBalance.toString(), ...response.data };
+        }
+        // Return full response if balance not found in expected format
+        return response.data;
+      } else if (response.data.balance !== undefined) {
+        // Ethereum and other EVM chains
+        const result: any = { balance: response.data.balance.toString(), ...response.data };
+        
+        // Fetch fungible token balances for supported chains if requested
+        // Only returns tokens that are in our wallet_currencies table
+        if (includeTokens) {
+          const supportedChainsForTokens = ['ethereum', 'eth', 'polygon', 'matic', 'celo', 'solana', 'sol', 'algorand', 'algo', 'bsc', 'binance', 'binancesmartchain'];
+          if (supportedChainsForTokens.includes(normalizedBlockchain)) {
+            try {
+              const tokenBalances = await this.getSupportedTokenBalances(blockchain, address);
+              result.tokens = tokenBalances;
+            } catch (tokenError: any) {
+              // Log but don't fail - token balances are optional
+              console.error(`Failed to fetch token balances:`, tokenError.message);
+              result.tokens = [];
+            }
+          }
+        }
+        
+        return result;
+      } else if (response.data.account?.balance !== undefined) {
+        return { balance: response.data.account.balance.toString(), ...response.data };
+      } else if (response.data.data?.balance !== undefined) {
+        return { balance: response.data.data.balance.toString(), ...response.data };
+      }
+      
+      return response.data;
+    } catch (error: any) {
+      // Log the error with full details for debugging
+      const errorDetails = error.response?.data || error.message;
+      console.error(`Error getting address balance for ${blockchain}:`, errorDetails);
+      throw new Error(
+        `Failed to get address balance: ${error.response?.data?.message || error.message}`
       );
     }
   }

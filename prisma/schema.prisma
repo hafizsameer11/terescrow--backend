@@ -52,6 +52,7 @@ model User {
   virtualAccounts      VirtualAccount[]
   receivedAssets       ReceivedAsset[]     @relation("ReceivedAssets")
   cryptoTransactions   CryptoTransaction[]
+  userWallets         UserWallet[]
   customRole           CustomRole?         @relation(fields: [customRoleId], references: [id])
   means                WaysOfHearing?      @relation(fields: [meansId], references: [id])
   otps                 UserOTP?
@@ -622,8 +623,8 @@ model FiatTransaction {
   palmpayOrderNo   String?      @unique
   palmpayStatus    String?
   palmpaySessionId String?
-  checkoutUrl      String?
-  redirectUrl      String?
+  checkoutUrl      String?      @db.Text
+  redirectUrl      String?      @db.Text
   payeeName        String?      @db.VarChar(200)
   payeeBankCode    String?      @db.VarChar(50)
   payeeBankAccNo   String?      @db.VarChar(50)
@@ -869,6 +870,24 @@ model WalletCurrency {
   @@map("wallet_currencies")
 }
 
+model UserWallet {
+  id               Int            @id @default(autoincrement())
+  userId           Int            @map("user_id")
+  blockchain       String         @db.VarChar(255)
+  mnemonic         String?        @db.Text // Encrypted mnemonic (24-word seed phrase)
+  xpub             String?        @db.VarChar(500) // Extended public key
+  derivationPath   String?        @map("derivation_path") @db.VarChar(100) // e.g., "m/44'/60'/0'"
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  depositAddresses DepositAddress[]
+
+  @@unique([userId, blockchain])
+  @@index([userId])
+  @@index([blockchain])
+  @@map("user_wallets")
+}
+
 model VirtualAccount {
   id                  Int                  @id @default(autoincrement())
   userId              Int                  @map("user_id")
@@ -902,16 +921,19 @@ model VirtualAccount {
 model DepositAddress {
   id               Int            @id @default(autoincrement())
   virtualAccountId Int            @map("virtual_account_id")
+  userWalletId     Int?           @map("user_wallet_id") // Optional: links to user's wallet (for per-user wallets)
   blockchain       String?        @db.VarChar(255)
   currency         String?        @db.VarChar(50)
-  address          String         @unique @db.VarChar(255)
+  address          String         @db.VarChar(255)
   index            Int?           @db.Int
   privateKey       String?        @map("private_key") @db.Text
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
   virtualAccount   VirtualAccount @relation(fields: [virtualAccountId], references: [id], onDelete: Cascade)
+  userWallet       UserWallet?    @relation(fields: [userWalletId], references: [id], onDelete: SetNull)
 
   @@index([virtualAccountId])
+  @@index([userWalletId])
   @@index([blockchain])
   @@index([address])
   @@map("deposit_addresses")
@@ -1062,10 +1084,12 @@ model CryptoBuy {
   cryptoTransactionId String            @unique @map("crypto_transaction_id") @db.VarChar(255)
   fromAddress         String?           @map("from_address") @db.VarChar(255)
   toAddress           String?           @map("to_address") @db.VarChar(255)
-  amount              Decimal           @db.Decimal(20, 8) // Crypto amount
-  amountUsd           Decimal           @map("amount_usd") @db.Decimal(20, 8)
-  amountNaira         Decimal           @map("amount_naira") @db.Decimal(20, 8)
-  rate                Decimal?          @db.Decimal(20, 8) // NGN per USD rate
+  amount              Decimal           @db.Decimal(20, 8) // Crypto amount received
+  amountUsd           Decimal           @map("amount_usd") @db.Decimal(20, 8) // USD equivalent
+  amountNaira         Decimal           @map("amount_naira") @db.Decimal(20, 8) // NGN spent
+  rateNgnToUsd        Decimal?          @map("rate_ngn_to_usd") @db.Decimal(20, 8) // NGN to USD conversion rate (Naira per $1)
+  rateUsdToCrypto     Decimal?          @map("rate_usd_to_crypto") @db.Decimal(20, 8) // USD to Crypto conversion rate (crypto price in USD)
+  rate                Decimal?          @db.Decimal(20, 8) // Legacy field - kept for backward compatibility
   txHash              String?           @unique @map("tx_hash") @db.VarChar(255)
   createdAt           DateTime          @default(now()) @map("created_at")
   updatedAt           DateTime          @updatedAt @map("updated_at")
@@ -1084,9 +1108,11 @@ model CryptoSell {
   fromAddress         String?           @map("from_address") @db.VarChar(255)
   toAddress           String?           @map("to_address") @db.VarChar(255)
   amount              Decimal           @db.Decimal(20, 8) // Crypto amount sold
-  amountUsd           Decimal           @map("amount_usd") @db.Decimal(20, 8)
+  amountUsd           Decimal           @map("amount_usd") @db.Decimal(20, 8) // USD equivalent
   amountNaira         Decimal           @map("amount_naira") @db.Decimal(20, 8) // Amount received in Naira
-  rate                Decimal?          @db.Decimal(20, 8) // NGN per USD rate
+  rateCryptoToUsd     Decimal?          @map("rate_crypto_to_usd") @db.Decimal(20, 8) // Crypto to USD conversion rate (crypto price in USD)
+  rateUsdToNgn        Decimal?          @map("rate_usd_to_ngn") @db.Decimal(20, 8) // USD to NGN conversion rate (Naira per $1)
+  rate                Decimal?          @db.Decimal(20, 8) // Legacy field - kept for backward compatibility
   txHash              String?           @unique @map("tx_hash") @db.VarChar(255)
   createdAt           DateTime          @default(now()) @map("created_at")
   updatedAt           DateTime          @updatedAt @map("updated_at")

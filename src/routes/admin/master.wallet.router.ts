@@ -9,6 +9,8 @@ import {
   getAllMasterWalletsController,
   createAllMasterWalletsController,
   updateAllMasterWalletsController,
+  getMasterWalletsBalancesController,
+  getDepositAddressController,
 } from '../../controllers/admin/master.wallet.controller';
 // import authenticateAdmin from '../../middlewares/authenticate.admin'; // Add admin auth if needed
 
@@ -127,6 +129,114 @@ masterWalletRouter.post('/create-all', createAllMasterWalletsController);
  *         description: Master wallets update completed
  */
 masterWalletRouter.post('/update-all', updateAllMasterWalletsController);
+
+/**
+ * @swagger
+ * /api/admin/master-wallet/balances:
+ *   get:
+ *     summary: Get balances for all master wallets
+ *     tags: [Admin - Tatum]
+ *     description: Retrieves balances for all master wallet addresses using Tatum API
+ *     responses:
+ *       200:
+ *         description: Master wallet balances retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     wallets:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           blockchain:
+ *                             type: string
+ *                           address:
+ *                             type: string
+ *                           balance:
+ *                             type: object
+ *                             description: Balance data from Tatum API
+ *                           error:
+ *                             type: string
+ *                             nullable: true
+ *                           createdAt:
+ *                             type: string
+ *                           updatedAt:
+ *                             type: string
+ */
+masterWalletRouter.get('/balances', getMasterWalletsBalancesController);
+
+/**
+ * @swagger
+ * /api/admin/master-wallet/deposit-address/{userId}/{currency}/{blockchain}:
+ *   get:
+ *     summary: Get deposit address for a user
+ *     tags: [Admin - Tatum]
+ *     description: Retrieves deposit address for a specific user, currency, and blockchain
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: User ID
+ *       - in: path
+ *         name: currency
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Currency code (e.g., BTC, ETH, USDT)
+ *       - in: path
+ *         name: blockchain
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Blockchain name (e.g., bitcoin, ethereum, tron)
+ *     responses:
+ *       200:
+ *         description: Deposit address retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     depositAddress:
+ *                       type: object
+ *                       properties:
+ *                         address:
+ *                           type: string
+ *                         blockchain:
+ *                           type: string
+ *                         currency:
+ *                           type: string
+ *                         virtualAccountId:
+ *                           type: integer
+ *                         balance:
+ *                           type: string
+ *                         balanceUsd:
+ *                           type: string
+ *                         balanceNaira:
+ *                           type: string
+ *                         symbol:
+ *                           type: string
+ *                           nullable: true
+ *       404:
+ *         description: Deposit address not found
+ */
+masterWalletRouter.get('/deposit-address/:userId/:currency/:blockchain', getDepositAddressController);
 
 export default masterWalletRouter;
 

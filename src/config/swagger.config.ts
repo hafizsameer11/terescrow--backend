@@ -14,8 +14,7 @@ const swaggerDefinition: SwaggerDefinition = {
   },
   tags: [
     // V2 API Routes (New - Top Priority)
-    { name: 'V2 - Crypto Assets', description: 'Crypto asset management endpoints' },
-    { name: 'V2 - Crypto Transactions', description: 'Crypto transaction endpoints (buy, sell, send, receive)' },
+    { name: 'V2 - Crypto', description: 'Complete crypto management: assets, transactions (buy/sell), deposit addresses, wallet export' },
     { name: 'Admin - Crypto Rates', description: 'Crypto trade rate management (buy, sell, swap, send, receive)' },
     { name: 'Admin - Tatum', description: 'Tatum master wallet management' },
     { name: 'Webhooks', description: 'Webhook endpoints' },

@@ -13,6 +13,7 @@ import upload from './middlewares/multer.middleware';
 // ============================================
 import cryptoAssetRouter from './routes/cutomer/crypto.asset.router';
 import cryptoTransactionRouter from './routes/cutomer/crypto.transaction.router';
+import userWalletRouter from './routes/cutomer/user.wallet.router';
 import cryptoRateRouter from './routes/admin/crypto.rate.router';
 import masterWalletRouter from './routes/admin/master.wallet.router';
 import tatumWebhookRouter from './routes/webhooks/tatum.webhook.router';
@@ -87,6 +88,17 @@ app.use('/api/v2/crypto', cryptoAssetRouter);
 
 // Crypto Transactions (User) - Combined with crypto assets router
 app.use('/api/v2/crypto', cryptoTransactionRouter);
+
+// Crypto Buy (User) - Purchase cryptocurrency with fiat
+import cryptoBuyRouter from './routes/cutomer/crypto.buy.router';
+app.use('/api/v2/crypto', cryptoBuyRouter);
+
+// Crypto Sell (User) - Sell cryptocurrency for fiat
+import cryptoSellRouter from './routes/cutomer/crypto.sell.router';
+app.use('/api/v2/crypto', cryptoSellRouter);
+
+// User Wallets (User) - Wallet export and key management
+app.use('/api/v2/crypto', userWalletRouter);
 
 // Crypto Rates (Admin)
 app.use('/api/admin/crypto', cryptoRateRouter);

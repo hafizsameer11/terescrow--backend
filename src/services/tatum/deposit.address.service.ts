@@ -7,6 +7,7 @@
 import { prisma } from '../../utils/prisma';
 import tatumService from './tatum.service';
 import masterWalletService from './master.wallet.service';
+import userWalletService from '../user/user.wallet.service';
 import crypto from 'crypto';
 
 // Blockchain groups that share the same address
@@ -159,6 +160,7 @@ class DepositAddressService {
           const depositAddress = await prisma.depositAddress.create({
             data: {
               virtualAccountId,
+              userWalletId: existingAddress.userWalletId, // Preserve user wallet link if exists
               blockchain: blockchain, // Use current virtual account's blockchain
               currency: currency, // Use current virtual account's currency
               address: existingAddress.address, // Reuse the address
@@ -169,27 +171,9 @@ class DepositAddressService {
 
           console.log(`Reused address ${existingAddress.address} with index ${existingAddress.index} for virtual account ${virtualAccountId} (${blockchain}/${currency})`);
 
-          // Register webhook for this address (V4 API)
-          // Use the normalized base blockchain for webhook registration
-          const baseBlockchain = this.normalizeBlockchain(existingAddress.blockchain || blockchain);
-          if (baseBlockchain) {
-            try {
-              const webhookUrl = process.env.TATUM_WEBHOOK_URL || `${process.env.BASE_URL}/api/v2/webhooks/tatum`;
-              await tatumService.registerAddressWebhookV4(
-                existingAddress.address,
-                baseBlockchain,
-                webhookUrl,
-                {
-                  type: 'ADDRESS_EVENT',
-                  templateId: 'enriched',
-                }
-              );
-              console.log(`Webhook registered for address ${existingAddress.address} on ${baseBlockchain}`);
-            } catch (error: any) {
-              console.error(`Failed to register webhook for address ${existingAddress.address}:`, error.message);
-              // Don't fail the whole process if webhook registration fails
-            }
-          }
+          // Note: Webhook should already be registered for this address when it was first created
+          // Skip webhook registration when reusing addresses to avoid duplicates
+          // The webhook will monitor all transactions to this address regardless of which currency uses it
 
           return depositAddress;
         } else {
@@ -199,89 +183,70 @@ class DepositAddressService {
       }
 
       // Generate new address
-      // Use the normalized base blockchain for master wallet lookup
+      // Use the normalized base blockchain for wallet lookup
       // All currencies on the same blockchain share the same address
       const baseBlockchain = this.normalizeBlockchain(blockchain);
       console.log(`Generating new address using base blockchain: ${baseBlockchain} (requested: ${blockchain})`);
       
-      const masterWallet = await masterWalletService.lockMasterWallet(baseBlockchain);
-      if (!masterWallet || !masterWallet.xpub || !masterWallet.mnemonic) {
-        throw new Error(`Master wallet not found or incomplete for ${baseBlockchain}`);
+      // Get or create user wallet (per-user wallet approach - mandatory)
+      // Each user gets their own unique wallet per blockchain
+      const userWallet = await userWalletService.getOrCreateUserWallet(virtualAccount.userId, baseBlockchain);
+      
+      if (!userWallet || !userWallet.xpub || !userWallet.mnemonic) {
+        throw new Error(`Failed to get or create user wallet for user ${virtualAccount.userId}, blockchain ${baseBlockchain}`);
       }
 
-      // Decrypt mnemonic (it's stored encrypted)
+      // Decrypt user wallet mnemonic
       let mnemonic: string;
       try {
-        mnemonic = decryptPrivateKey(masterWallet.mnemonic);
+        mnemonic = decryptPrivateKey(userWallet.mnemonic);
       } catch (error) {
-        // If decryption fails, mnemonic might be stored in plaintext (old format)
-        mnemonic = masterWallet.mnemonic;
+        throw new Error('Failed to decrypt user wallet mnemonic');
       }
 
-      // Calculate next index (starting from 5, incrementing by 1)
-      // Master wallet uses index 0, so we start user addresses at 5 to avoid conflicts
-      // Standard HD wallet derivation uses sequential indices (5, 6, 7, 8...)
-      // All currencies in the same blockchain group share the same index sequence
-      // Query all addresses and filter by blockchain group to find max index (handles case-insensitive)
-      const allAddressesForIndex = await prisma.depositAddress.findMany({
-        where: {
-          index: { not: null },
-        },
-        select: { index: true, blockchain: true },
-      });
+      const xpub = userWallet.xpub;
+      console.log(`Using user wallet for user ${virtualAccount.userId}, blockchain ${baseBlockchain}`);
 
-      // Filter by normalized blockchain and find max index (case-insensitive)
-      // All currencies on the same blockchain share the same index sequence
-      const normalizedBlockchainForIndex = this.normalizeBlockchain(blockchain);
-      const groupAddresses = allAddressesForIndex.filter((addr) => {
-        if (!addr.blockchain) return false;
-        const addrNormalizedBlockchain = this.normalizeBlockchain(addr.blockchain);
-        return addrNormalizedBlockchain === normalizedBlockchainForIndex;
-      });
+      // Use index 0 for user wallet addresses (same as master wallet approach)
+      // One address per blockchain per user (all currencies on same blockchain share the address)
+      // This matches how master wallet works - index 0 for the wallet's address
+      const addressIndex = 0;
 
-      const maxIndexValue = groupAddresses.length > 0
-        ? Math.max(...groupAddresses.map((addr) => addr.index!).filter((idx) => idx !== null))
-        : null;
+      console.log(`Generating new address for ${blockchain} using user wallet (user ${virtualAccount.userId}) with index ${addressIndex}`);
 
-      // Use sequential indexing: next index = max + 1, or 5 if no addresses exist yet
-      // Starting at 5 leaves room for master wallet (index 0) and system addresses
-      const nextIndex = maxIndexValue !== null && maxIndexValue !== undefined 
-        ? maxIndexValue + 1 
-        : 5;
-
-      console.log(`Generating new address for ${blockchain} using base blockchain ${baseBlockchain} with index ${nextIndex} (previous max: ${maxIndexValue || 'none'})`);
-
-      // Generate address using the base blockchain and calculated index
-      // All currencies in a group share the same address from the base blockchain
+      // Generate address using the user's wallet xpub and index 0
       const address = await tatumService.generateAddress(
-        baseBlockchain, // Use base blockchain (e.g., 'tron' for 'usdt_tron')
-        masterWallet.xpub!, // Already checked above that xpub exists
-        nextIndex
+        baseBlockchain,
+        xpub,
+        addressIndex
       );
 
-      // Generate private key using the base blockchain and same index
+      // Generate private key using the user's wallet mnemonic and index 0
       const privateKey = await tatumService.generatePrivateKey(
-        baseBlockchain, // Use base blockchain
+        baseBlockchain,
         mnemonic,
-        nextIndex
+        addressIndex
       );
 
       // Encrypt private key
       const encryptedPrivateKey = encryptPrivateKey(privateKey);
 
       // Store in database with the index used for address and private key generation
+      // Always link to user wallet (per-user wallet approach)
+      // Index is always 0 (one address per blockchain per user, like master wallet)
       const depositAddress = await prisma.depositAddress.create({
         data: {
           virtualAccountId,
+          userWalletId: userWallet.id, // Always link to user wallet
           blockchain,
           currency,
           address,
-          index: nextIndex, // Store the index used for generating address and private key
+          index: addressIndex, // Always 0 for user wallet addresses (one per blockchain)
           privateKey: encryptedPrivateKey,
         },
       });
 
-      console.log(`Generated new address ${address} with index ${nextIndex} for virtual account ${virtualAccountId}`);
+      console.log(`Generated new address ${address} with index ${addressIndex} for virtual account ${virtualAccountId}`);
 
       // Register webhook for this address (V4 API)
       // Use base blockchain for webhook registration
@@ -293,7 +258,6 @@ class DepositAddressService {
           webhookUrl,
           {
             type: 'ADDRESS_EVENT',
-            templateId: 'enriched',
           }
         );
         console.log(`Webhook registered for address ${address} on ${baseBlockchain}`);

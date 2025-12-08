@@ -19,7 +19,9 @@ interface CreateCryptoBuyData {
   amount: string | number;
   amountUsd: string | number;
   amountNaira: string | number;
-  rate?: string | number;
+  rate?: string | number; // Legacy field
+  rateNgnToUsd?: string | number; // NGN to USD rate (Naira per $1)
+  rateUsdToCrypto?: string | number; // USD to Crypto rate (crypto price in USD)
   txHash?: string;
   status?: CryptoTxStatus;
 }
@@ -33,7 +35,9 @@ interface CreateCryptoSellData {
   amount: string | number;
   amountUsd: string | number;
   amountNaira: string | number;
-  rate?: string | number;
+  rate?: string | number; // Legacy field
+  rateCryptoToUsd?: string | number; // Crypto to USD rate (crypto price in USD)
+  rateUsdToNgn?: string | number; // USD to NGN rate (Naira per $1)
   txHash?: string;
   status?: CryptoTxStatus;
 }
@@ -98,7 +102,9 @@ class CryptoTransactionService {
             amount: new Decimal(buyData.amount),
             amountUsd: new Decimal(buyData.amountUsd),
             amountNaira: new Decimal(buyData.amountNaira),
-            rate: buyData.rate ? new Decimal(buyData.rate) : null,
+            rate: buyData.rate ? new Decimal(buyData.rate) : null, // Legacy field
+            rateNgnToUsd: buyData.rateNgnToUsd ? new Decimal(buyData.rateNgnToUsd) : null,
+            rateUsdToCrypto: buyData.rateUsdToCrypto ? new Decimal(buyData.rateUsdToCrypto) : null,
             txHash: buyData.txHash || null,
           },
         },
@@ -143,7 +149,9 @@ class CryptoTransactionService {
             amount: new Decimal(sellData.amount),
             amountUsd: new Decimal(sellData.amountUsd),
             amountNaira: new Decimal(sellData.amountNaira),
-            rate: sellData.rate ? new Decimal(sellData.rate) : null,
+            rate: sellData.rate ? new Decimal(sellData.rate) : null, // Legacy field
+            rateCryptoToUsd: sellData.rateCryptoToUsd ? new Decimal(sellData.rateCryptoToUsd) : null,
+            rateUsdToNgn: sellData.rateUsdToNgn ? new Decimal(sellData.rateUsdToNgn) : null,
             txHash: sellData.txHash || null,
           },
         },

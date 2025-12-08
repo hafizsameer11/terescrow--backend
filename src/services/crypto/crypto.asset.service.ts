@@ -37,7 +37,9 @@ class CryptoAssetService {
       });
 
       // Transform to asset format with USD and Naira conversion
+      // Use balances from virtual_account table (database)
       const assets = virtualAccounts.map((account) => {
+        // Use balance from virtual_account table
         const balance = new Decimal(account.availableBalance || '0');
         const usdPrice = account.walletCurrency?.price 
           ? new Decimal(account.walletCurrency.price.toString())
@@ -49,13 +51,11 @@ class CryptoAssetService {
         // Calculate USD value
         const usdValue = balance.mul(usdPrice);
 
-        // Calculate Naira value (if nairaPrice is set, use it; otherwise use USD price * a default rate)
-        // For now, if nairaPrice is 0, we'll calculate from USD price
+        // Calculate Naira value
         let nairaValue: Decimal;
         if (nairaPrice.gt(0)) {
           nairaValue = balance.mul(nairaPrice);
         } else {
-          // Fallback: if nairaPrice is not set, we can't calculate Naira value
           nairaValue = new Decimal('0');
         }
 
@@ -63,7 +63,7 @@ class CryptoAssetService {
           id: account.id,
           currency: account.currency,
           blockchain: account.blockchain,
-          symbol: account.walletCurrency?.symbol || null, // wallet_symbols/xxx.png format
+          symbol: account.walletCurrency?.symbol || null,
           name: account.walletCurrency?.name || account.currency,
           balance: balance.toString(),
           balanceUsd: usdValue.toString(),
@@ -74,7 +74,6 @@ class CryptoAssetService {
           active: account.active,
           frozen: account.frozen,
           // Note: Transaction history will be added here later when crypto transaction models are created
-          // Example: transactions: [] or transactionHistory: []
         };
       });
 
@@ -134,7 +133,7 @@ class CryptoAssetService {
         throw new Error('Asset not found');
       }
 
-      // Calculate balances
+      // Use balance from virtual_account table (database)
       const balance = new Decimal(account.availableBalance || '0');
       const accountBalance = new Decimal(account.accountBalance || '0');
       const usdPrice = account.walletCurrency?.price 
@@ -159,16 +158,26 @@ class CryptoAssetService {
         accountBalanceNaira = new Decimal('0');
       }
 
+      // Get transaction history for this virtual account
+      let transactions: any[] = [];
+      try {
+        const transactionHistory = await this.getAssetTransactionHistory(userId, account.id, 50, 0);
+        transactions = transactionHistory.transactions || [];
+      } catch (error: any) {
+        console.error(`Error fetching transaction history:`, error.message);
+        // Continue without transactions if there's an error
+      }
+
       return {
         id: account.id,
         currency: account.currency,
         blockchain: account.blockchain,
-        symbol: account.walletCurrency?.symbol || null, // wallet_symbols/xxx.png format
+        symbol: account.walletCurrency?.symbol || null, // Icon path: wallet_symbols/xxx.png
         name: account.walletCurrency?.name || account.currency,
         accountCode: account.accountCode,
         customerId: account.customerId,
         accountId: account.accountId,
-        // Balances
+        // Balances (from virtual_account table)
         availableBalance: balance.toString(),
         accountBalance: accountBalance.toString(),
         availableBalanceUsd: availableBalanceUsd.toString(),
@@ -184,6 +193,9 @@ class CryptoAssetService {
         // Deposit addresses
         depositAddresses: account.depositAddresses,
         primaryDepositAddress: account.depositAddresses[0]?.address || null,
+        // Transaction history
+        transactions: transactions,
+        transactionCount: transactions.length,
         // Wallet currency details
         walletCurrency: account.walletCurrency ? {
           id: account.walletCurrency.id,
@@ -196,8 +208,6 @@ class CryptoAssetService {
         // Timestamps
         createdAt: account.createdAt,
         updatedAt: account.updatedAt,
-        // Note: Transaction history will be added here later when crypto transaction models are created
-        // Example: transactions: [] or transactionHistory: []
       };
     } catch (error: any) {
       console.error(`Error getting asset detail for user ${userId}, account ${virtualAccountId}:`, error);
@@ -250,6 +260,66 @@ class CryptoAssetService {
       };
     } catch (error: any) {
       console.error(`Error getting deposit address for user ${userId}:`, error);
+      throw new Error(`Failed to get deposit address: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get deposit address by virtual account ID
+   * This is used when user selects an asset from their assets list
+   */
+  async getDepositAddressByAccountId(userId: number, virtualAccountId: number) {
+    try {
+      const virtualAccount = await prisma.virtualAccount.findFirst({
+        where: {
+          id: virtualAccountId,
+          userId, // Ensure it belongs to the user
+        },
+        include: {
+          depositAddresses: {
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+          },
+          walletCurrency: true,
+        },
+      });
+
+      if (!virtualAccount) {
+        throw new Error('Virtual account not found');
+      }
+
+      if (!virtualAccount.depositAddresses.length) {
+        throw new Error('Deposit address not found for this account');
+      }
+
+      const depositAddress = virtualAccount.depositAddresses[0];
+      const balance = new Decimal(virtualAccount.availableBalance || '0');
+      const usdPrice = virtualAccount.walletCurrency?.price 
+        ? new Decimal(virtualAccount.walletCurrency.price.toString())
+        : new Decimal('0');
+      const nairaPrice = virtualAccount.walletCurrency?.nairaPrice 
+        ? new Decimal(virtualAccount.walletCurrency.nairaPrice.toString())
+        : new Decimal('0');
+
+      return {
+        address: depositAddress.address,
+        blockchain: depositAddress.blockchain, // Blockchain of the deposit address (base blockchain)
+        currency: depositAddress.currency, // Currency of the deposit address (may be base blockchain currency)
+        virtualAccountId: virtualAccount.id,
+        accountCurrency: virtualAccount.currency, // The currency user selected (e.g., USDT_TRON)
+        accountBlockchain: virtualAccount.blockchain, // The blockchain user selected (e.g., tron)
+        balance: balance.toString(),
+        balanceUsd: balance.mul(usdPrice).toString(),
+        balanceNaira: nairaPrice.gt(0) ? balance.mul(nairaPrice).toString() : '0',
+        symbol: virtualAccount.walletCurrency?.symbol || null,
+        currencyName: virtualAccount.walletCurrency?.name || virtualAccount.currency,
+        // Note: For tokens on the same blockchain (e.g., USDT on Tron), 
+        // the address will be the same as the native coin (TRON) because addresses are shared within blockchain groups.
+        // The 'currency' field shows the address currency (TRON), while 'accountCurrency' shows what user selected (USDT_TRON)
+        addressShared: depositAddress.currency !== virtualAccount.currency, // True if address is shared with other currencies
+      };
+    } catch (error: any) {
+      console.error(`Error getting deposit address by account ID for user ${userId}:`, error);
       throw new Error(`Failed to get deposit address: ${error.message}`);
     }
   }

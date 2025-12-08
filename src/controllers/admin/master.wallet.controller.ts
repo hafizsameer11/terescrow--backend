@@ -7,6 +7,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { validationResult } from 'express-validator';
 import masterWalletService from '../../services/tatum/master.wallet.service';
+import tatumService from '../../services/tatum/tatum.service';
+import depositAddressService from '../../services/tatum/deposit.address.service';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 
@@ -157,6 +159,102 @@ export const updateAllMasterWalletsController = async (
       return next(error);
     }
     next(ApiError.internal('Failed to update master wallets'));
+  }
+};
+
+/**
+ * Get balances for all master wallets
+ * GET /api/admin/master-wallet/balances
+ */
+export const getMasterWalletsBalancesController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const wallets = await masterWalletService.getAllMasterWallets();
+
+    // Get balance for each master wallet address using Tatum
+    const walletsWithBalances = await Promise.all(
+      wallets.map(async (wallet) => {
+        let balance = null;
+        let error = null;
+
+        if (wallet.address) {
+          try {
+            // Get only native balance, no tokens for master wallets
+            balance = await tatumService.getAddressBalance(wallet.blockchain, wallet.address, false);
+          } catch (err: any) {
+            error = err.message || 'Failed to get balance';
+            console.error(`Error getting balance for ${wallet.blockchain}:`, error);
+          }
+        }
+
+        return {
+          id: wallet.id,
+          blockchain: wallet.blockchain,
+          address: wallet.address,
+          balance: balance || null,
+          error: error || null,
+          createdAt: wallet.createdAt,
+          updatedAt: wallet.updatedAt,
+        };
+      })
+    );
+
+    return new ApiResponse(
+      200,
+      { wallets: walletsWithBalances },
+      'Master wallet balances retrieved successfully'
+    ).send(res);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(ApiError.internal('Failed to retrieve master wallet balances'));
+  }
+};
+
+/**
+ * Get deposit address for a user
+ * GET /api/admin/master-wallet/deposit-address/:userId/:currency/:blockchain
+ */
+export const getDepositAddressController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const { currency, blockchain } = req.params;
+
+    if (isNaN(userId)) {
+      return next(ApiError.badRequest('Invalid user ID'));
+    }
+
+    if (!currency || !blockchain) {
+      return next(ApiError.badRequest('Currency and blockchain are required'));
+    }
+
+    const depositAddress = await depositAddressService.getDepositAddress(
+      userId,
+      currency,
+      blockchain
+    );
+
+    return new ApiResponse(
+      200,
+      { depositAddress },
+      'Deposit address retrieved successfully'
+    ).send(res);
+  } catch (error: any) {
+    if (error.message.includes('not found')) {
+      return next(ApiError.notFound(error.message));
+    }
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(ApiError.internal(error.message || 'Failed to retrieve deposit address'));
   }
 };
 
