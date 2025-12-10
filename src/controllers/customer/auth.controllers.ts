@@ -897,7 +897,7 @@ export const verifyPinController = async (
   next: NextFunction
 ) => {
   try {
-    const authenticatedUser = (req as any).user;
+    const authenticatedUser = (req as any).body?._user;
     if (!authenticatedUser || !authenticatedUser.id) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
