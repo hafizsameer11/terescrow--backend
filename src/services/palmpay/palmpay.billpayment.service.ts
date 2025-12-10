@@ -197,11 +197,32 @@ class PalmPayBillPaymentService {
         }
       );
 
+      // Log response for debugging
+      console.log('PalmPay createBillOrder response:', JSON.stringify(response.data, null, 2));
+      
+      // Check if response has error structure
+      const responseData = response.data as any;
+      if (responseData && !responseData.orderNo && !responseData.orderStatus) {
+        console.error('PalmPay createBillOrder - Invalid response structure:', responseData);
+        throw new Error(
+          responseData?.respMsg || responseData?.msg || 'Invalid response from PalmPay'
+        );
+      }
+
       return response.data;
     } catch (error: any) {
-      console.error('PalmPay createBillOrder error:', error.response?.data || error.message);
+      console.error('PalmPay createBillOrder error:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+      });
+      const errorData = error.response?.data as any;
       throw new Error(
-        error.response?.data?.respMsg || error.message || 'Failed to create bill payment order'
+        errorData?.respMsg || 
+        errorData?.msg || 
+        error.message || 
+        'Failed to create bill payment order'
       );
     }
   }

@@ -12,7 +12,6 @@ import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import cryptoRateService from './crypto.rate.service';
 import cryptoTransactionService from './crypto.transaction.service';
-import { randomUUID } from 'crypto';
 
 export interface SwapCryptoInput {
   userId: number;
@@ -334,10 +333,9 @@ class CryptoSwapService {
       });
 
       // Step 6: Create transaction record (using transaction client)
-      const transactionId = randomUUID();
-      await tx.cryptoTransaction.create({
+      const transactionId = `SWAP-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
+      const cryptoTransaction = await tx.cryptoTransaction.create({
         data: {
-          id: transactionId,
           userId,
           virtualAccountId: fromVirtualAccount.id,
           transactionType: 'SWAP',

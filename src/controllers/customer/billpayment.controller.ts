@@ -258,12 +258,19 @@ export const createBillOrderController = async (
         relationId: user.id.toString(),
       });
 
+      // Validate PalmPay response
+      if (!palmpayResponse || !palmpayResponse.orderNo || palmpayResponse.orderStatus === undefined) {
+        throw new Error(
+          `Invalid PalmPay response: ${JSON.stringify(palmpayResponse)}`
+        );
+      }
+
       // Update transaction with PalmPay order number
       await prisma.fiatTransaction.update({
         where: { id: transaction.id },
         data: {
           palmpayOrderNo: palmpayResponse.orderNo,
-          palmpayStatus: palmpayResponse.orderStatus.toString(),
+          palmpayStatus: palmpayResponse.orderStatus?.toString() || null,
         },
       });
 
@@ -272,7 +279,7 @@ export const createBillOrderController = async (
         where: { id: billPayment.id },
         data: {
           palmpayOrderNo: palmpayResponse.orderNo,
-          palmpayStatus: palmpayResponse.orderStatus.toString(),
+          palmpayStatus: palmpayResponse.orderStatus?.toString() || null,
           providerResponse: palmpayResponse as any,
         },
       });
@@ -364,7 +371,7 @@ export const createBillOrderController = async (
       new ApiResponse(200, {
         billPaymentId: billPayment.id,
         transactionId: transaction.id,
-        orderNo: palmpayResponse.orderNo,
+        orderNo: palmpayResponse?.orderNo || null,
         outOrderNo,
         sceneCode,
         billerId,
@@ -372,9 +379,9 @@ export const createBillOrderController = async (
         rechargeAccount,
         amount: amountNum,
         currency: 'NGN',
-        orderStatus: palmpayResponse.orderStatus,
-        status: palmpayResponse.orderStatus === 2 ? 'completed' : 'pending',
-        message: palmpayResponse.msg,
+        orderStatus: palmpayResponse?.orderStatus ?? null,
+        status: palmpayResponse?.orderStatus === 2 ? 'completed' : 'pending',
+        message: palmpayResponse?.msg || null,
       })
     );
   } catch (error: any) {

@@ -166,7 +166,7 @@ class RecentTransactionsService {
         sceneCode: payment.sceneCode,
         billerId: payment.billerId,
         rechargeAccount: payment.rechargeAccount,
-        orderNo: payment.orderNo,
+        orderNo: payment.palmpayOrderNo,
       },
     }));
   }
@@ -214,22 +214,24 @@ class RecentTransactionsService {
     });
 
     return transactions.map((tx) => {
-      let description = '';
-      switch (tx.type.toUpperCase()) {
-        case 'DEPOSIT':
-          description = `Deposit - ${tx.provider || 'Wallet'}`;
-          break;
-        case 'WITHDRAWAL':
-          description = `Withdrawal - ${tx.provider || 'Wallet'}`;
-          break;
-        case 'BILL_PAYMENT':
-          description = 'Bill Payment';
-          break;
-        case 'TRANSFER':
-          description = 'Transfer';
-          break;
-        default:
-          description = tx.type;
+      let description = tx.description || '';
+      if (!description) {
+        switch (tx.type.toUpperCase()) {
+          case 'DEPOSIT':
+            description = `Deposit - ${tx.billProvider || 'Wallet'}`;
+            break;
+          case 'WITHDRAWAL':
+            description = `Withdrawal - ${tx.billProvider || 'Wallet'}`;
+            break;
+          case 'BILL_PAYMENT':
+            description = 'Bill Payment';
+            break;
+          case 'TRANSFER':
+            description = 'Transfer';
+            break;
+          default:
+            description = tx.type;
+        }
       }
 
       return {
@@ -243,8 +245,8 @@ class RecentTransactionsService {
         createdAt: tx.createdAt,
         updatedAt: tx.updatedAt,
         metadata: {
-          provider: tx.provider,
-          reference: tx.reference,
+          provider: tx.billProvider || null,
+          reference: tx.billReference || tx.palmpayOrderNo || null,
           fees: tx.fees?.toString(),
         },
       };

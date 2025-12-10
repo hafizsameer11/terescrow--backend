@@ -210,7 +210,6 @@ class CryptoBuyService {
       const transactionId = `BUY-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
       const cryptoTransaction = await tx.cryptoTransaction.create({
         data: {
-          id: transactionId,
           userId,
           virtualAccountId: virtualAccount.id,
           transactionType: 'BUY',
@@ -246,7 +245,7 @@ class CryptoBuyService {
       // 7. Handle failures: revert fiat debit, update transaction status
 
       return {
-        transactionId: cryptoTransaction.id,
+        transactionId: cryptoTransaction.transactionId, // Use string transactionId, not integer id
         amountCrypto: amountCryptoDecimal.toString(),
         amountUsd: amountUsd.toString(),
         amountNgn: amountNgn.toString(),
