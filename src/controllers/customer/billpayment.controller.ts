@@ -21,11 +21,11 @@ export const queryBillersController = async (
   try {
     const { sceneCode } = req.query;
 
-    if (!sceneCode || !['airtime', 'data', 'betting'].includes(sceneCode as string)) {
-      return next(ApiError.badRequest('Invalid sceneCode. Must be: airtime, data, or betting'));
+    if (!sceneCode || typeof sceneCode !== 'string') {
+      return next(ApiError.badRequest('sceneCode is required and must be a string'));
     }
 
-    const billers = await palmpayBillPaymentService.queryBillers(sceneCode as PalmPaySceneCode);
+    const billers = await palmpayBillPaymentService.queryBillers(sceneCode as any);
 
     return res.status(200).json(
       new ApiResponse(200, {
@@ -50,8 +50,8 @@ export const queryItemsController = async (
   try {
     const { sceneCode, billerId } = req.query;
 
-    if (!sceneCode || !['airtime', 'data', 'betting'].includes(sceneCode as string)) {
-      return next(ApiError.badRequest('Invalid sceneCode. Must be: airtime, data, or betting'));
+    if (!sceneCode || typeof sceneCode !== 'string') {
+      return next(ApiError.badRequest('sceneCode is required and must be a string'));
     }
 
     if (!billerId || typeof billerId !== 'string') {
@@ -59,7 +59,7 @@ export const queryItemsController = async (
     }
 
     const items = await palmpayBillPaymentService.queryItems(
-      sceneCode as PalmPaySceneCode,
+      sceneCode as any,
       billerId
     );
 
@@ -87,8 +87,8 @@ export const verifyAccountController = async (
   try {
     const { sceneCode, rechargeAccount, billerId, itemId } = req.body;
 
-    if (!sceneCode || !['airtime', 'data', 'betting'].includes(sceneCode)) {
-      return next(ApiError.badRequest('Invalid sceneCode. Must be: airtime, data, or betting'));
+    if (!sceneCode || typeof sceneCode !== 'string') {
+      return next(ApiError.badRequest('sceneCode is required and must be a string'));
     }
 
     if (!rechargeAccount || typeof rechargeAccount !== 'string') {
@@ -105,7 +105,7 @@ export const verifyAccountController = async (
     }
 
     const result = await palmpayBillPaymentService.queryRechargeAccount(
-      sceneCode,
+      sceneCode as any,
       rechargeAccount,
       billerId,
       itemId
@@ -150,8 +150,8 @@ export const createBillOrderController = async (
     const { sceneCode, billerId, itemId, rechargeAccount, amount, pin } = req.body;
 
     // Validate inputs
-    if (!sceneCode || !['airtime', 'data', 'betting'].includes(sceneCode)) {
-      return next(ApiError.badRequest('Invalid sceneCode. Must be: airtime, data, or betting'));
+    if (!sceneCode || typeof sceneCode !== 'string') {
+      return next(ApiError.badRequest('sceneCode is required and must be a string'));
     }
 
     if (!billerId || !itemId || !rechargeAccount || !amount) {
@@ -246,7 +246,7 @@ export const createBillOrderController = async (
 
       // Create PalmPay order
       palmpayResponse = await palmpayBillPaymentService.createOrder({
-        sceneCode: sceneCode as PalmPaySceneCode,
+        sceneCode: sceneCode as any,
         outOrderNo,
         amount: amountInCents,
         notifyUrl: `${palmpayConfig.getWebhookUrl()}/bill-payment`,
@@ -415,7 +415,7 @@ export const queryOrderStatusController = async (
       }
 
       // Use bill payment's scene code and order numbers
-      const sceneCodeFromBill = billPayment.sceneCode as PalmPaySceneCode;
+      const sceneCodeFromBill = billPayment.sceneCode as any;
       orderStatus = await palmpayBillPaymentService.queryOrderStatus(
         sceneCodeFromBill,
         billPayment.palmpayOrderId || undefined,
@@ -423,8 +423,8 @@ export const queryOrderStatusController = async (
       );
     } else {
       // Query by sceneCode and order numbers
-      if (!sceneCode || !['airtime', 'data', 'betting'].includes(sceneCode as string)) {
-        return next(ApiError.badRequest('Invalid sceneCode. Must be: airtime, data, or betting'));
+      if (!sceneCode || typeof sceneCode !== 'string') {
+        return next(ApiError.badRequest('sceneCode is required and must be a string'));
       }
 
       if (!outOrderNo && !orderNo) {
@@ -432,7 +432,7 @@ export const queryOrderStatusController = async (
       }
 
       orderStatus = await palmpayBillPaymentService.queryOrderStatus(
-        sceneCode as PalmPaySceneCode,
+        sceneCode as any,
         outOrderNo as string | undefined,
         orderNo as string | undefined
       );

@@ -34,8 +34,16 @@ const billPaymentRouter = Router();
  *         required: true
  *         schema:
  *           type: string
- *           enum: [airtime, data, betting]
- *         description: Business scenario code
+ *         description: |
+ *           Business scenario code. Examples: airtime, data, betting.
+ *           Any scene code value is accepted.
+ *         examples:
+ *           airtime:
+ *             value: airtime
+ *           data:
+ *             value: data
+ *           betting:
+ *             value: betting
  *     responses:
  *       200:
  *         description: Billers retrieved successfully
@@ -89,7 +97,16 @@ billPaymentRouter.get('/billers', authenticateUser, queryBillersController);
  *         required: true
  *         schema:
  *           type: string
- *           enum: [airtime, data, betting]
+ *         description: |
+ *           Business scenario code. Examples: airtime, data, betting.
+ *           Any scene code value is accepted.
+ *         examples:
+ *           airtime:
+ *             value: airtime
+ *           data:
+ *             value: data
+ *           betting:
+ *             value: betting
  *       - in: query
  *         name: billerId
  *         required: true
@@ -156,8 +173,17 @@ billPaymentRouter.get('/items', authenticateUser, queryItemsController);
  *             properties:
  *               sceneCode:
  *                 type: string
- *                 enum: [airtime, data, betting]
+ *                 description: |
+ *                   Business scenario code. Examples: airtime, data, betting.
+ *                   Any scene code value is accepted.
  *                 example: "airtime"
+ *                 examples:
+ *                   airtime:
+ *                     value: airtime
+ *                   data:
+ *                     value: data
+ *                   betting:
+ *                     value: betting
  *               rechargeAccount:
  *                 type: string
  *                 maxLength: 15
@@ -217,8 +243,17 @@ billPaymentRouter.post('/verify-account', authenticateUser, verifyAccountControl
  *             properties:
  *               sceneCode:
  *                 type: string
- *                 enum: [airtime, data, betting]
+ *                 description: |
+ *                   Business scenario code. Examples: airtime, data, betting.
+ *                   Any scene code value is accepted.
  *                 example: "airtime"
+ *                 examples:
+ *                   airtime:
+ *                     value: airtime
+ *                   data:
+ *                     value: data
+ *                   betting:
+ *                     value: betting
  *               billerId:
  *                 type: string
  *                 example: "MTN"
@@ -299,8 +334,16 @@ billPaymentRouter.post('/create-order', authenticateUser, createBillOrderControl
  *         name: sceneCode
  *         schema:
  *           type: string
- *           enum: [airtime, data, betting]
- *         description: Required if billPaymentId not provided
+ *         description: |
+ *           Business scenario code. Examples: airtime, data, betting.
+ *           Any scene code value is accepted. Required if billPaymentId not provided.
+ *         examples:
+ *           airtime:
+ *             value: airtime
+ *           data:
+ *             value: data
+ *           betting:
+ *             value: betting
  *       - in: query
  *         name: outOrderNo
  *         schema:
@@ -371,7 +414,16 @@ billPaymentRouter.get('/order-status', authenticateUser, queryOrderStatusControl
  *         name: sceneCode
  *         schema:
  *           type: string
- *           enum: [airtime, data, betting]
+ *         description: |
+ *           Business scenario code. Examples: airtime, data, betting.
+ *           Any scene code value is accepted.
+ *         examples:
+ *           airtime:
+ *             value: airtime
+ *           data:
+ *             value: data
+ *           betting:
+ *             value: betting
  *       - in: query
  *         name: billerId
  *         schema:
