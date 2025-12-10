@@ -325,6 +325,76 @@ class CryptoAssetService {
   }
 
   /**
+   * Get total crypto balance for user
+   * Returns total balance in USD and Naira from all virtual accounts
+   * Uses rates from wallet_currencies table
+   */
+  async getCryptoBalance(userId: number) {
+    try {
+      // Get all virtual accounts for the user with wallet currency details
+      const virtualAccounts = await prisma.virtualAccount.findMany({
+        where: { userId },
+        include: {
+          walletCurrency: true,
+        },
+      });
+
+      // Calculate totals
+      let totalUsd = new Decimal('0');
+      let totalNaira = new Decimal('0');
+      const balancesByCurrency: Array<{
+        currency: string;
+        blockchain: string;
+        balance: string;
+        balanceUsd: string;
+        balanceNaira: string;
+      }> = [];
+
+      virtualAccounts.forEach((account) => {
+        const balance = new Decimal(account.availableBalance || '0');
+        const usdPrice = account.walletCurrency?.price 
+          ? new Decimal(account.walletCurrency.price.toString())
+          : new Decimal('0');
+        const nairaPrice = account.walletCurrency?.nairaPrice 
+          ? new Decimal(account.walletCurrency.nairaPrice.toString())
+          : new Decimal('0');
+
+        // Calculate USD value
+        const usdValue = balance.mul(usdPrice);
+        totalUsd = totalUsd.plus(usdValue);
+
+        // Calculate Naira value
+        let nairaValue: Decimal;
+        if (nairaPrice.gt(0)) {
+          nairaValue = balance.mul(nairaPrice);
+          totalNaira = totalNaira.plus(nairaValue);
+        } else {
+          nairaValue = new Decimal('0');
+        }
+
+        // Add to breakdown
+        balancesByCurrency.push({
+          currency: account.currency,
+          blockchain: account.blockchain,
+          balance: balance.toString(),
+          balanceUsd: usdValue.toString(),
+          balanceNaira: nairaValue.toString(),
+        });
+      });
+
+      return {
+        totalBalanceUsd: totalUsd.toString(),
+        totalBalanceNaira: totalNaira.toString(),
+        currencyCount: virtualAccounts.length,
+        balances: balancesByCurrency,
+      };
+    } catch (error: any) {
+      console.error(`Error getting crypto balance for user ${userId}:`, error);
+      throw new Error(`Failed to get crypto balance: ${error.message}`);
+    }
+  }
+
+  /**
    * Get transaction history for a specific asset (virtual account)
    * 
    * @param userId - User ID

@@ -187,3 +187,35 @@ export async function getReceiveAddressController(req: Request, res: Response) {
   }
 }
 
+/**
+ * Get total crypto balance for user
+ * Returns total balance in USD and Naira from all virtual accounts
+ */
+export async function getCryptoBalanceController(req: Request, res: Response) {
+  try {
+    const user = (req as any).body?._user;
+    const userId = user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        status: 401,
+        message: 'Unauthorized',
+      });
+    }
+
+    const balance = await cryptoAssetService.getCryptoBalance(userId);
+
+    return res.status(200).json({
+      status: 200,
+      message: 'Crypto balance retrieved successfully',
+      data: balance,
+    });
+  } catch (error: any) {
+    console.error('Error in getCryptoBalanceController:', error);
+    return res.status(500).json({
+      status: 500,
+      message: error.message || 'Failed to retrieve crypto balance',
+    });
+  }
+}
+

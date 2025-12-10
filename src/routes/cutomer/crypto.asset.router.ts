@@ -16,10 +16,88 @@ import {
   getUserAssetsController, 
   getAssetDetailController,
   getDepositAddressController,
-  getReceiveAddressController
+  getReceiveAddressController,
+  getCryptoBalanceController
 } from '../../controllers/customer/crypto.asset.controller';
 
 const cryptoAssetRouter = express.Router();
+
+/**
+ * @swagger
+ * /api/v2/crypto/balance:
+ *   get:
+ *     summary: Get total crypto balance in USD and Naira
+ *     tags: [V2 - Crypto - Assets]
+ *     x-order: 0
+ *     description: |
+ *       Returns the total crypto balance across all virtual accounts with:
+ *       - Total balance in USD (sum of all assets converted to USD)
+ *       - Total balance in Naira (sum of all assets converted to Naira)
+ *       - Breakdown by currency showing individual balances
+ *       
+ *       **How it works:**
+ *       - Gets balances from virtual_account table
+ *       - Uses USD conversion rates from wallet_currencies.price
+ *       - Uses Naira conversion rates from wallet_currencies.nairaPrice
+ *       - Calculates total across all user's crypto assets
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Balance retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: integer
+ *                   example: 200
+ *                 message:
+ *                   type: string
+ *                   example: "Crypto balance retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalBalanceUsd:
+ *                       type: string
+ *                       description: Total crypto balance in USD
+ *                       example: "1045.50"
+ *                     totalBalanceNaira:
+ *                       type: string
+ *                       description: Total crypto balance in Naira
+ *                       example: "1829625.00"
+ *                     currencyCount:
+ *                       type: integer
+ *                       description: Number of currencies user has
+ *                       example: 5
+ *                     balances:
+ *                       type: array
+ *                       description: Breakdown by currency
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           currency:
+ *                             type: string
+ *                             example: "BTC"
+ *                           blockchain:
+ *                             type: string
+ *                             example: "bitcoin"
+ *                           balance:
+ *                             type: string
+ *                             example: "0.001"
+ *                           balanceUsd:
+ *                             type: string
+ *                             example: "104.12"
+ *                           balanceNaira:
+ *                             type: string
+ *                             example: "182210.00"
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+cryptoAssetRouter.get('/balance', authenticateUser, getCryptoBalanceController);
 
 /**
  * @swagger
