@@ -139,6 +139,7 @@ class PalmPayBillPaymentService {
     const signature = palmpayAuth.generateSignature(request);
 
     try {
+      console.log('request palmpay billpayment service', request,'signature', signature);
       const response = await axios.post<PalmPayQueryRechargeAccountResponse>(
         `${this.baseUrl}/api/v2/bill-payment/rechargeaccount/query`,
         request,

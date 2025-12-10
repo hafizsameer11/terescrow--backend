@@ -97,23 +97,27 @@ class PalmPayBanksService {
     const headers = palmpayAuth.getRequestHeaders(signature);
 
     try {
+      console.log('request palmpay banks service', request,'signature', signature);
       const response = await axios.post<PalmPayBaseResponse<PalmPayQueryBankAccountResponse>>(
         `${this.baseUrl}/api/v2/payment/merchant/payout/queryBankAccount`,
         request,
         { headers }
       );
-
+      console.log('response palmpay banks service', response.data);
       if (response.data.respCode !== '00000000') {
+        console.log('response palmpay banks service error', response.data);
         throw new Error(`PalmPay API error: ${response.data.respMsg} (${response.data.respCode})`);
       }
-
+      console.log('response palmpay banks service data', response.data.data);
       if (!response.data.data) {
+      
         throw new Error('PalmPay API returned no data');
       }
 
       return response.data.data;
     } catch (error: any) {
       if (error.response) {
+        console.log('response palmpay banks service error', error.response.data);
         throw new Error(
           `PalmPay API error: ${error.response.data?.respMsg || error.message} (${error.response.data?.respCode || 'UNKNOWN'})`
         );

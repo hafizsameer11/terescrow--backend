@@ -117,6 +117,7 @@ export const verifyAccountController = async (
         rechargeAccount,
         biller: result.biller,
         valid: true,
+        result,
       })
     );
   } catch (error: any) {

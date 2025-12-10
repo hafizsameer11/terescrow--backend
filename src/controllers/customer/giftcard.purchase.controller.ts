@@ -81,7 +81,7 @@ export const purchaseController = async (
       throw ApiError.badRequest('Missing required fields: productId, quantity, unitPrice, senderName');
     }
 
-    // Fetch product details from Reloadly API (not database)
+    // Fetch product details from Reloadly API only (not database)
     let product;
     try {
       product = await reloadlyProductsService.getProductById(productId);
@@ -108,6 +108,68 @@ export const purchaseController = async (
         );
       }
     }
+
+    // Ensure product exists in database BEFORE creating order (for foreign key constraint)
+    // We only use Reloadly product data, but need DB record for the order
+    const isVariableDenomination = !product.fixedRecipientDenominations || product.fixedRecipientDenominations.length === 0;
+    const imageUrl = product.logoUrl || (product.logoUrls && product.logoUrls.length > 0 ? product.logoUrls[0] : null);
+    
+    // Handle redeemInstruction - it can be a string or an object with concise/verbose
+    let redemptionInstructions: string | null = null;
+    if (product.redeemInstruction) {
+      if (typeof product.redeemInstruction === 'string') {
+        redemptionInstructions = product.redeemInstruction;
+      } else if (typeof product.redeemInstruction === 'object') {
+        // If it's an object, prefer verbose, fallback to concise, or stringify the whole object
+        const redeemObj = product.redeemInstruction as any;
+        redemptionInstructions = redeemObj.verbose || redeemObj.concise || JSON.stringify(redeemObj);
+      }
+    }
+    
+    const dbProduct = await prisma.giftCardProduct.upsert({
+      where: { reloadlyProductId: product.productId },
+      update: {
+        // Update product info if it exists (but we don't use this data, only for FK)
+        productName: product.productName,
+        brandName: product.brandName || null,
+        countryCode: product.countryCode || 'US',
+        currencyCode: product.currencyCode || 'USD',
+        minValue: product.minRecipientDenomination ? parseFloat(String(product.minRecipientDenomination)) : null,
+        maxValue: product.maxRecipientDenomination ? parseFloat(String(product.maxRecipientDenomination)) : null,
+        fixedValue: product.fixedRecipientDenominations && product.fixedRecipientDenominations.length === 1
+          ? parseFloat(String(product.fixedRecipientDenominations[0]))
+          : null,
+        isVariableDenomination,
+        reloadlyImageUrl: imageUrl || null,
+        reloadlyLogoUrls: product.logoUrls ? JSON.stringify(product.logoUrls) : null,
+        productType: product.productType || null,
+        redemptionInstructions,
+        description: product.description || null,
+        lastSyncedAt: new Date(),
+      },
+      create: {
+        // Create product in DB (only for FK constraint, we use Reloadly data)
+        reloadlyProductId: product.productId,
+        productName: product.productName,
+        brandName: product.brandName || null,
+        countryCode: product.countryCode || 'US',
+        currencyCode: product.currencyCode || 'USD',
+        minValue: product.minRecipientDenomination ? parseFloat(String(product.minRecipientDenomination)) : null,
+        maxValue: product.maxRecipientDenomination ? parseFloat(String(product.maxRecipientDenomination)) : null,
+        fixedValue: product.fixedRecipientDenominations && product.fixedRecipientDenominations.length === 1
+          ? parseFloat(String(product.fixedRecipientDenominations[0]))
+          : null,
+        isVariableDenomination,
+        isGlobal: product.isGlobal || false,
+        reloadlyImageUrl: imageUrl || null,
+        reloadlyLogoUrls: product.logoUrls ? JSON.stringify(product.logoUrls) : null,
+        productType: product.productType || null,
+        redemptionInstructions,
+        description: product.description || null,
+        status: 'active',
+        lastSyncedAt: new Date(),
+      },
+    });
 
     // Generate custom identifier if not provided
     const orderCustomIdentifier = customIdentifier || `GC-${userId}-${Date.now()}`;
@@ -144,7 +206,7 @@ export const purchaseController = async (
     const order = await prisma.giftCardOrder.create({
       data: {
         userId,
-        productId: product.productId,
+        productId: dbProduct.id, // Use internal database ID, not Reloadly product ID
         quantity: reloadlyOrder.product.quantity,
         currencyCode: reloadlyOrder.currencyCode,
         faceValue: reloadlyOrder.product.unitPrice,

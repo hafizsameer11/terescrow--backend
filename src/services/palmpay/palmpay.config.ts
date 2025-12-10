@@ -27,9 +27,9 @@ class PalmPayConfigService {
     const env = this.getEnvironment();
     this.baseUrl =
       // env === 'production'?
-      //  'https://open-gw-prod.palmpay-inc.com'
+       'https://open-gw-prod.palmpay-inc.com';
       //   : 
-        'https://open-gw-daily.palmpay-inc.com';
+        // 'https://open-gw-daily.palmpay-inc.com';
 
     return this.baseUrl;
   }
@@ -45,7 +45,7 @@ class PalmPayConfigService {
     if (this.apiKey) return this.apiKey;
 
     this.apiKey = process.env.PALMPAY_APP_ID || '';
-    
+    console.log('apiKey palmpay config service', this.apiKey);
     // For testing: fallback to app ID first, then merchant ID if API key not set
     if (!this.apiKey) {
       const appId = this.getAppId();
@@ -129,6 +129,18 @@ class PalmPayConfigService {
       throw new Error(
         'PALMPAY_PRIVATE_KEY is required in environment variables. Please add it to your .env file.'
       );
+    }
+
+    // Handle escaped newlines (common in .env files)
+    this.privateKey = this.privateKey.replace(/\\n/g, '\n');
+    
+    // Remove any extra whitespace but preserve structure if it's PEM format
+    if (this.privateKey.includes('-----BEGIN')) {
+      // It's already in PEM format, just trim edges
+      this.privateKey = this.privateKey.trim();
+    } else {
+      // It's Base64 encoded, remove all whitespace and newlines
+      this.privateKey = this.privateKey.replace(/\s/g, '').replace(/\n/g, '').replace(/\r/g, '').trim();
     }
 
     return this.privateKey;

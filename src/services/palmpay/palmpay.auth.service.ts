@@ -42,6 +42,7 @@ class PalmPayAuthService {
    */
   generateSignature(params: Record<string, any>): string {
     // Step 1: Filter non-empty params, sort by ASCII order, build key=value string
+    
     const sortedKeys = Object.keys(params)
       .filter(key => {
         const value = params[key];
@@ -63,16 +64,52 @@ class PalmPayAuthService {
     // Step 3: Sign with SHA1WithRSA using merchant's private key
     const privateKey = palmpayConfig.getPrivateKey();
     
+    if (!privateKey || privateKey.trim().length === 0) {
+      throw new Error('PalmPay private key is empty or not configured');
+    }
+
     // Convert to PEM format if needed (Node.js crypto expects PEM format)
-    let pemKey = privateKey;
-    if (!privateKey.includes('-----BEGIN')) {
+    let pemKey = privateKey.trim();
+    
+    // Check if key is already in PEM format
+    const isPemFormat = pemKey.includes('-----BEGIN') && pemKey.includes('-----END');
+    
+    if (!isPemFormat) {
       // If it's raw Base64, try to construct PEM format
       // PalmPay provides Base64 encoded key, convert to PEM
-      // Try PKCS#1 format first (RSA PRIVATE KEY)
-      const cleanKey = privateKey.replace(/\s/g, '');
-      // Split into 64-character lines for PEM format
+      const cleanKey = pemKey.replace(/\s/g, '').replace(/\n/g, '').replace(/\r/g, '');
+      
+      if (cleanKey.length === 0) {
+        throw new Error('PalmPay private key is invalid (empty after cleaning)');
+      }
+
+      // Validate Base64 format
+      let isValidBase64 = true;
+      try {
+        Buffer.from(cleanKey, 'base64');
+      } catch (e) {
+        isValidBase64 = false;
+      }
+
+      if (!isValidBase64) {
+        throw new Error(
+          'PalmPay private key is not valid Base64. ' +
+          'Please check your PALMPAY_PRIVATE_KEY in .env file. ' +
+          'The key should be Base64 encoded or in PEM format.'
+        );
+      }
+
+      // Detect key format based on Base64 content
+      // PKCS#8 keys typically start with MIIE (after Base64 decode, ASN.1 SEQUENCE)
+      // PKCS#1 keys typically start with MIIB or MIIC
       const keyLines = cleanKey.match(/.{1,64}/g) || [];
-      pemKey = `-----BEGIN RSA PRIVATE KEY-----\n${keyLines.join('\n')}\n-----END RSA PRIVATE KEY-----`;
+      if (keyLines.length === 0) {
+        throw new Error('PalmPay private key format is invalid');
+      }
+
+      // Try PKCS#8 format first (most common for modern keys)
+      // PKCS#8 uses "-----BEGIN PRIVATE KEY-----"
+      pemKey = `-----BEGIN PRIVATE KEY-----\n${keyLines.join('\n')}\n-----END PRIVATE KEY-----`;
     }
 
     try {
@@ -82,21 +119,42 @@ class PalmPayAuthService {
         .sign(pemKey, 'base64');
 
       return signature;
-    } catch (error) {
-      // If PKCS#1 format fails, try PKCS#8 format
-      if (!privateKey.includes('-----BEGIN')) {
-        const cleanKey = privateKey.replace(/\s/g, '');
-        const keyLines = cleanKey.match(/.{1,64}/g) || [];
-        const pkcs8Key = `-----BEGIN PRIVATE KEY-----\n${keyLines.join('\n')}\n-----END PRIVATE KEY-----`;
-        
-        const signature = crypto
-          .createSign('RSA-SHA1')
-          .update(md5Str, 'utf8')
-          .sign(pkcs8Key, 'base64');
+    } catch (error: any) {
+      // If PKCS#8 format fails and key was not already in PEM format, try PKCS#1 format
+      if (!isPemFormat) {
+        try {
+          const cleanKey = privateKey.trim().replace(/\s/g, '').replace(/\n/g, '').replace(/\r/g, '');
+          const keyLines = cleanKey.match(/.{1,64}/g) || [];
+          const pkcs1Key = `-----BEGIN RSA PRIVATE KEY-----\n${keyLines.join('\n')}\n-----END RSA PRIVATE KEY-----`;
+          
+          const signature = crypto
+            .createSign('RSA-SHA1')
+            .update(md5Str, 'utf8')
+            .sign(pkcs1Key, 'base64');
 
-        return signature;
+          return signature;
+        } catch (pkcs1Error: any) {
+          console.error('PalmPay signature error - PKCS#8 failed:', error.message);
+          console.error('PalmPay signature error - PKCS#1 failed:', pkcs1Error.message);
+          console.error('Private key length:', privateKey.length);
+          console.error('Private key starts with:', privateKey.substring(0, 50));
+          throw new Error(
+            `Failed to sign request with PalmPay private key. ` +
+            `PKCS#8 error: ${error.message}. ` +
+            `PKCS#1 error: ${pkcs1Error.message}. ` +
+            `Please verify PALMPAY_PRIVATE_KEY format in .env file. ` +
+            `The key should be Base64 encoded PKCS#8 or PKCS#1 format.`
+          );
+        }
       }
-      throw error;
+      
+      console.error('PalmPay signature error:', error.message);
+      console.error('Private key length:', privateKey.length);
+      console.error('Private key starts with:', privateKey.substring(0, 50));
+      throw new Error(
+        `Failed to sign request with PalmPay private key: ${error.message}. ` +
+        `Please verify PALMPAY_PRIVATE_KEY format in .env file.`
+      );
     }
   }
 

@@ -64,3 +64,8 @@ yarn.lock
 # If you're using pnpm
 pnpm-lock.yaml
 src/service-account.json
+
+# Generated keys (keep secure, never commit!)
+keys/
+*.pem
+*-key*.txt
