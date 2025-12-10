@@ -43,7 +43,7 @@ class PalmPayBillPaymentService {
     };
 
     const signature = palmpayAuth.generateSignature(request);
-
+    console.log('request palmpay billpayment service', request);
     try {
       const response = await axios.post<PalmPayBiller[]>(
         `${this.baseUrl}/api/v2/bill-payment/biller/query`,
@@ -179,9 +179,11 @@ class PalmPayBillPaymentService {
       nonceStr,
     };
 
+    console.log('fullRequest palmpay billpayment service', fullRequest);
     const signature = palmpayAuth.generateSignature(fullRequest);
 
     try {
+      // console.log('fullRequest', fullRequest);
       const response = await axios.post<PalmPayCreateBillOrderResponse>(
         `${this.baseUrl}/api/v2/bill-payment/order/create`,
         fullRequest,

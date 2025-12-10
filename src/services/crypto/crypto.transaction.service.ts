@@ -383,7 +383,7 @@ class CryptoTransactionService {
     ]);
 
     return {
-      transactions: transactions.map(this.formatTransaction),
+      transactions: transactions.map((tx) => this.formatTransaction(tx)),
       total,
       limit,
       offset,
@@ -461,7 +461,7 @@ class CryptoTransactionService {
     ]);
 
     return {
-      transactions: transactions.map(this.formatTransaction),
+      transactions: transactions.map((tx) => this.formatTransaction(tx)),
       total,
       limit,
       offset,

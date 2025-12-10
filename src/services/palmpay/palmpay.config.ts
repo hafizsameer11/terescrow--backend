@@ -150,7 +150,7 @@ class PalmPayConfigService {
   getVersion(): string {
     if (this.version) return this.version;
 
-    this.version = process.env.PALMPAY_VERSION || 'V1.1';
+    this.version = process.env.PALMPAY_VERSION || 'V2';
     return this.version;
   }
 
