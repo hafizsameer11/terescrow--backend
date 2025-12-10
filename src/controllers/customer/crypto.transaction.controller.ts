@@ -21,12 +21,12 @@ export const getUserCryptoTransactionsController = async (
   next: NextFunction
 ) => {
   try {
-    const authenticatedUser = (req as any).user;
-    if (!authenticatedUser || !authenticatedUser.id) {
+    const user = (req as any).body?._user;
+    const userId = user?.id;
+
+    if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
-
-    const userId = authenticatedUser.id;
     const transactionType = req.query.type as string | undefined;
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;
@@ -78,12 +78,13 @@ export const getCryptoTransactionByIdController = async (
   next: NextFunction
 ) => {
   try {
-    const authenticatedUser = (req as any).user;
-    if (!authenticatedUser || !authenticatedUser.id) {
+    const user = (req as any).body?._user;
+    const userId = user?.id;
+
+    if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
 
-    const userId = authenticatedUser.id;
     const { transactionId } = req.params;
 
     const transaction = await cryptoTransactionService.getTransactionById(transactionId, userId);
@@ -113,12 +114,13 @@ export const getVirtualAccountTransactionsController = async (
   next: NextFunction
 ) => {
   try {
-    const authenticatedUser = (req as any).user;
-    if (!authenticatedUser || !authenticatedUser.id) {
+    const user = (req as any).body?._user;
+    const userId = user?.id;
+
+    if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
 
-    const userId = authenticatedUser.id;
     const virtualAccountId = parseInt(req.params.virtualAccountId);
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;

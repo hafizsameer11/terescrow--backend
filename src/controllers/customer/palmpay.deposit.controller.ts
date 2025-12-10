@@ -211,3 +211,35 @@ export const checkDepositStatusController = async (
   }
 };
 
+/**
+ * Deposit success page controller
+ * GET /api/v2/payments/palmpay/deposit/success
+ * This is the callback URL that PalmPay redirects to after successful payment
+ */
+export const depositSuccessController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    return res.status(200).json({
+      status: 'success',
+      message: 'Deposit completed successfully',
+      data: {
+        success: true,
+        message: 'Your deposit has been processed successfully. Your wallet will be credited shortly.',
+      },
+    });
+  } catch (error: any) {
+    console.error('Error in depositSuccessController:', error);
+    return res.status(200).json({
+      status: 'success',
+      message: 'Deposit completed successfully',
+      data: {
+        success: true,
+        message: 'Your deposit has been processed successfully.',
+      },
+    });
+  }
+};
+

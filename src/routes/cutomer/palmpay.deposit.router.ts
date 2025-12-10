@@ -3,6 +3,7 @@ import authenticateUser from '../../middlewares/authenticate.user';
 import {
   initiateDepositController,
   checkDepositStatusController,
+  depositSuccessController,
 } from '../../controllers/customer/palmpay.deposit.controller';
 
 const depositRouter = Router();
@@ -64,6 +65,42 @@ depositRouter.post(
   authenticateUser,
   initiateDepositController
 );
+
+/**
+ * @swagger
+ * /api/v2/payments/palmpay/deposit/success:
+ *   get:
+ *     summary: Deposit success callback
+ *     tags: [V2 - PalmPay Deposit]
+ *     description: |
+ *       **Callback URL:** This is the URL that PalmPay redirects users to after successful payment.
+ *       Returns a success message in JSON format.
+ *       This endpoint does not require authentication as it's a public callback.
+ *     responses:
+ *       200:
+ *         description: Deposit success message
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "success"
+ *                 message:
+ *                   type: string
+ *                   example: "Deposit completed successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                       example: true
+ *                     message:
+ *                       type: string
+ *                       example: "Your deposit has been processed successfully. Your wallet will be credited shortly."
+ */
+depositRouter.get('/success', depositSuccessController);
 
 /**
  * @swagger

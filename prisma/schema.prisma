@@ -52,7 +52,7 @@ model User {
   virtualAccounts      VirtualAccount[]
   receivedAssets       ReceivedAsset[]     @relation("ReceivedAssets")
   cryptoTransactions   CryptoTransaction[]
-  userWallets         UserWallet[]
+  userWallets          UserWallet[]
   customRole           CustomRole?         @relation(fields: [customRoleId], references: [id])
   means                WaysOfHearing?      @relation(fields: [meansId], references: [id])
   otps                 UserOTP?
@@ -871,15 +871,15 @@ model WalletCurrency {
 }
 
 model UserWallet {
-  id               Int            @id @default(autoincrement())
-  userId           Int            @map("user_id")
-  blockchain       String         @db.VarChar(255)
-  mnemonic         String?        @db.Text // Encrypted mnemonic (24-word seed phrase)
-  xpub             String?        @db.VarChar(500) // Extended public key
-  derivationPath   String?        @map("derivation_path") @db.VarChar(100) // e.g., "m/44'/60'/0'"
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
-  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               Int              @id @default(autoincrement())
+  userId           Int              @map("user_id")
+  blockchain       String           @db.VarChar(255)
+  mnemonic         String?          @db.Text // Encrypted mnemonic (24-word seed phrase)
+  xpub             String?          @db.VarChar(500) // Extended public key
+  derivationPath   String?          @map("derivation_path") @db.VarChar(100) // e.g., "m/44'/60'/0'"
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   depositAddresses DepositAddress[]
 
   @@unique([userId, blockchain])
@@ -962,6 +962,24 @@ model WebhookResponse {
   @@map("webhook_responses")
 }
 
+// Raw webhook data storage for development/testing
+model PalmPayRawWebhook {
+  id           Int       @id @default(autoincrement())
+  rawData      String    @map("raw_data") @db.LongText // JSON string of the entire webhook payload
+  headers      String?   @db.Text // JSON string of request headers
+  ipAddress    String?   @map("ip_address") @db.VarChar(255)
+  userAgent    String?   @map("user_agent") @db.VarChar(500)
+  processed    Boolean   @default(false) // Whether the webhook has been processed
+  processedAt  DateTime? @map("processed_at")
+  errorMessage String?   @map("error_message") @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([processed])
+  @@index([createdAt])
+  @@map("palm_pay_raw_webhooks")
+}
+
 model ReceivedAsset {
   id               Int       @id @default(autoincrement())
   accountId        String?   @map("account_id") @db.VarChar(255)
@@ -1012,14 +1030,14 @@ model ReceiveTransaction {
 }
 
 model CryptoRate {
-  id              Int              @id @default(autoincrement())
-  transactionType String           @map("transaction_type") @db.VarChar(50) // 'BUY', 'SELL', 'SWAP', 'SEND', 'RECEIVE'
-  minAmount       Decimal          @map("min_amount") @db.Decimal(20, 2) // Minimum USD amount for this rate tier
-  maxAmount       Decimal?         @map("max_amount") @db.Decimal(20, 2) // Maximum USD amount (null for unlimited)
-  rate            Decimal          @db.Decimal(20, 2) // Rate in Naira per $1
-  isActive        Boolean          @default(true) @map("is_active")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
+  id              Int                 @id @default(autoincrement())
+  transactionType String              @map("transaction_type") @db.VarChar(50) // 'BUY', 'SELL', 'SWAP', 'SEND', 'RECEIVE'
+  minAmount       Decimal             @map("min_amount") @db.Decimal(20, 2) // Minimum USD amount for this rate tier
+  maxAmount       Decimal?            @map("max_amount") @db.Decimal(20, 2) // Maximum USD amount (null for unlimited)
+  rate            Decimal             @db.Decimal(20, 2) // Rate in Naira per $1
+  isActive        Boolean             @default(true) @map("is_active")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
   history         CryptoRateHistory[]
 
   @@unique([transactionType, minAmount, maxAmount])
@@ -1029,15 +1047,15 @@ model CryptoRate {
 }
 
 model CryptoRateHistory {
-  id              Int       @id @default(autoincrement())
-  cryptoRateId    Int       @map("crypto_rate_id")
-  transactionType String    @map("transaction_type") @db.VarChar(50)
-  minAmount       Decimal   @map("min_amount") @db.Decimal(20, 2)
-  maxAmount       Decimal?  @map("max_amount") @db.Decimal(20, 2)
-  oldRate         Decimal?  @map("old_rate") @db.Decimal(20, 2)
-  newRate         Decimal   @map("new_rate") @db.Decimal(20, 2)
-  changedBy       Int?      @map("changed_by") // User ID who made the change
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id              Int        @id @default(autoincrement())
+  cryptoRateId    Int        @map("crypto_rate_id")
+  transactionType String     @map("transaction_type") @db.VarChar(50)
+  minAmount       Decimal    @map("min_amount") @db.Decimal(20, 2)
+  maxAmount       Decimal?   @map("max_amount") @db.Decimal(20, 2)
+  oldRate         Decimal?   @map("old_rate") @db.Decimal(20, 2)
+  newRate         Decimal    @map("new_rate") @db.Decimal(20, 2)
+  changedBy       Int?       @map("changed_by") // User ID who made the change
+  createdAt       DateTime   @default(now()) @map("created_at")
   cryptoRate      CryptoRate @relation(fields: [cryptoRateId], references: [id], onDelete: Cascade)
 
   @@index([cryptoRateId])
@@ -1048,28 +1066,28 @@ model CryptoRateHistory {
 
 // Central Crypto Transaction table
 model CryptoTransaction {
-  id               String            @id @default(uuid())
-  userId           Int               @map("user_id")
-  virtualAccountId Int?              @map("virtual_account_id")
-  transactionType  CryptoTxType      @map("transaction_type")
-  transactionId    String            @unique @map("transaction_id") @db.VarChar(255) // Unique transaction ID (e.g., "031pxtg2c101")
-  status           CryptoTxStatus    @default(pending)
-  currency         String            @db.VarChar(50)
-  blockchain       String            @db.VarChar(255)
-  createdAt        DateTime          @default(now()) @map("created_at")
-  updatedAt        DateTime          @updatedAt @map("updated_at")
-  
+  id               String         @id @default(uuid())
+  userId           Int            @map("user_id")
+  virtualAccountId Int?           @map("virtual_account_id")
+  transactionType  CryptoTxType   @map("transaction_type")
+  transactionId    String         @unique @map("transaction_id") @db.VarChar(255) // Unique transaction ID (e.g., "031pxtg2c101")
+  status           CryptoTxStatus @default(pending)
+  currency         String         @db.VarChar(50)
+  blockchain       String         @db.VarChar(255)
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
   // Relations to child tables
-  cryptoBuy        CryptoBuy?
-  cryptoSell       CryptoSell?
-  cryptoSend       CryptoSend?
-  cryptoReceive    CryptoReceive?
-  cryptoSwap       CryptoSwap?
-  
+  cryptoBuy     CryptoBuy?
+  cryptoSell    CryptoSell?
+  cryptoSend    CryptoSend?
+  cryptoReceive CryptoReceive?
+  cryptoSwap    CryptoSwap?
+
   // Relations
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  virtualAccount   VirtualAccount?   @relation(fields: [virtualAccountId], references: [id])
-  
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  virtualAccount VirtualAccount? @relation(fields: [virtualAccountId], references: [id])
+
   @@index([userId])
   @@index([virtualAccountId])
   @@index([transactionId])
@@ -1081,22 +1099,22 @@ model CryptoTransaction {
 
 // Crypto Buy Transaction
 model CryptoBuy {
-  id                  Int               @id @default(autoincrement())
-  cryptoTransactionId String            @unique @map("crypto_transaction_id") @db.VarChar(255)
-  fromAddress         String?           @map("from_address") @db.VarChar(255)
-  toAddress           String?           @map("to_address") @db.VarChar(255)
-  amount              Decimal           @db.Decimal(20, 8) // Crypto amount received
-  amountUsd           Decimal           @map("amount_usd") @db.Decimal(20, 8) // USD equivalent
-  amountNaira         Decimal           @map("amount_naira") @db.Decimal(20, 8) // NGN spent
-  rateNgnToUsd        Decimal?          @map("rate_ngn_to_usd") @db.Decimal(20, 8) // NGN to USD conversion rate (Naira per $1)
-  rateUsdToCrypto     Decimal?          @map("rate_usd_to_crypto") @db.Decimal(20, 8) // USD to Crypto conversion rate (crypto price in USD)
-  rate                Decimal?          @db.Decimal(20, 8) // Legacy field - kept for backward compatibility
-  txHash              String?           @unique @map("tx_hash") @db.VarChar(255)
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @updatedAt @map("updated_at")
-  
-  cryptoTransaction   CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
-  
+  id                  Int      @id @default(autoincrement())
+  cryptoTransactionId String   @unique @map("crypto_transaction_id") @db.VarChar(255)
+  fromAddress         String?  @map("from_address") @db.VarChar(255)
+  toAddress           String?  @map("to_address") @db.VarChar(255)
+  amount              Decimal  @db.Decimal(20, 8) // Crypto amount received
+  amountUsd           Decimal  @map("amount_usd") @db.Decimal(20, 8) // USD equivalent
+  amountNaira         Decimal  @map("amount_naira") @db.Decimal(20, 8) // NGN spent
+  rateNgnToUsd        Decimal? @map("rate_ngn_to_usd") @db.Decimal(20, 8) // NGN to USD conversion rate (Naira per $1)
+  rateUsdToCrypto     Decimal? @map("rate_usd_to_crypto") @db.Decimal(20, 8) // USD to Crypto conversion rate (crypto price in USD)
+  rate                Decimal? @db.Decimal(20, 8) // Legacy field - kept for backward compatibility
+  txHash              String?  @unique @map("tx_hash") @db.VarChar(255)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  cryptoTransaction CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
+
   @@index([cryptoTransactionId])
   @@index([txHash])
   @@map("crypto_buy")
@@ -1104,22 +1122,22 @@ model CryptoBuy {
 
 // Crypto Sell Transaction
 model CryptoSell {
-  id                  Int               @id @default(autoincrement())
-  cryptoTransactionId String            @unique @map("crypto_transaction_id") @db.VarChar(255)
-  fromAddress         String?           @map("from_address") @db.VarChar(255)
-  toAddress           String?           @map("to_address") @db.VarChar(255)
-  amount              Decimal           @db.Decimal(20, 8) // Crypto amount sold
-  amountUsd           Decimal           @map("amount_usd") @db.Decimal(20, 8) // USD equivalent
-  amountNaira         Decimal           @map("amount_naira") @db.Decimal(20, 8) // Amount received in Naira
-  rateCryptoToUsd     Decimal?          @map("rate_crypto_to_usd") @db.Decimal(20, 8) // Crypto to USD conversion rate (crypto price in USD)
-  rateUsdToNgn        Decimal?          @map("rate_usd_to_ngn") @db.Decimal(20, 8) // USD to NGN conversion rate (Naira per $1)
-  rate                Decimal?          @db.Decimal(20, 8) // Legacy field - kept for backward compatibility
-  txHash              String?           @unique @map("tx_hash") @db.VarChar(255)
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @updatedAt @map("updated_at")
-  
-  cryptoTransaction   CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
-  
+  id                  Int      @id @default(autoincrement())
+  cryptoTransactionId String   @unique @map("crypto_transaction_id") @db.VarChar(255)
+  fromAddress         String?  @map("from_address") @db.VarChar(255)
+  toAddress           String?  @map("to_address") @db.VarChar(255)
+  amount              Decimal  @db.Decimal(20, 8) // Crypto amount sold
+  amountUsd           Decimal  @map("amount_usd") @db.Decimal(20, 8) // USD equivalent
+  amountNaira         Decimal  @map("amount_naira") @db.Decimal(20, 8) // Amount received in Naira
+  rateCryptoToUsd     Decimal? @map("rate_crypto_to_usd") @db.Decimal(20, 8) // Crypto to USD conversion rate (crypto price in USD)
+  rateUsdToNgn        Decimal? @map("rate_usd_to_ngn") @db.Decimal(20, 8) // USD to NGN conversion rate (Naira per $1)
+  rate                Decimal? @db.Decimal(20, 8) // Legacy field - kept for backward compatibility
+  txHash              String?  @unique @map("tx_hash") @db.VarChar(255)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  cryptoTransaction CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
+
   @@index([cryptoTransactionId])
   @@index([txHash])
   @@map("crypto_sell")
@@ -1127,21 +1145,21 @@ model CryptoSell {
 
 // Crypto Send Transaction
 model CryptoSend {
-  id                  Int               @id @default(autoincrement())
-  cryptoTransactionId String            @unique @map("crypto_transaction_id") @db.VarChar(255)
-  fromAddress         String            @map("from_address") @db.VarChar(255)
-  toAddress           String            @map("to_address") @db.VarChar(255)
-  amount              Decimal           @db.Decimal(20, 8) // Crypto amount
-  amountUsd           Decimal           @map("amount_usd") @db.Decimal(20, 8)
-  amountNaira         Decimal?          @map("amount_naira") @db.Decimal(20, 8)
-  rate                Decimal?          @db.Decimal(20, 8) // NGN per USD rate
-  txHash              String            @unique @map("tx_hash") @db.VarChar(255)
-  networkFee          Decimal?          @map("network_fee") @db.Decimal(20, 8)
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @updatedAt @map("updated_at")
-  
-  cryptoTransaction   CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
-  
+  id                  Int      @id @default(autoincrement())
+  cryptoTransactionId String   @unique @map("crypto_transaction_id") @db.VarChar(255)
+  fromAddress         String   @map("from_address") @db.VarChar(255)
+  toAddress           String   @map("to_address") @db.VarChar(255)
+  amount              Decimal  @db.Decimal(20, 8) // Crypto amount
+  amountUsd           Decimal  @map("amount_usd") @db.Decimal(20, 8)
+  amountNaira         Decimal? @map("amount_naira") @db.Decimal(20, 8)
+  rate                Decimal? @db.Decimal(20, 8) // NGN per USD rate
+  txHash              String   @unique @map("tx_hash") @db.VarChar(255)
+  networkFee          Decimal? @map("network_fee") @db.Decimal(20, 8)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  cryptoTransaction CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
+
   @@index([cryptoTransactionId])
   @@index([txHash])
   @@index([fromAddress])
@@ -1151,22 +1169,22 @@ model CryptoSend {
 
 // Crypto Receive Transaction
 model CryptoReceive {
-  id                  Int               @id @default(autoincrement())
-  cryptoTransactionId String            @unique @map("crypto_transaction_id") @db.VarChar(255)
-  fromAddress         String            @map("from_address") @db.VarChar(255)
-  toAddress           String            @map("to_address") @db.VarChar(255)
-  amount              Decimal           @db.Decimal(20, 8) // Crypto amount received
-  amountUsd           Decimal           @map("amount_usd") @db.Decimal(20, 8)
-  amountNaira         Decimal?          @map("amount_naira") @db.Decimal(20, 8)
-  rate                Decimal?          @db.Decimal(20, 8) // NGN per USD rate
-  txHash              String            @unique @map("tx_hash") @db.VarChar(255)
-  blockNumber         BigInt?           @map("block_number")
-  confirmations       Int?              @default(0)
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @updatedAt @map("updated_at")
-  
-  cryptoTransaction   CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
-  
+  id                  Int      @id @default(autoincrement())
+  cryptoTransactionId String   @unique @map("crypto_transaction_id") @db.VarChar(255)
+  fromAddress         String   @map("from_address") @db.VarChar(255)
+  toAddress           String   @map("to_address") @db.VarChar(255)
+  amount              Decimal  @db.Decimal(20, 8) // Crypto amount received
+  amountUsd           Decimal  @map("amount_usd") @db.Decimal(20, 8)
+  amountNaira         Decimal? @map("amount_naira") @db.Decimal(20, 8)
+  rate                Decimal? @db.Decimal(20, 8) // NGN per USD rate
+  txHash              String   @unique @map("tx_hash") @db.VarChar(255)
+  blockNumber         BigInt?  @map("block_number")
+  confirmations       Int?     @default(0)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  cryptoTransaction CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
+
   @@index([cryptoTransactionId])
   @@index([txHash])
   @@index([toAddress])
@@ -1175,35 +1193,35 @@ model CryptoReceive {
 
 // Crypto Swap Transaction
 model CryptoSwap {
-  id                  Int               @id @default(autoincrement())
-  cryptoTransactionId String            @unique @map("crypto_transaction_id") @db.VarChar(255)
-  fromAddress         String?           @map("from_address") @db.VarChar(255)
-  toAddress           String?           @map("to_address") @db.VarChar(255)
+  id                  Int      @id @default(autoincrement())
+  cryptoTransactionId String   @unique @map("crypto_transaction_id") @db.VarChar(255)
+  fromAddress         String?  @map("from_address") @db.VarChar(255)
+  toAddress           String?  @map("to_address") @db.VarChar(255)
   // Asset being swapped FROM
-  fromCurrency        String            @map("from_currency") @db.VarChar(50)
-  fromBlockchain      String            @map("from_blockchain") @db.VarChar(255)
-  fromAmount          Decimal           @map("from_amount") @db.Decimal(20, 8) // Amount of fromCurrency being swapped
-  fromAmountUsd       Decimal           @map("from_amount_usd") @db.Decimal(20, 8) // USD value of fromAmount
+  fromCurrency        String   @map("from_currency") @db.VarChar(50)
+  fromBlockchain      String   @map("from_blockchain") @db.VarChar(255)
+  fromAmount          Decimal  @map("from_amount") @db.Decimal(20, 8) // Amount of fromCurrency being swapped
+  fromAmountUsd       Decimal  @map("from_amount_usd") @db.Decimal(20, 8) // USD value of fromAmount
   // Asset being swapped TO
-  toCurrency          String            @map("to_currency") @db.VarChar(50)
-  toBlockchain        String            @map("to_blockchain") @db.VarChar(255)
-  toAmount            Decimal           @map("to_amount") @db.Decimal(20, 8) // Amount of toCurrency received
-  toAmountUsd        Decimal           @map("to_amount_usd") @db.Decimal(20, 8) // USD value of toAmount
+  toCurrency          String   @map("to_currency") @db.VarChar(50)
+  toBlockchain        String   @map("to_blockchain") @db.VarChar(255)
+  toAmount            Decimal  @map("to_amount") @db.Decimal(20, 8) // Amount of toCurrency received
+  toAmountUsd         Decimal  @map("to_amount_usd") @db.Decimal(20, 8) // USD value of toAmount
   // Rates
-  rateFromToUsd       Decimal?          @map("rate_from_to_usd") @db.Decimal(20, 8) // From currency price in USD
-  rateToToUsd         Decimal?          @map("rate_to_to_usd") @db.Decimal(20, 8) // To currency price in USD
+  rateFromToUsd       Decimal? @map("rate_from_to_usd") @db.Decimal(20, 8) // From currency price in USD
+  rateToToUsd         Decimal? @map("rate_to_to_usd") @db.Decimal(20, 8) // To currency price in USD
   // Gas fees
-  gasFee              Decimal           @map("gas_fee") @db.Decimal(20, 8) // Gas fee in fromCurrency
-  gasFeeUsd           Decimal           @map("gas_fee_usd") @db.Decimal(20, 8) // Gas fee in USD
+  gasFee              Decimal  @map("gas_fee") @db.Decimal(20, 8) // Gas fee in fromCurrency
+  gasFeeUsd           Decimal  @map("gas_fee_usd") @db.Decimal(20, 8) // Gas fee in USD
   // Total
-  totalAmount         Decimal           @map("total_amount") @db.Decimal(20, 8) // fromAmount + gasFee
-  totalAmountUsd      Decimal           @map("total_amount_usd") @db.Decimal(20, 8) // Total in USD
-  txHash              String?           @unique @map("tx_hash") @db.VarChar(255)
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @updatedAt @map("updated_at")
-  
-  cryptoTransaction   CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
-  
+  totalAmount         Decimal  @map("total_amount") @db.Decimal(20, 8) // fromAmount + gasFee
+  totalAmountUsd      Decimal  @map("total_amount_usd") @db.Decimal(20, 8) // Total in USD
+  txHash              String?  @unique @map("tx_hash") @db.VarChar(255)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  cryptoTransaction CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
+
   @@index([cryptoTransactionId])
   @@index([txHash])
   @@index([fromCurrency])
