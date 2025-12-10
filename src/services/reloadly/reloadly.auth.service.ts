@@ -45,9 +45,16 @@ class ReloadlyAuthService {
 
       // Token expired or doesn't exist, fetch new one
       return await this.fetchNewToken();
-    } catch (error) {
-      console.error('Error getting access token:', error);
-      throw new Error('Failed to get Reloadly access token');
+    } catch (error: any) {
+      console.error('Error getting access token:', {
+        message: error?.message || 'Unknown error',
+        stack: error?.stack,
+        response: error?.response,
+        status: error?.status,
+        cause: error?.cause,
+        fullError: error,
+      });
+      throw new Error(`Failed to get Reloadly access token: ${error?.message || 'Unknown error'}`);
     }
   }
 
@@ -74,9 +81,26 @@ class ReloadlyAuthService {
       });
 
       if (!response.ok) {
-        const errorData: ReloadlyError = await response.json();
+        let errorData: ReloadlyError | any = {};
+        try {
+          const text = await response.text();
+          errorData = text ? JSON.parse(text) : {};
+        } catch (parseError) {
+          console.error('Failed to parse auth error response:', parseError);
+        }
+        
+        const errorMessage = errorData.error || errorData.message || response.statusText || 'Unknown error';
+        const errorDetails = {
+          status: response.status,
+          statusText: response.statusText,
+          errorData,
+          authUrl: `${reloadlyConfig.authUrl}/oauth/token`,
+        };
+        
+        console.error('Reloadly auth API error:', errorDetails);
+        
         throw new Error(
-          `Reloadly auth failed: ${errorData.error || errorData.message || response.statusText}`
+          `Reloadly auth failed: ${errorMessage} (${response.status})`
         );
       }
 
@@ -85,7 +109,10 @@ class ReloadlyAuthService {
       // Calculate expiration time
       const expiresAt = new Date();
       expiresAt.setSeconds(expiresAt.getSeconds() + data.expires_in);
-      
+      console.log('data', data);
+      console.log('expiresAt', expiresAt);
+      //log the token too
+      console.log('data.access_token', data.access_token);
       // Store token in database
       await prisma.reloadlyConfig.upsert({
         where: { environment: reloadlyConfig.environment },
@@ -105,8 +132,17 @@ class ReloadlyAuthService {
       });
 
       return data.access_token;
-    } catch (error) {
-      console.error('Error fetching new token:', error);
+    } catch (error: any) {
+      console.error('Error fetching new token from Reloadly:', {
+        message: error?.message || 'Unknown error',
+        stack: error?.stack,
+        response: error?.response,
+        status: error?.status,
+        statusText: error?.statusText,
+        errorData: error?.errorData,
+        cause: error?.cause,
+        fullError: error,
+      });
       throw error;
     }
   }

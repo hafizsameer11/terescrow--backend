@@ -28,7 +28,7 @@ class ReloadlyProductsService {
   async getProducts(params?: ReloadlyProductQueryParams): Promise<ReloadlyProductsResponse> {
     try {
       const token = await reloadlyAuthService.getAccessToken();
-      
+      console.log('token reloadly products', token);
       const queryParams = new URLSearchParams();
       if (params?.countryCode) queryParams.append('countryCode', params.countryCode);
       if (params?.productName) queryParams.append('productName', params.productName);
@@ -53,8 +53,9 @@ class ReloadlyProductsService {
           `Reloadly API error: ${errorData.error || errorData.message || response.statusText} (${response.status})`
         );
       }
-
+      // console.log('response reloadly products ', response.json());
       const data: ReloadlyProductsResponse = await response.json();
+      // console.log('data reloadly products', data);
       return data;
     } catch (error) {
       console.error('Error fetching products:', error);

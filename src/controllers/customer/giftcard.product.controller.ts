@@ -118,11 +118,31 @@ export const getProductsController = async (
         returned: formattedProducts.length,
       },
     }, 'Products retrieved successfully').send(res);
-  } catch (error) {
+  } catch (error: any) {
+    // Log detailed error information
+    console.error('Error in getProductsController:', {
+      message: error?.message || 'Unknown error',
+      stack: error?.stack,
+      response: error?.response?.data || error?.response,
+      status: error?.response?.status || error?.status,
+      statusText: error?.response?.statusText,
+      error: error?.error,
+      query: req.query,
+      fullError: error,
+    });
+
     if (error instanceof ApiError) {
       return next(error);
     }
-    next(ApiError.internal('Failed to fetch products from Reloadly'));
+    
+    const errorMessage = error?.message || 'Failed to fetch products from Reloadly';
+    console.error('Reloadly API error details:', {
+      errorMessage,
+      errorDetails: error?.response?.data || error?.error || error?.response,
+      status: error?.response?.status || error?.status,
+    });
+    
+    next(ApiError.internal(`Failed to fetch products from Reloadly: ${errorMessage}`));
   }
 };
 
@@ -333,7 +353,15 @@ export const getCountriesController = async (
   try {
     const countriesResponse = await reloadlyCountriesService.getCountries();
 
-    const formattedCountries = countriesResponse.content.map((country) => ({
+    // Service always returns ReloadlyCountriesResponse with content property
+    const countriesArray = countriesResponse.content || [];
+
+    if (!Array.isArray(countriesArray)) {
+      console.error('Unexpected countries response structure:', countriesResponse);
+      throw new Error('Invalid response structure from Reloadly countries API');
+    }
+
+    const formattedCountries = countriesArray.map((country) => ({
       isoName: country.isoName,
       name: country.name,
       currencyCode: country.currencyCode,
@@ -341,24 +369,45 @@ export const getCountriesController = async (
       flag: country.flag || null,
     }));
 
+    const totalElements = countriesResponse.totalElements || formattedCountries.length;
+
     return new ApiResponse(200, {
       countries: formattedCountries,
-      total: countriesResponse.totalElements || formattedCountries.length,
+      total: totalElements,
     }, 'Countries retrieved successfully').send(res);
-  } catch (error) {
+  } catch (error: any) {
+    // Log detailed error information
+    console.error('Error in getCountriesController:', {
+      message: error?.message || 'Unknown error',
+      stack: error?.stack,
+      response: error?.response?.data || error?.response,
+      status: error?.response?.status || error?.status,
+      statusText: error?.response?.statusText,
+      error: error?.error,
+      fullError: error,
+    });
+
     if (error instanceof ApiError) {
       return next(error);
     }
-    next(ApiError.internal('Failed to fetch countries from Reloadly'));
+    
+    // Include more details in the error message
+    const errorMessage = error?.message || 'Failed to fetch countries from Reloadly';
+    const errorDetails = error?.response?.data || error?.error || error?.response;
+    
+    console.error('Reloadly API error details:', {
+      errorMessage,
+      errorDetails,
+      status: error?.response?.status || error?.status,
+    });
+    
+    next(ApiError.internal(`Failed to fetch countries from Reloadly: ${errorMessage}`));
   }
 };
 
 /**
- * Get all categories from Reloadly products
+ * Get all categories from Reloadly
  * GET /api/v2/giftcards/categories
- * 
- * Note: Reloadly doesn't have a dedicated categories endpoint,
- * so we fetch a sample of products and extract unique categories
  */
 export const getCategoriesController = async (
   req: Request,
@@ -366,52 +415,43 @@ export const getCategoriesController = async (
   next: NextFunction
 ) => {
   try {
-    // Fetch products to extract unique categories
-    // We'll fetch multiple pages to get a comprehensive list
-    const categoriesSet = new Set<string>();
-    let currentPage = 1;
-    const maxPages = 10; // Fetch up to 10 pages to get all categories
+    const categories = await reloadlyCountriesService.getCategories();
 
-    for (let i = 0; i < maxPages; i++) {
-      try {
-        const response = await reloadlyProductsService.getProducts({
-          page: currentPage,
-          size: 200, // Max page size
-        });
-
-        // Extract unique categories from products
-        response.content.forEach((product) => {
-          if (product.productType) {
-            categoriesSet.add(product.productType);
-          }
-        });
-
-        // If we've reached the last page, break
-        if (currentPage >= (response.totalPages || 1)) {
-          break;
-        }
-
-        currentPage++;
-      } catch (error) {
-        // If error occurs, break and return what we have
-        break;
-      }
-    }
-
-    const categories = Array.from(categoriesSet).sort();
+    // Format response to match expected structure
+    const formattedCategories = categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      value: category.name, // For backward compatibility with product filtering
+    }));
 
     return new ApiResponse(200, {
-      categories: categories.map((category) => ({
-        name: category,
-        value: category,
-      })),
-      total: categories.length,
+      categories: formattedCategories,
+      total: formattedCategories.length,
     }, 'Categories retrieved successfully').send(res);
-  } catch (error) {
+  } catch (error: any) {
+    // Log detailed error information
+    console.error('Error in getCategoriesController:', {
+      message: error?.message || 'Unknown error',
+      stack: error?.stack,
+      response: error?.response?.data || error?.response,
+      status: error?.response?.status || error?.status,
+      statusText: error?.response?.statusText,
+      error: error?.error,
+      fullError: error,
+    });
+
     if (error instanceof ApiError) {
       return next(error);
     }
-    next(ApiError.internal('Failed to fetch categories from Reloadly'));
+    
+    const errorMessage = error?.message || 'Failed to fetch categories from Reloadly';
+    console.error('Reloadly API error details:', {
+      errorMessage,
+      errorDetails: error?.response?.data || error?.error || error?.response,
+      status: error?.response?.status || error?.status,
+    });
+    
+    next(ApiError.internal(`Failed to fetch categories from Reloadly: ${errorMessage}`));
   }
 };
 
