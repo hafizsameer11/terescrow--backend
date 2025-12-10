@@ -1066,7 +1066,7 @@ model CryptoRateHistory {
 
 // Central Crypto Transaction table
 model CryptoTransaction {
-  id               String         @id @default(uuid())
+  id               Int            @id @default(autoincrement())
   userId           Int            @map("user_id")
   virtualAccountId Int?           @map("virtual_account_id")
   transactionType  CryptoTxType   @map("transaction_type")
@@ -1100,7 +1100,7 @@ model CryptoTransaction {
 // Crypto Buy Transaction
 model CryptoBuy {
   id                  Int      @id @default(autoincrement())
-  cryptoTransactionId String   @unique @map("crypto_transaction_id") @db.VarChar(255)
+  cryptoTransactionId Int      @unique @map("crypto_transaction_id")
   fromAddress         String?  @map("from_address") @db.VarChar(255)
   toAddress           String?  @map("to_address") @db.VarChar(255)
   amount              Decimal  @db.Decimal(20, 8) // Crypto amount received
@@ -1123,7 +1123,7 @@ model CryptoBuy {
 // Crypto Sell Transaction
 model CryptoSell {
   id                  Int      @id @default(autoincrement())
-  cryptoTransactionId String   @unique @map("crypto_transaction_id") @db.VarChar(255)
+  cryptoTransactionId Int      @unique @map("crypto_transaction_id")
   fromAddress         String?  @map("from_address") @db.VarChar(255)
   toAddress           String?  @map("to_address") @db.VarChar(255)
   amount              Decimal  @db.Decimal(20, 8) // Crypto amount sold
@@ -1146,7 +1146,7 @@ model CryptoSell {
 // Crypto Send Transaction
 model CryptoSend {
   id                  Int      @id @default(autoincrement())
-  cryptoTransactionId String   @unique @map("crypto_transaction_id") @db.VarChar(255)
+  cryptoTransactionId Int      @unique @map("crypto_transaction_id")
   fromAddress         String   @map("from_address") @db.VarChar(255)
   toAddress           String   @map("to_address") @db.VarChar(255)
   amount              Decimal  @db.Decimal(20, 8) // Crypto amount
@@ -1170,7 +1170,7 @@ model CryptoSend {
 // Crypto Receive Transaction
 model CryptoReceive {
   id                  Int      @id @default(autoincrement())
-  cryptoTransactionId String   @unique @map("crypto_transaction_id") @db.VarChar(255)
+  cryptoTransactionId Int      @unique @map("crypto_transaction_id")
   fromAddress         String   @map("from_address") @db.VarChar(255)
   toAddress           String   @map("to_address") @db.VarChar(255)
   amount              Decimal  @db.Decimal(20, 8) // Crypto amount received
@@ -1194,7 +1194,7 @@ model CryptoReceive {
 // Crypto Swap Transaction
 model CryptoSwap {
   id                  Int      @id @default(autoincrement())
-  cryptoTransactionId String   @unique @map("crypto_transaction_id") @db.VarChar(255)
+  cryptoTransactionId Int      @unique @map("crypto_transaction_id")
   fromAddress         String?  @map("from_address") @db.VarChar(255)
   toAddress           String?  @map("to_address") @db.VarChar(255)
   // Asset being swapped FROM

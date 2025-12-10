@@ -112,7 +112,6 @@ class CryptoTransactionService {
 
     const cryptoTransaction = await prisma.cryptoTransaction.create({
       data: {
-        id: transactionId,
         userId,
         virtualAccountId,
         transactionType: 'BUY',
@@ -159,7 +158,6 @@ class CryptoTransactionService {
 
     const cryptoTransaction = await prisma.cryptoTransaction.create({
       data: {
-        id: transactionId,
         userId,
         virtualAccountId,
         transactionType: 'SELL',
@@ -206,7 +204,6 @@ class CryptoTransactionService {
 
     const cryptoTransaction = await prisma.cryptoTransaction.create({
       data: {
-        id: transactionId,
         userId,
         virtualAccountId,
         transactionType: 'SEND',
@@ -252,7 +249,6 @@ class CryptoTransactionService {
 
     const cryptoTransaction = await prisma.cryptoTransaction.create({
       data: {
-        id: transactionId,
         userId,
         virtualAccountId,
         transactionType: 'RECEIVE',
@@ -303,7 +299,6 @@ class CryptoTransactionService {
 
     const cryptoTransaction = await prisma.cryptoTransaction.create({
       data: {
-        id: transactionId,
         userId,
         virtualAccountId: fromVirtualAccountId, // Primary virtual account (the one being debited)
         transactionType: 'SWAP',
@@ -473,11 +468,13 @@ class CryptoTransactionService {
    */
   private formatTransaction(transaction: any) {
     const base = {
-      id: transaction.transactionId,
+      id: transaction.id, // Integer ID
+      transactionId: transaction.transactionId, // String transaction ID
       transactionType: transaction.transactionType,
       status: transaction.status,
       currency: transaction.currency,
       blockchain: transaction.blockchain,
+      symbol: transaction.virtualAccount?.walletCurrency?.symbol || null, // Currency symbol (icon path)
       createdAt: transaction.createdAt,
       updatedAt: transaction.updatedAt,
       tradeType: this.getTradeTypeLabel(transaction.transactionType),
@@ -494,6 +491,8 @@ class CryptoTransactionService {
         amountUsd: `$${transaction.cryptoBuy.amountUsd.toString()}`,
         amountNaira: `NGN${transaction.cryptoBuy.amountNaira.toString()}`,
         rate: transaction.cryptoBuy.rate ? `NGN${transaction.cryptoBuy.rate.toString()}/$` : null,
+        rateNgnToUsd: transaction.cryptoBuy.rateNgnToUsd ? transaction.cryptoBuy.rateNgnToUsd.toString() : null, // NGN to USD rate
+        rateUsdToCrypto: transaction.cryptoBuy.rateUsdToCrypto ? transaction.cryptoBuy.rateUsdToCrypto.toString() : null, // USD to Crypto rate
         txHash: transaction.cryptoBuy.txHash,
       };
     }
@@ -507,6 +506,8 @@ class CryptoTransactionService {
         amountUsd: `$${transaction.cryptoSell.amountUsd.toString()}`,
         youReceived: `NGN${transaction.cryptoSell.amountNaira.toString()}`,
         rate: transaction.cryptoSell.rate ? `NGN${transaction.cryptoSell.rate.toString()}/$` : null,
+        rateCryptoToUsd: transaction.cryptoSell.rateCryptoToUsd ? transaction.cryptoSell.rateCryptoToUsd.toString() : null, // Crypto to USD rate
+        rateUsdToNgn: transaction.cryptoSell.rateUsdToNgn ? transaction.cryptoSell.rateUsdToNgn.toString() : null, // USD to NGN rate
         txHash: transaction.cryptoSell.txHash,
       };
     }
@@ -544,6 +545,10 @@ class CryptoTransactionService {
     }
 
     if (transaction.cryptoSwap) {
+      // Get symbol for both currencies
+      const fromSymbol = transaction.virtualAccount?.walletCurrency?.symbol || null;
+      // For swap, we might need to get the toCurrency symbol from a different virtual account
+      // For now, we'll just use the base symbol
       return {
         ...base,
         from: transaction.cryptoSwap.fromAddress || 'Your Crypto wallet',
