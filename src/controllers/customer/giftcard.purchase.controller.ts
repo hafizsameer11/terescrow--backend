@@ -160,7 +160,7 @@ export const purchaseController = async (
         reloadlyOrderId: String(reloadlyOrder.transactionId),
         reloadlyTransactionId: String(reloadlyOrder.transactionId),
         reloadlyStatus: reloadlyOrder.status,
-        metadata: JSON.parse(JSON.stringify(reloadlyOrder)),
+        metadata: JSON.stringify(reloadlyOrder),
         completedAt: reloadlyOrder.status === 'SUCCESSFUL' ? new Date() : null,
       },
     });
