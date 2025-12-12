@@ -368,11 +368,6 @@ export const sendSupportChatMessageController = async (
   next: NextFunction
 ) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      throw ApiError.badRequest('Validation failed', errors.array());
-    }
-
     const authenticatedUser = req.body._user;
     if (!authenticatedUser || !authenticatedUser.id) {
       throw ApiError.unauthorized('User not authenticated');
@@ -382,9 +377,17 @@ export const sendSupportChatMessageController = async (
     const { chatId } = req.params;
     const { message, senderType = 'user' } = req.body;
 
-    // Validate message
-    if (!message || message.trim().length === 0) {
-      throw ApiError.badRequest('Message is required');
+    // Get image file if uploaded
+    const imageFile = (req as any).file;
+
+    // Validate message or image (at least one required)
+    if ((!message || message.trim().length === 0) && !imageFile) {
+      throw ApiError.badRequest('Message or image is required');
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      throw ApiError.badRequest('Validation failed', errors.array());
     }
 
     // Validate sender type
@@ -409,13 +412,22 @@ export const sendSupportChatMessageController = async (
       throw ApiError.badRequest('Cannot send messages to completed chat');
     }
 
+    // Prepare image URL if file uploaded
+    let imageUrl: string | null = null;
+    if (imageFile) {
+      // Construct the URL based on your server configuration
+      const baseUrl = process.env.BASE_URL || 'http://localhost:8000';
+      imageUrl = `${baseUrl}/uploads/${imageFile.filename}`;
+    }
+
     // Create message
     const chatMessage = await prisma.supportChatMessage.create({
       data: {
         supportChatId: chat.id,
         senderType: senderType as 'user' | 'support',
         senderId: userId,
-        message: message.trim(),
+        message: message ? message.trim() : '',
+        imageUrl,
         isRead: false,
       },
     });
@@ -441,6 +453,7 @@ export const sendSupportChatMessageController = async (
         senderType: chatMessage.senderType,
         senderId: chatMessage.senderId,
         message: chatMessage.message,
+        imageUrl: chatMessage.imageUrl,
         isRead: chatMessage.isRead,
         createdAt: chatMessage.createdAt,
       },

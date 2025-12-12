@@ -33,6 +33,8 @@ model User {
   kycTier2Verified     Boolean             @default(false)
   kycTier3Verified     Boolean             @default(false)
   kycTier4Verified     Boolean             @default(false)
+  referralCode         String?             @unique @db.VarChar(50)
+  referredBy           Int?
   AccountActivity      AccountActivity[]
   agent                Agent?
   groups               ChatGroup?
@@ -53,12 +55,17 @@ model User {
   receivedAssets       ReceivedAsset[]     @relation("ReceivedAssets")
   cryptoTransactions   CryptoTransaction[]
   userWallets          UserWallet[]
+  bankAccounts         UserBankAccount[]
+  referrals            User[]              @relation("UserReferrals")
+  referrer             User?               @relation("UserReferrals", fields: [referredBy], references: [id])
   customRole           CustomRole?         @relation(fields: [customRoleId], references: [id])
   means                WaysOfHearing?      @relation(fields: [meansId], references: [id])
   otps                 UserOTP?
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
+  @@index([referralCode])
+  @@index([referredBy])
 }
 
 model CustomRole {
@@ -738,6 +745,7 @@ model SupportChatMessage {
   senderType    SupportChatSenderType
   senderId      Int
   message       String                @db.Text
+  imageUrl      String?               @db.Text
   isRead        Boolean               @default(false)
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
@@ -747,6 +755,23 @@ model SupportChatMessage {
   @@index([senderType])
   @@index([createdAt])
   @@map("SupportChatMessage")
+}
+
+model UserBankAccount {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  accountName   String   @db.VarChar(255)
+  accountNumber String   @db.VarChar(50)
+  bankName      String   @db.VarChar(255)
+  bankCode      String   @db.VarChar(50)
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isDefault])
+  @@map("user_bank_accounts")
 }
 
 enum UserRoles {

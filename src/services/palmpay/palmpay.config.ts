@@ -27,9 +27,9 @@ class PalmPayConfigService {
     const env = this.getEnvironment();
     this.baseUrl =
       // env === 'production'?
-       'https://open-gw-prod.palmpay-inc.com';
+      //  'https://open-gw-prod.palmpay-inc.com';
       //   : 
-        // 'https://open-gw-daily.palmpay-inc.com';
+        'https://open-gw-daily.palmpay-inc.com';
 
     return this.baseUrl;
   }

@@ -92,3 +92,59 @@ export const getWalletTransactionsController = async (
   }
 };
 
+/**
+ * Get wallet transaction by ID
+ * GET /api/v2/wallets/transactions/:transactionId
+ */
+export const getWalletTransactionByIdController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const user = req.body._user;
+    const { transactionId } = req.params;
+
+    if (!transactionId) {
+      return next(ApiError.badRequest('Transaction ID is required'));
+    }
+
+    const transaction = await require('../../utils/prisma').prisma.fiatTransaction.findFirst({
+      where: {
+        id: transactionId,
+        userId: user.id, // Ensure user can only access their own transactions
+      },
+      include: {
+        wallet: {
+          select: {
+            id: true,
+            currency: true,
+          },
+        },
+        billPayment: {
+          select: {
+            id: true,
+            sceneCode: true,
+            billType: true,
+            billerId: true,
+            billerName: true,
+            rechargeAccount: true,
+            billReference: true,
+          },
+        },
+      },
+    });
+
+    if (!transaction) {
+      return next(ApiError.notFound('Transaction not found'));
+    }
+
+    return res.status(200).json(
+      new ApiResponse(200, { transaction }, 'Transaction retrieved successfully')
+    );
+  } catch (error: any) {
+    console.error('Get wallet transaction by ID error:', error);
+    return next(ApiError.internal(error.message || 'Failed to get transaction'));
+  }
+};
+

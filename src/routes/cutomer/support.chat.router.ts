@@ -14,6 +14,7 @@ import {
   markMessagesAsReadController,
 } from '../../controllers/customer/support.chat.controller';
 import { body } from 'express-validator';
+import upload from '../../middlewares/multer.middleware';
 
 const supportChatRouter = express.Router();
 
@@ -234,7 +235,11 @@ supportChatRouter.get('/chats/:chatId', authenticateUser, getSupportChatByIdCont
  *               message:
  *                 type: string
  *                 example: "I need help regarding gift cards"
- *                 description: Message content
+ *                 description: Message content (required if image not provided)
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Image file (optional, message or image required)
  *               senderType:
  *                 type: string
  *                 enum: [user, support]
@@ -243,6 +248,9 @@ supportChatRouter.get('/chats/:chatId', authenticateUser, getSupportChatByIdCont
  *                   Sender type.
  *                   - "user" for customer messages
  *                   - "support" for agent messages (requires agent role)
+ *     consumes:
+ *       - multipart/form-data
+ *       - application/json
  *     responses:
  *       201:
  *         description: Message sent successfully
@@ -256,8 +264,9 @@ supportChatRouter.get('/chats/:chatId', authenticateUser, getSupportChatByIdCont
 supportChatRouter.post(
   '/chats/:chatId/messages',
   authenticateUser,
+  upload.single('image'),
   [
-    body('message').isString().notEmpty().withMessage('Message is required'),
+    body('message').optional().isString().withMessage('Message must be a string'),
     body('senderType').optional().isIn(['user', 'support']).withMessage('Invalid sender type'),
   ],
   sendSupportChatMessageController

@@ -83,6 +83,32 @@ const registerCustomerController = async (
         id: parseInt(means) || 1,
       },
     })
+
+    // Generate unique referral code
+    function generateReferralCode(): string {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      let result = '';
+      for (let i = 0; i < 12; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return result;
+    }
+
+    let referralCode: string;
+    let isUnique = false;
+
+    // Ensure code is unique
+    while (!isUnique) {
+      referralCode = generateReferralCode();
+      const existing = await prisma.user.findUnique({
+        where: { referralCode },
+        select: { id: true },
+      });
+      if (!existing) {
+        isUnique = true;
+      }
+    }
+
     const newUser = await prisma.user.create({
       data: {
         firstname: firstName,
@@ -97,6 +123,7 @@ const registerCustomerController = async (
         profilePicture,
         meansId: selectMeans?.id || 1,
         role: UserRoles.customer,
+        referralCode: referralCode!,
       },
     });
 

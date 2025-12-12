@@ -36,6 +36,8 @@ import fiatWalletRouter from './routes/cutomer/fiat.wallet.router';
 import kycRouter from './routes/cutomer/kyc.router';
 import billPaymentRouter from './routes/cutomer/billpayment.router';
 import supportChatRouter from './routes/cutomer/support.chat.router';
+import bankAccountRouter from './routes/cutomer/bank.account.router';
+import referralRouter from './routes/cutomer/referral.router';
 
 // ============================================
 // V2 API Routes - Webhooks
@@ -173,6 +175,8 @@ app.use('/api/v2/wallets', fiatWalletRouter);
 app.use('/api/v2/kyc', kycRouter);
 app.use('/api/v2/bill-payments', billPaymentRouter);
 app.use('/api/v2/support', supportChatRouter);
+app.use('/api/v2/bank-accounts', bankAccountRouter);
+app.use('/api/v2/referrals', referralRouter);
 
 // ============================================
 // V2 API Routes - Webhooks
@@ -219,6 +223,9 @@ app.use('/.well-known', express.static(path.join(__dirname, '../public/.well-kno
 const customTagsSorter = (a: string, b: string) => {
   // Priority order: V2 routes first, then Admin, then others
   const getPriority = (tag: string) => {
+    // Top priority routes (appear first)
+    if (tag === 'V2 - Bank Accounts') return -2;
+    if (tag === 'V2 - Referrals') return -1;
     // V2 Crypto flows in specific order
     if (tag === 'V2 - Crypto - Buy') return 0;
     if (tag === 'V2 - Crypto - Sell') return 1;

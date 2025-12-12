@@ -6,13 +6,16 @@ const swaggerDefinition: SwaggerDefinition = {
   info: {
     title: 'TereScrow Backend API',
     version: '2.0.0',
-    description: 'Complete API documentation for TereScrow Backend - Escrow platform for gift cards and crypto trading. V2 APIs include: Gift Cards, PIN Management',
+    description: 'Complete API documentation for TereScrow Backend - Escrow platform for gift cards and crypto trading. V2 APIs include: Bank Accounts, Referrals, Wallet Transactions, Gift Cards, Bill Payments, Support Chat, KYC Management, and more.',
     contact: {
       name: 'API Support',
       email: 'support@tercescrow.io',
     },
   },
   tags: [
+    // V2 API Routes - Top Priority (Bank Accounts, Referrals, Wallet Transactions)
+    { name: 'V2 - Bank Accounts', description: 'Bank account management endpoints' },
+    { name: 'V2 - Referrals', description: 'Referral code and statistics endpoints' },
     // V2 API Routes - Crypto (Grouped by Flow)
     { name: 'V2 - Crypto - Buy', description: 'Buy cryptocurrency flow: currencies → quote → preview → buy' },
     { name: 'V2 - Crypto - Sell', description: 'Sell cryptocurrency flow: currencies → quote → preview → sell' },
