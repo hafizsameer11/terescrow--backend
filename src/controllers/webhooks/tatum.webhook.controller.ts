@@ -59,12 +59,16 @@ export const tatumWebhookController = async (
       .then(async (result) => {
         if (rawWebhookId) {
           try {
+            const errorMessage = result.processed === false && 'reason' in result 
+              ? (result as { processed: false; reason: string }).reason || 'Not processed'
+              : null;
+
             await prisma.tatumRawWebhook.update({
               where: { id: rawWebhookId },
               data: {
                 processed: true,
                 processedAt: new Date(),
-                ...(result.processed === false ? { errorMessage: result.reason || 'Not processed' } : {}),
+                ...(errorMessage ? { errorMessage } : {}),
               },
             });
             tatumLogger.info(`Marked raw webhook ${rawWebhookId} as processed`, { rawWebhookId, result });

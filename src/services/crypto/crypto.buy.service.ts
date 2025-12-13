@@ -132,18 +132,27 @@ class CryptoBuyService {
       throw new Error('Insufficient fiat balance');
     }
 
-    // Get virtual account (outside transaction)
+    // Get virtual account with deposit address (outside transaction)
     const virtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
         currency: currency.toUpperCase(),
         blockchain: blockchain.toLowerCase(),
       },
+      include: {
+        depositAddresses: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+        },
+      },
     });
 
     if (!virtualAccount) {
       throw new Error(`Virtual account not found for ${currency} on ${blockchain}. Please contact support.`);
     }
+
+    // Get deposit address for blockchain transfers
+    const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
 
     const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
     const cryptoBalanceAfter = cryptoBalanceBefore.plus(amountCryptoDecimal);
@@ -278,15 +287,15 @@ class CryptoBuyService {
             throw new Error('Master wallet not found or missing private key for Ethereum');
           }
 
-          if (!virtualAccount.address) {
-            throw new Error('Virtual account address not found');
+          if (!depositAddress) {
+            throw new Error('Deposit address not found for virtual account. Please contact support.');
           }
 
           // Estimate gas fee
           const gasEstimateResult = await ethereumGasService.estimateGasFee(
             masterWallet.address,
-            virtualAccount.address,
-            amountCrypto.toString(),
+            depositAddress,
+            amountCryptoDecimal.toString(),
             false // mainnet
           );
 
@@ -315,8 +324,8 @@ class CryptoBuyService {
 
           cryptoLogger.gasEstimate({
             from: masterWallet.address,
-            to: virtualAccount.address,
-            amount: amountCrypto.toString(),
+            to: depositAddress,
+            amount: amountCryptoDecimal.toString(),
             currency: currency.toUpperCase(),
             gasLimit,
             gasPriceGwei,
@@ -330,16 +339,16 @@ class CryptoBuyService {
             userId,
             transactionId: `BUY-${Date.now()}-${userId}`,
             from: masterWallet.address,
-            to: virtualAccount.address,
-            amount: amountCrypto.toString(),
+            to: depositAddress,
+            amount: amountCryptoDecimal.toString(),
             currency: currency.toUpperCase(),
             gasLimit,
             gasPriceGwei,
           });
 
           txHash = await ethereumTransactionService.sendTransaction(
-            virtualAccount.address,
-            amountCrypto.toString(),
+            depositAddress,
+            amountCryptoDecimal.toString(),
             currency.toUpperCase(),
             masterWallet.privateKey,
             gasPriceGwei,
@@ -350,7 +359,7 @@ class CryptoBuyService {
           cryptoLogger.transfer('OUTGOING_SUCCESS', {
             userId,
             txHash,
-            amount: amountCrypto.toString(),
+            amount: amountCryptoDecimal.toString(),
             currency: currency.toUpperCase(),
           });
         } catch (error: any) {
@@ -358,7 +367,7 @@ class CryptoBuyService {
             userId,
             currency,
             blockchain,
-            amount: amountCrypto.toString(),
+            amount: amountCryptoDecimal.toString(),
             note: 'Fiat wallet has been debited but blockchain transfer failed. Manual intervention may be required.',
           });
         }
@@ -393,7 +402,7 @@ class CryptoBuyService {
               rateNgnToUsd: new Decimal(usdToNgnRate.rate.toString()),
               rateUsdToCrypto: cryptoPrice,
               fromAddress: masterWalletAddress,
-              toAddress: txHash ? virtualAccount.address : null,
+              toAddress: txHash ? depositAddress : null,
               txHash: txHash, // Store transaction hash in CryptoBuy model
             },
           },
@@ -531,11 +540,20 @@ class CryptoBuyService {
         currency: currency.toUpperCase(),
         blockchain: blockchain.toLowerCase(),
       },
+      include: {
+        depositAddresses: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+        },
+      },
     });
 
     if (!virtualAccount) {
       throw new Error(`Virtual account not found for ${currency} on ${blockchain}`);
     }
+
+    // Get deposit address for blockchain transfers
+    const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
 
     const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
 
@@ -565,7 +583,7 @@ class CryptoBuyService {
           where: { blockchain: 'ethereum' },
         });
 
-        if (masterWallet && masterWallet.address && virtualAccount.address) {
+        if (masterWallet && masterWallet.address && depositAddress) {
           // Check master wallet balance
           if (currency.toUpperCase() === 'ETH') {
             masterWalletBalance = await ethereumBalanceService.getETHBalance(masterWallet.address, false);
@@ -592,8 +610,8 @@ class CryptoBuyService {
           const gasPrice = await ethereumGasService.getGasPrice(false);
           const gasEstimateResult = await ethereumGasService.estimateGasFee(
             masterWallet.address,
-            virtualAccount.address,
-            amountCrypto.toString(),
+            depositAddress,
+            amountCryptoDecimal.toString(),
             false
           );
 
