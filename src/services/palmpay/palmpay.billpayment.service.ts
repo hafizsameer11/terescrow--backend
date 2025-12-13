@@ -105,7 +105,7 @@ class PalmPayBillPaymentService {
         }
       );
 
-      palmpayLogger.apiCall('/api/v2/bill-payment/item/query', undefined, response.data);
+      palmpayLogger.apiCall('/api/v2/bill-payment/item/query', request, response.data);
       return response.data;
     } catch (error: any) {
       palmpayLogger.apiCall('/api/v2/bill-payment/item/query', request, undefined, error);
