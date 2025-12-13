@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { execSync } from 'child_process';
 import {
   PalmPayQueryBankListRequest,
   PalmPayQueryBankAccountRequest,
@@ -78,7 +79,8 @@ class PalmPayBanksService {
    */
   async queryBankAccount(bankCode: string, bankAccNo: string): Promise<PalmPayQueryBankAccountResponse> {
     const requestTime = palmpayAuth.getRequestTime();
-    const version = palmpayConfig.getVersion();
+    // Try V1.1 version for this endpoint (some PalmPay endpoints require V1.1 instead of V2)
+    const version = 'V1.1';
     const nonceStr = palmpayAuth.generateNonce();
 
     // Remove spaces and special characters from account number
@@ -94,35 +96,75 @@ class PalmPayBanksService {
 
     // Generate signature
     const signature = palmpayAuth.generateSignature(request);
-    const headers = palmpayAuth.getRequestHeaders(signature);
+    const config = palmpayConfig.getConfig();
+    const endpoint = `${this.baseUrl}/api/v2/payment/merchant/payout/queryBankAccount`;
+
+    // Prepare the exact JSON payload string (must match byte-for-byte)
+    const payload = JSON.stringify({
+      requestTime,
+      version,
+      nonceStr,
+      bankCode,
+      bankAccNo: cleanAccountNo,
+    });
 
     try {
-      console.log('request palmpay banks service', request,'signature', signature);
-      const response = await axios.post<PalmPayBaseResponse<PalmPayQueryBankAccountResponse>>(
-        `${this.baseUrl}/api/v2/payment/merchant/payout/queryBankAccount`,
-        request,
-        { headers }
-      );
-      console.log('response palmpay banks service', response.data);
-      if (response.data.respCode !== '00000000') {
-        console.log('response palmpay banks service error', response.data);
-        throw new Error(`PalmPay API error: ${response.data.respMsg} (${response.data.respCode})`);
-      }
-      console.log('response palmpay banks service data', response.data.data);
-      if (!response.data.data) {
+      console.log('queryBankAccount - Using curl for exact byte matching');
+      console.log('Request payload:', payload);
+      console.log('Endpoint:', endpoint);
+
+      // Build curl command with exact payload
+      // Escape single quotes in payload for shell safety
+      const escapedPayload = payload.replace(/'/g, "'\"'\"'");
       
+      const curlCommand = `curl --location '${endpoint}' ` +
+        `--header 'Accept: application/json, text/plain, */*' ` +
+        `--header 'CountryCode: ${config.countryCode}' ` +
+        `--header 'Authorization: Bearer ${config.apiKey}' ` +
+        `--header 'Signature: ${signature}' ` +
+        `--header 'Content-Type: application/json' ` +
+        `--data '${escapedPayload}'`;
+
+      console.log('Executing curl command...');
+      const curlOutput = execSync(curlCommand, { 
+        encoding: 'utf-8',
+        maxBuffer: 10 * 1024 * 1024 // 10MB buffer
+      }).trim();
+
+      console.log('Curl response:', curlOutput);
+
+      // Parse the JSON response
+      const response = JSON.parse(curlOutput) as PalmPayBaseResponse<PalmPayQueryBankAccountResponse>;
+
+      if (response.respCode !== '00000000') {
+        throw new Error(`PalmPay API error: ${response.respMsg} (${response.respCode})`);
+      }
+
+      if (!response.data) {
         throw new Error('PalmPay API returned no data');
       }
 
-      return response.data.data;
-    } catch (error: any) {
-      if (error.response) {
-        console.log('response palmpay banks service error', error.response.data);
-        throw new Error(
-          `PalmPay API error: ${error.response.data?.respMsg || error.message} (${error.response.data?.respCode || 'UNKNOWN'})`
-        );
+      // Normalize the response - PalmPay returns Status (capital S) but our code expects status
+      const responseData = response.data;
+      if (responseData.Status && !responseData.status) {
+        responseData.status = responseData.Status;
       }
-      throw error;
+
+      return responseData;
+    } catch (error: any) {
+      console.error('queryBankAccount curl error:', error);
+      
+      // If it's a parsing error, log the raw output
+      if (error instanceof SyntaxError && error.message.includes('JSON')) {
+        throw new Error(`Failed to parse PalmPay response: ${error.message}`);
+      }
+
+      // If execSync error, extract stderr
+      if (error.stderr) {
+        throw new Error(`Curl execution error: ${error.stderr.toString()}`);
+      }
+
+      throw new Error(error.message || 'Failed to query bank account');
     }
   }
 
@@ -175,4 +217,5 @@ class PalmPayBanksService {
 
 // Export singleton instance
 export const palmpayBanks = new PalmPayBanksService();
+
 

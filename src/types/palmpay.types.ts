@@ -129,7 +129,8 @@ export interface PalmPayBankInfo {
 }
 
 export interface PalmPayQueryBankAccountResponse {
-  status: string; // "Success" or "Failed"
+  Status?: string; // "Success" or "Failed" (PalmPay returns capital S)
+  status?: string; // Fallback for lowercase (some responses may use lowercase)
   accountName: string; // Full name of account
   errorMessage?: string; // Error message if status is "Failed"
 }
