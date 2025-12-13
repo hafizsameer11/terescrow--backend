@@ -59,9 +59,13 @@ class EthereumTransactionService {
     gasLimit?: string,
     testnet: boolean = false
   ): Promise<string> {
-    try {
-      const cleanTo = to.startsWith('0x') ? to : `0x${to}`;
+    // Declare variables outside try block so they're accessible in catch
+    const cleanTo = to.startsWith('0x') ? to : `0x${to}`;
+    const endpoint = testnet 
+      ? `${this.baseUrl}/ethereum/transaction?testnetType=ethereum-sepolia`
+      : `${this.baseUrl}/ethereum/transaction`;
 
+    try {
       const requestBody: EthereumTransactionRequest = {
         to: cleanTo,
         amount: amount.toString(),
@@ -76,10 +80,6 @@ class EthereumTransactionService {
           gasLimit: gasLimit.toString(),
         };
       }
-
-      const endpoint = testnet 
-        ? `${this.baseUrl}/ethereum/transaction?testnetType=ethereum-sepolia`
-        : `${this.baseUrl}/ethereum/transaction`;
 
       cryptoLogger.apiCall('Tatum', endpoint, {
         to: cleanTo,
