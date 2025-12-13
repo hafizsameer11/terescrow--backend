@@ -180,6 +180,10 @@ class CryptoSellService {
     let userEthBalance = new Decimal('0');
     let ethNeededForGas = new Decimal('0');
     let masterWalletAddress: string | null = null;
+    let ethToSend: Decimal = new Decimal('0');
+
+    // Get user's fiat wallet (needed for retry job enqueue)
+    const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
 
     // Step 1: Check ETH balance and calculate gas fees
     if (blockchain.toLowerCase() === 'ethereum' && currency.toUpperCase() === 'USDT') {
@@ -605,8 +609,7 @@ class CryptoSellService {
       throw new Error('Amount after gas fees is zero or negative. Gas fees exceed the sell amount.');
     }
 
-    // Get user's fiat wallet (outside transaction)
-    const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
+    // fiatWallet already retrieved earlier (before blockchain transfers) for retry job enqueue
     const balanceBefore = new Decimal(fiatWallet.balance);
     const balanceAfter = balanceBefore.plus(finalAmountNgnDecimal);
 
@@ -892,6 +895,13 @@ class CryptoSellService {
     let ethNeededNgn = new Decimal('0');
     let userEthBalance = new Decimal('0');
     let gasEstimate: any = null;
+    
+    // Initialize ETH transfer gas fee variables (outside if block for scope)
+    let ethTransferGasFeeEth = new Decimal('0');
+    let ethTransferGasFeeUsd = new Decimal('0');
+    let ethGasLimit = 0;
+    let ethGasPriceWei = '0';
+    let ethToSendPreview: Decimal = new Decimal('0');
 
     // For USDT ERC-20: Check ETH balance FIRST, then calculate gas fees
     if (blockchain.toLowerCase() === 'ethereum' && currency.toUpperCase() === 'USDT') {
@@ -990,7 +1000,7 @@ class CryptoSellService {
 
           // Estimate gas for ETH transfer (master wallet to user)
           // Calculate how much ETH to send: minimum needed + small safety margin
-          const ethToSendPreview = minimumEthNeeded.plus(new Decimal('0.0001')); // Small safety margin (0.1 mETH)
+          ethToSendPreview = minimumEthNeeded.plus(new Decimal('0.0001')); // Small safety margin (0.1 mETH)
           
           // STEP 3: Calculate ETH transfer gas fee (with buffer) and convert to USD → NGN
           console.log('[CRYPTO SELL PREVIEW] Step 3: Estimating gas for ETH transfer to user');
@@ -1002,18 +1012,18 @@ class CryptoSellService {
             false // mainnet
           );
 
-          let ethGasLimit = parseInt(ethTransferGasEstimate.gasLimit);
+          ethGasLimit = parseInt(ethTransferGasEstimate.gasLimit);
           ethGasLimit = Math.ceil(ethGasLimit * 1.1); // Add 10% buffer for ETH transfer
 
-          const ethGasPriceWei = ethTransferGasEstimate.gasPrice;
-          const ethTransferGasFeeEth = new Decimal(ethereumGasService.calculateTotalFee(
+          ethGasPriceWei = ethTransferGasEstimate.gasPrice;
+          ethTransferGasFeeEth = new Decimal(ethereumGasService.calculateTotalFee(
             ethGasLimit.toString(),
             ethGasPriceWei
           ));
 
           // Convert ETH transfer gas fee: ETH → USD → NGN
           // Step 1: ETH to USD (using ETH price)
-          const ethTransferGasFeeUsd = ethTransferGasFeeEth.mul(ethPrice);
+          ethTransferGasFeeUsd = ethTransferGasFeeEth.mul(ethPrice);
           // Step 2: USD to NGN (using USD to NGN rate from quote)
           ethTransferGasFeeNgn = ethTransferGasFeeUsd.mul(new Decimal(quote.rateUsdToNgn));
 
