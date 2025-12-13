@@ -38,19 +38,37 @@ async function clearQueue(queueName: string, status?: string) {
         queue.getDelayed(),
       ]);
 
-      // Remove all jobs
-      await Promise.all([
+      // CRITICAL: Never remove active jobs in production
+      if (process.env.NODE_ENV === 'production' && active.length > 0) {
+        console.error('ERROR: Cannot remove active jobs in production. This is a safety measure.');
+        console.error(`Found ${active.length} active jobs. Active jobs may be processing critical operations.`);
+        console.error('Use specific status flags to clear only waiting/completed/failed jobs.');
+        await queue.close();
+        process.exit(1);
+      }
+
+      // Remove jobs (skip active in production, allow in dev/test)
+      const removePromises = [
         ...waiting.map((job) => job.remove()),
-        ...active.map((job) => job.remove()),
         ...completed.map((job) => job.remove()),
         ...failed.map((job) => job.remove()),
         ...delayed.map((job) => job.remove()),
-      ]);
+      ];
 
-      cleared = waiting.length + active.length + completed.length + failed.length + delayed.length;
+      // Only remove active jobs in non-production
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('WARNING: Removing active jobs. This should never be done in production!');
+        removePromises.push(...active.map((job) => job.remove()));
+      } else {
+        console.warn(`Skipping ${active.length} active jobs (production safety)`);
+      }
+
+      await Promise.all(removePromises);
+
+      cleared = waiting.length + (process.env.NODE_ENV !== 'production' ? active.length : 0) + completed.length + failed.length + delayed.length;
       console.log(`[Clear Queue] Cleared ${cleared} jobs from queue "${queueName}"`);
       console.log(`  - Waiting: ${waiting.length}`);
-      console.log(`  - Active: ${active.length}`);
+      console.log(`  - Active: ${active.length} ${process.env.NODE_ENV === 'production' ? '(skipped for safety)' : '(removed)'}`);
       console.log(`  - Completed: ${completed.length}`);
       console.log(`  - Failed: ${failed.length}`);
       console.log(`  - Delayed: ${delayed.length}`);
@@ -66,6 +84,15 @@ async function clearQueue(queueName: string, status?: string) {
           statusLabel = 'waiting';
           break;
         case 'active':
+          // CRITICAL: Never remove active jobs in production
+          if (process.env.NODE_ENV === 'production') {
+            console.error('ERROR: Cannot remove active jobs in production. This is a safety measure.');
+            console.error('Active jobs may be processing payments or blockchain transactions.');
+            console.error('Removing them can cause data loss, double refunds, or corrupted state.');
+            await queue.close();
+            process.exit(1);
+          }
+          console.warn('WARNING: Removing active jobs. This should never be done in production!');
           jobs = await queue.getActive();
           statusLabel = 'active';
           break;

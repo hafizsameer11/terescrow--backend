@@ -5,6 +5,7 @@ import { palmpayAuth } from '../../services/palmpay/palmpay.auth.service';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { PalmPayDepositWebhook, PalmPayPayoutWebhook, PalmPayOrderStatus, PalmPayBillPaymentWebhook } from '../../types/palmpay.types';
 import { Decimal } from '@prisma/client/runtime/library';
+import palmpayLogger from '../../utils/palmpay.logger';
 
 /**
  * PalmPay Webhook Handler
@@ -19,15 +20,17 @@ export const palmpayWebhookController = async (
   next: NextFunction
 ) => {
   // ============================================
-  // ✅ SAVE RAW WEBHOOK ONLY
+  // ✅ SAVE RAW WEBHOOK IMMEDIATELY
   // ============================================
 
   let rawWebhookId: number | null = null;
 
   try {
+    const webhookData = req.body;
+    
     const rawWebhook = await prisma.palmPayRawWebhook.create({
       data: {
-        rawData: JSON.stringify(req.body),
+        rawData: JSON.stringify(webhookData),
         headers: JSON.stringify(req.headers),
         ipAddress: req.ip || req.socket.remoteAddress || null,
         userAgent: req.get("user-agent") || null,
@@ -36,9 +39,18 @@ export const palmpayWebhookController = async (
     });
 
     rawWebhookId = rawWebhook.id;
-    console.log(`Saved raw PalmPay webhook (ID: ${rawWebhookId})`);
-  } catch (saveError) {
-    console.error("Failed to save raw PalmPay webhook:", saveError);
+    palmpayLogger.webhookReceived(webhookData, req.headers, req.ip);
+    palmpayLogger.info(`Saved raw PalmPay webhook (ID: ${rawWebhookId})`, {
+      rawWebhookId,
+      orderNo: webhookData?.orderNo,
+      outOrderNo: webhookData?.outOrderNo,
+      orderStatus: webhookData?.orderStatus,
+    });
+  } catch (saveError: any) {
+    palmpayLogger.exception('Save raw PalmPay webhook', saveError, {
+      webhookData: req.body?.orderNo || req.body?.outOrderNo || 'unknown',
+    });
+    // Continue even if save fails - don't block webhook receipt
   }
 
   // ============================================
@@ -68,11 +80,15 @@ export const palmpayWebhookController = async (
         where: { id: rawWebhookId },
         data: { processed: true, processedAt: new Date() },
       });
+      palmpayLogger.info(`Marked raw webhook ${rawWebhookId} as processed`, { rawWebhookId });
     }
 
     return res.status(200).send("success");
   } catch (error: any) {
-    console.error("PalmPay webhook error:", error);
+    palmpayLogger.exception('Process PalmPay webhook', error, {
+      rawWebhookId,
+      webhookData: req.body?.orderNo || 'unknown',
+    });
 
     if (rawWebhookId) {
       await prisma.palmPayRawWebhook.update({

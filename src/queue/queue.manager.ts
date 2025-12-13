@@ -47,6 +47,7 @@ class QueueManager {
           type: 'exponential',
           delay: 2000, // Start with 2 second delay
         },
+        timeout: 60000, // Job timeout: 60 seconds (prevents hanging jobs)
       },
       ...options,
     };

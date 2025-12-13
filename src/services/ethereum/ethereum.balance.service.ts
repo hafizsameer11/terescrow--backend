@@ -5,6 +5,7 @@
  */
 
 import axios from 'axios';
+import cryptoLogger from '../../utils/crypto.logger';
 
 interface EthereumBalanceResponse {
   balance: string; // Balance in wei (can be decimal string or hex string)
@@ -77,9 +78,15 @@ class EthereumBalanceService {
         balanceEth = Number(balanceWei) / 1e18;
       }
 
-      return balanceEth.toString();
+      const balance = balanceEth.toString();
+      cryptoLogger.balanceCheck(address, balance, 'ETH', { testnet });
+      return balance;
     } catch (error: any) {
-      console.error('Error fetching ETH balance:', error.response?.data || error.message);
+      cryptoLogger.exception('Fetch ETH balance', error, {
+        address,
+        testnet,
+        apiResponse: error.response?.data,
+      });
       throw new Error(`Failed to fetch ETH balance: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -114,8 +121,7 @@ class EthereumBalanceService {
       // Note: This endpoint returns balances already in human-readable format
       // e.g., [{ contractAddress: "0x...", amount: "30" }]
 
-      console.log('ERC-20 Balance Request (Tatum API):', {
-        endpoint,
+      cryptoLogger.apiCall('Tatum', endpoint, {
         contractAddress: cleanContractAddress,
         walletAddress: cleanWalletAddress,
       });
@@ -127,7 +133,7 @@ class EthereumBalanceService {
         },
       });
 
-      console.log('ERC-20 Balance Response (all tokens):', JSON.stringify(response.data, null, 2));
+      cryptoLogger.apiCall('Tatum', endpoint, undefined, response.data);
 
       // Find the specific token by contract address
       const tokenBalance = response.data.find(
@@ -135,11 +141,18 @@ class EthereumBalanceService {
       );
 
       if (!tokenBalance) {
-        console.log(`Token ${cleanContractAddress} not found in response. Returning 0.`);
+        cryptoLogger.warn(`Token ${cleanContractAddress} not found in response`, {
+          walletAddress: cleanWalletAddress,
+          availableTokens: response.data.map(t => t.contractAddress),
+        });
         return '0';
       }
 
-      console.log('Found token balance:', tokenBalance);
+      cryptoLogger.balanceCheck(walletAddress, tokenBalance.amount, 'ERC-20', {
+        contractAddress: cleanContractAddress,
+        decimals,
+        testnet,
+      });
       return tokenBalance.amount;
     } catch (error: any) {
       console.error('Error fetching ERC-20 balance:', error.response?.data || error.message);

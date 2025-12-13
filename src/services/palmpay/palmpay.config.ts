@@ -180,7 +180,7 @@ class PalmPayConfigService {
    * Get webhook URL
    */
   getWebhookUrl(): string {
-    return process.env.PALMPAY_WEBHOOK_URL || 'https://tercescrow-v2.hmstech.xyz/api/v2/webhooks/palmpay';
+    return process.env.PALMPAY_WEBHOOK_URL || 'https://backend.tercescrow.site/api/v2/webhooks/palmpay';
   }
 
   /**

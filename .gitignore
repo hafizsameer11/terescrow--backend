@@ -67,5 +67,6 @@ src/service-account.json
 
 # Generated keys (keep secure, never commit!)
 keys/
+logs/
 *.pem
 *-key*.txt

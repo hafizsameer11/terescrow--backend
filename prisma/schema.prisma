@@ -683,6 +683,9 @@ model BillPayment {
   providerResponse String?         @db.LongText
   errorMessage     String?         @db.Text
   retryCount       Int             @default(0)
+  refunded         Boolean         @default(false) // Idempotency flag to prevent double refunds
+  refundedAt       DateTime?
+  refundReason     String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   completedAt      DateTime?
@@ -1044,6 +1047,24 @@ model PalmPayRawWebhook {
   @@index([processed])
   @@index([createdAt])
   @@map("palm_pay_raw_webhooks")
+}
+
+// Raw Tatum webhook data storage
+model TatumRawWebhook {
+  id           Int       @id @default(autoincrement())
+  rawData      String    @map("raw_data") @db.LongText // JSON string of the entire webhook payload
+  headers      String?   @db.Text // JSON string of request headers
+  ipAddress    String?   @map("ip_address") @db.VarChar(255)
+  userAgent    String?   @map("user_agent") @db.VarChar(500)
+  processed    Boolean   @default(false) // Whether the webhook has been processed
+  processedAt  DateTime? @map("processed_at")
+  errorMessage String?   @map("error_message") @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([processed])
+  @@index([createdAt])
+  @@map("tatum_raw_webhooks")
 }
 
 model ReceivedAsset {

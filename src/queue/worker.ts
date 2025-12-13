@@ -45,6 +45,7 @@ class QueueWorker {
           type: 'exponential',
           delay: 2000, // Start with 2 second delay
         },
+        timeout: 60000, // Job timeout: 60 seconds (prevents hanging jobs)
       },
     });
 
@@ -54,7 +55,16 @@ class QueueWorker {
         jobName,
         parseInt(process.env.QUEUE_CONCURRENCY || '1'),
         async (job: Job) => {
-          await processor(job);
+          // Add timeout to prevent jobs from hanging forever
+          const timeout = job.opts.timeout || 60000; // Default 60 seconds
+          return Promise.race([
+            processor(job),
+            new Promise((_, reject) => {
+              setTimeout(() => {
+                reject(new Error(`Job ${job.id} timed out after ${timeout}ms`));
+              }, timeout);
+            }),
+          ]);
         }
       );
       console.log(`[Worker:${queueName}] Registered processor for job: "${jobName}"`);

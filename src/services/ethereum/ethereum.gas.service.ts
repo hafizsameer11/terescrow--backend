@@ -5,6 +5,7 @@
  */
 
 import axios from 'axios';
+import cryptoLogger from '../../utils/crypto.logger';
 
 interface GasFeeEstimateResponse {
   gasLimit: string;
@@ -77,12 +78,17 @@ class EthereumGasService {
       const gasPriceWei = BigInt(response.data.result);
       const gasPriceGwei = Number(gasPriceWei) / 1e9; // Convert wei to Gwei
 
-      return {
+      const result = {
         wei: gasPriceWei.toString(),
         gwei: gasPriceGwei.toFixed(2),
       };
+      cryptoLogger.gasEstimate({ type: 'gasPrice', ...result, testnet });
+      return result;
     } catch (error: any) {
-      console.error('Error fetching gas price:', error.response?.data || error.message);
+      cryptoLogger.exception('Fetch gas price', error, {
+        testnet,
+        apiResponse: error.response?.data,
+      });
       throw new Error(`Failed to fetch gas price: ${error.response?.data?.error?.message || error.message}`);
     }
   }
@@ -126,9 +132,25 @@ class EthereumGasService {
         }
       );
 
-      return response.data;
+      const result = response.data;
+      cryptoLogger.gasEstimate({
+        type: 'gasEstimate',
+        from,
+        to,
+        amount: amount.toString(),
+        testnet,
+        gasLimit: result.gasLimit,
+        gasPrice: result.gasPrice,
+      });
+      return result;
     } catch (error: any) {
-      console.error('Error estimating gas fee:', error.response?.data || error.message);
+      cryptoLogger.exception('Estimate gas fee', error, {
+        from,
+        to,
+        amount: amount.toString(),
+        testnet,
+        apiResponse: error.response?.data,
+      });
       throw new Error(`Failed to estimate gas fee: ${error.response?.data?.message || error.message}`);
     }
   }
