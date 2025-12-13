@@ -258,7 +258,9 @@ class CryptoSellService {
         const ethPrice = ethWalletCurrency?.price ? new Decimal(ethWalletCurrency.price.toString()) : new Decimal('0');
 
         // Check if user needs ETH
-        const minimumEthNeeded = tokenGasFeeEth.plus(new Decimal('0.001'));
+        // Send at least 2x the estimated gas fee to ensure sufficient balance
+        // Tatum's actual requirement may be higher than our estimate
+        const minimumEthNeeded = tokenGasFeeEth.mul(new Decimal('2')).plus(new Decimal('0.002'));
         ethNeededForGas = minimumEthNeeded;
 
         let ethTransferGasEstimate: any = null;
@@ -339,8 +341,48 @@ class CryptoSellService {
               txHash: ethTransferTxHash,
             });
 
-            // Wait a bit for ETH transfer to be processed (optional, but safer)
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Wait and verify ETH balance is updated before proceeding with token transfer
+            console.log('[CRYPTO SELL] Waiting for ETH balance to update...');
+            let retries = 0;
+            const maxRetries = 10;
+            let verifiedBalance = false;
+
+            while (retries < maxRetries && !verifiedBalance) {
+              await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds between checks
+
+              try {
+                const currentBalance = await ethereumBalanceService.getETHBalance(depositAddress, false);
+                const currentBalanceDecimal = new Decimal(currentBalance);
+                const requiredBalance = tokenGasFeeEth.plus(new Decimal('0.001'));
+
+                console.log(`[CRYPTO SELL] Balance check ${retries + 1}/${maxRetries}:`, {
+                  current: currentBalanceDecimal.toString(),
+                  required: requiredBalance.toString(),
+                  sufficient: currentBalanceDecimal.gte(requiredBalance),
+                });
+
+                if (currentBalanceDecimal.gte(requiredBalance)) {
+                  verifiedBalance = true;
+                  console.log('[CRYPTO SELL] ETH balance verified - sufficient funds available');
+                } else {
+                  retries++;
+                  if (retries >= maxRetries) {
+                    console.warn('[CRYPTO SELL] ETH balance not updated after max retries, but proceeding anyway');
+                  }
+                }
+              } catch (error: any) {
+                console.error('[CRYPTO SELL] Error checking ETH balance:', error);
+                retries++;
+                if (retries >= maxRetries) {
+                  console.warn('[CRYPTO SELL] Failed to verify ETH balance after max retries, but proceeding anyway');
+                  break;
+                }
+              }
+            }
+
+            if (!verifiedBalance && retries >= maxRetries) {
+              console.warn('[CRYPTO SELL] Warning: ETH balance verification failed, but proceeding with token transfer');
+            }
           } catch (error: any) {
             console.error('[CRYPTO SELL] ETH transfer failed:', error);
             cryptoLogger.exception('ETH transfer to user', error, {
@@ -406,10 +448,47 @@ class CryptoSellService {
             amount: amountCryptoDecimal.toString(),
             currency: 'USDT',
           });
+
+          // If ETH transfer succeeded but token transfer failed, log this critical situation
+          if (needsEthTransfer && ethTransferTxHash) {
+            console.error('[CRYPTO SELL] CRITICAL: ETH transfer succeeded but token transfer failed!', {
+              userId,
+              depositAddress,
+              ethTransferTxHash,
+              ethAmount: minimumEthNeeded.toString(),
+              tokenAmount: amountCryptoDecimal.toString(),
+              currency: 'USDT',
+              error: error.message,
+            });
+
+            cryptoLogger.exception('PARTIAL_FAILURE_ETH_SENT_TOKEN_FAILED', error, {
+              userId,
+              depositAddress,
+              ethTransferTxHash,
+              ethAmount: minimumEthNeeded.toString(),
+              tokenAmount: amountCryptoDecimal.toString(),
+              currency: 'USDT',
+              note: 'ETH was successfully transferred to user wallet, but token transfer failed. Manual intervention may be required.',
+            });
+          }
+
           throw new Error(`Failed to transfer token from user wallet: ${error.message || 'Unknown error'}`);
         }
       } catch (error: any) {
         console.error('[CRYPTO SELL] Blockchain transfer error:', error);
+
+        // If ETH was sent but token transfer failed, we cannot rollback the on-chain ETH transfer
+        // Log this as a critical issue that needs manual intervention
+        if (needsEthTransfer && ethTransferTxHash && !tokenTransferTxHash) {
+          console.error('[CRYPTO SELL] CRITICAL PARTIAL FAILURE - ETH sent but token transfer failed', {
+            userId,
+            depositAddress,
+            ethTransferTxHash,
+            error: error.message,
+            actionRequired: 'User wallet now has ETH but sell transaction failed. Consider manual refund or retry.',
+          });
+        }
+
         throw error;
       }
     }
