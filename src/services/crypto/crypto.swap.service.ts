@@ -12,6 +12,7 @@ import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import cryptoRateService from './crypto.rate.service';
 import cryptoTransactionService from './crypto.transaction.service';
+import cryptoLogger from '../../utils/crypto.logger';
 
 export interface SwapCryptoInput {
   userId: number;
@@ -65,12 +66,100 @@ export interface SwapQuoteResult {
 
 class CryptoSwapService {
   /**
-   * Calculate gas fee estimate
-   * For now, uses a fixed percentage or can be enhanced with actual gas estimation
+   * Calculate gas fee estimate for real blockchain swaps
+   * For ETH ↔ USDT on Ethereum: calculates actual gas fees for both transfers
+   * For other swaps: uses fixed percentage as fallback
    */
-  private calculateGasFee(fromAmountUsd: Decimal, fromCurrency: string, fromBlockchain: string, fromPrice: Decimal): { gasFee: Decimal; gasFeeUsd: Decimal } {
-    // For now, use a fixed percentage (0.5% of the swap amount) or minimum fee
-    // In future, this should call blockchain-specific gas estimation APIs
+  private async calculateGasFee(
+    fromAmountUsd: Decimal,
+    fromCurrency: string,
+    fromBlockchain: string,
+    fromPrice: Decimal,
+    fromAddress?: string,
+    toAddress?: string,
+    fromAmount?: Decimal
+  ): Promise<{ gasFee: Decimal; gasFeeUsd: Decimal; gasFeeEth: Decimal }> {
+    // For real blockchain swaps (ETH ↔ USDT on Ethereum), calculate actual gas fees
+    if (fromBlockchain.toLowerCase() === 'ethereum' && 
+        (fromCurrency.toUpperCase() === 'ETH' || fromCurrency.toUpperCase() === 'USDT') &&
+        fromAddress && toAddress && fromAmount) {
+      try {
+        const { ethereumGasService } = await import('../ethereum/ethereum.gas.service');
+        
+        // For swaps, we need gas for TWO transfers:
+        // 1. User sends fromCurrency to master wallet
+        // 2. Master wallet sends toCurrency to user
+        
+        // Estimate gas for user → master transfer (fromCurrency)
+        const userToMasterGas = await ethereumGasService.estimateGasFee(
+          fromAddress,
+          toAddress,
+          fromAmount.toString(),
+          false // mainnet
+        );
+        
+        let gasLimit1 = parseInt(userToMasterGas.gasLimit);
+        if (fromCurrency.toUpperCase() === 'USDT') {
+          gasLimit1 = Math.max(gasLimit1, 65000); // ERC-20 minimum
+          gasLimit1 = Math.ceil(gasLimit1 * 1.2); // 20% buffer
+        } else {
+          gasLimit1 = Math.ceil(gasLimit1 * 1.1); // 10% buffer
+        }
+        
+        // Estimate gas for master → user transfer (toCurrency)
+        const masterToUserGas = await ethereumGasService.estimateGasFee(
+          toAddress,
+          fromAddress,
+          fromAmount.toString(), // Use same amount for estimation
+          false // mainnet
+        );
+        
+        let gasLimit2 = parseInt(masterToUserGas.gasLimit);
+        if (fromCurrency.toUpperCase() === 'ETH') {
+          // If swapping ETH → USDT, master sends USDT (ERC-20)
+          gasLimit2 = Math.max(gasLimit2, 65000);
+          gasLimit2 = Math.ceil(gasLimit2 * 1.2);
+        } else {
+          // If swapping USDT → ETH, master sends ETH (native)
+          gasLimit2 = Math.ceil(gasLimit2 * 1.1);
+        }
+        
+        // Use the higher gas price from both estimates
+        const gasPriceWei = userToMasterGas.gasPrice > masterToUserGas.gasPrice 
+          ? userToMasterGas.gasPrice 
+          : masterToUserGas.gasPrice;
+        
+        // Total gas limit is sum of both transfers
+        const totalGasLimit = gasLimit1 + gasLimit2;
+        
+        // Calculate total gas fee in ETH
+        const gasFeeEth = new Decimal(ethereumGasService.calculateTotalFee(
+          totalGasLimit.toString(),
+          gasPriceWei
+        ));
+        
+        // Get ETH price for USD conversion
+        const ethWalletCurrency = await prisma.walletCurrency.findFirst({
+          where: { currency: 'ETH', blockchain: 'ethereum' },
+        });
+        let ethPrice = new Decimal('0');
+        if (ethWalletCurrency?.price) {
+          ethPrice = new Decimal(ethWalletCurrency.price.toString());
+        }
+        
+        const gasFeeUsd = gasFeeEth.mul(ethPrice);
+        
+        // Convert to fromCurrency for display
+        const gasFee = gasFeeUsd.div(fromPrice);
+        
+        return { gasFee, gasFeeUsd, gasFeeEth };
+      } catch (error: any) {
+        console.error('[CRYPTO SWAP] Error calculating real gas fee, using fallback:', error);
+        // Fall through to fallback calculation
+      }
+    }
+    
+    // Fallback: Use fixed percentage (0.5% of the swap amount) or minimum fee
     const gasFeePercentage = new Decimal('0.005'); // 0.5%
     const minimumGasFeeUsd = new Decimal('5'); // Minimum $5 gas fee
     
@@ -81,15 +170,29 @@ class CryptoSwapService {
 
     // Convert gas fee USD to fromCurrency using the fromCurrency price
     const gasFee = gasFeeUsd.div(fromPrice);
+    
+    // For fallback, gasFeeEth is approximated
+    const ethPrice = fromCurrency.toUpperCase() === 'ETH' ? fromPrice : new Decimal('2500'); // Approx ETH price
+    const gasFeeEth = gasFeeUsd.div(ethPrice);
 
-    return { gasFee, gasFeeUsd };
+    return { gasFee, gasFeeUsd, gasFeeEth };
   }
 
   /**
    * Calculate swap quote
    */
-  async calculateSwapQuote(input: SwapCryptoInput): Promise<SwapQuoteResult> {
+  async calculateSwapQuote(input: SwapCryptoInput, fromAddress?: string, masterWalletAddress?: string): Promise<SwapQuoteResult> {
     const { fromAmount, fromCurrency, fromBlockchain, toCurrency, toBlockchain } = input;
+
+    // Only ETH ↔ USDT on Ethereum is currently supported for real swaps
+    if (fromBlockchain.toLowerCase() !== 'ethereum' || toBlockchain.toLowerCase() !== 'ethereum') {
+      throw new Error(`Crypto swap for ${fromBlockchain} to ${toBlockchain} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+    }
+
+    if ((fromCurrency.toUpperCase() !== 'ETH' && fromCurrency.toUpperCase() !== 'USDT') ||
+        (toCurrency.toUpperCase() !== 'ETH' && toCurrency.toUpperCase() !== 'USDT')) {
+      throw new Error(`Crypto swap for ${fromCurrency} to ${toCurrency} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+    }
 
     // Step 1: Validate both currencies exist
     const fromWalletCurrency = await prisma.walletCurrency.findFirst({
@@ -132,8 +235,16 @@ class CryptoSwapService {
     const toAmountDecimal = fromAmountUsd.div(toPrice);
     const toAmountUsd = toAmountDecimal.mul(toPrice); // Should equal fromAmountUsd
 
-    // Step 5: Calculate gas fee
-    const { gasFee, gasFeeUsd } = this.calculateGasFee(fromAmountUsd, fromCurrency, fromBlockchain, fromPrice);
+    // Step 5: Calculate gas fee (with real estimation if addresses provided)
+    const { gasFee, gasFeeUsd, gasFeeEth } = await this.calculateGasFee(
+      fromAmountUsd, 
+      fromCurrency, 
+      fromBlockchain, 
+      fromPrice,
+      fromAddress,
+      masterWalletAddress,
+      fromAmountDecimal
+    );
 
     // Step 6: Calculate total (fromAmount + gasFee)
     const totalAmount = fromAmountDecimal.plus(gasFee);
@@ -197,14 +308,29 @@ class CryptoSwapService {
    * Preview swap transaction
    */
   async previewSwapTransaction(input: SwapCryptoInput) {
-    const quote = await this.calculateSwapQuote(input);
+    // Only ETH ↔ USDT on Ethereum is currently supported for real swaps
+    if (input.fromBlockchain.toLowerCase() !== 'ethereum' || input.toBlockchain.toLowerCase() !== 'ethereum') {
+      throw new Error(`Crypto swap for ${input.fromBlockchain} to ${input.toBlockchain} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+    }
 
-    // Get user's virtual accounts
+    if ((input.fromCurrency.toUpperCase() !== 'ETH' && input.fromCurrency.toUpperCase() !== 'USDT') ||
+        (input.toCurrency.toUpperCase() !== 'ETH' && input.toCurrency.toUpperCase() !== 'USDT')) {
+      throw new Error(`Crypto swap for ${input.fromCurrency} to ${input.toCurrency} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+    }
+
+    // Get user's virtual accounts with deposit addresses
     const fromVirtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId: input.userId,
         currency: input.fromCurrency.toUpperCase(),
         blockchain: input.fromBlockchain.toLowerCase(),
+      },
+      include: {
+        depositAddresses: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+        },
+        walletCurrency: true,
       },
     });
 
@@ -213,6 +339,13 @@ class CryptoSwapService {
         userId: input.userId,
         currency: input.toCurrency.toUpperCase(),
         blockchain: input.toBlockchain.toLowerCase(),
+      },
+      include: {
+        depositAddresses: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+        },
+        walletCurrency: true,
       },
     });
 
@@ -223,6 +356,22 @@ class CryptoSwapService {
       throw new Error(`Virtual account not found for ${input.toCurrency} on ${input.toBlockchain}`);
     }
 
+    const fromDepositAddress = fromVirtualAccount.depositAddresses[0]?.address;
+    if (!fromDepositAddress) {
+      throw new Error(`Deposit address not found for ${input.fromCurrency} on ${input.fromBlockchain}`);
+    }
+
+    // Get master wallet address
+    const masterWallet = await prisma.masterWallet.findUnique({
+      where: { blockchain: 'ethereum' },
+    });
+    if (!masterWallet || !masterWallet.address) {
+      throw new Error('Master wallet not found for Ethereum');
+    }
+
+    // Calculate quote with addresses for real gas estimation
+    const quote = await this.calculateSwapQuote(input, fromDepositAddress, masterWallet.address);
+
     const fromBalanceBefore = new Decimal(fromVirtualAccount.availableBalance || '0');
     const toBalanceBefore = new Decimal(toVirtualAccount.availableBalance || '0');
     const totalAmountDecimal = new Decimal(quote.totalAmount);
@@ -230,6 +379,38 @@ class CryptoSwapService {
 
     // Check if user has sufficient balance (including gas fee)
     const hasSufficientBalance = fromBalanceBefore.gte(totalAmountDecimal);
+
+    // For USDT → ETH swaps: Check if user has enough ETH for gas
+    let hasSufficientEth = true;
+    let userEthBalance = new Decimal('0');
+    if (input.fromCurrency.toUpperCase() === 'USDT') {
+      const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
+      try {
+        const userEthBalanceStr = await ethereumBalanceService.getETHBalance(fromDepositAddress, false);
+        userEthBalance = new Decimal(userEthBalanceStr);
+        
+        // Extract gasFeeEth from quote (need to recalculate it)
+        const { gasFeeEth } = await this.calculateGasFee(
+          new Decimal(quote.fromAmountUsd),
+          input.fromCurrency,
+          input.fromBlockchain,
+          new Decimal(quote.rateFromToUsd),
+          fromDepositAddress,
+          masterWallet.address,
+          new Decimal(quote.fromAmount)
+        );
+        
+        const bufferAmount = Decimal.max(
+          gasFeeEth.mul(new Decimal('0.5')),
+          new Decimal('0.0001')
+        );
+        const minimumEthNeeded = gasFeeEth.plus(bufferAmount);
+        hasSufficientEth = userEthBalance.gte(minimumEthNeeded);
+      } catch (error: any) {
+        console.error('[CRYPTO SWAP PREVIEW] Error checking ETH balance:', error);
+        hasSufficientEth = false;
+      }
+    }
 
     const fromBalanceAfter = hasSufficientBalance
       ? fromBalanceBefore.minus(totalAmountDecimal)
@@ -244,8 +425,10 @@ class CryptoSwapService {
       toBalanceBefore: toBalanceBefore.toString(),
       fromBalanceAfter: fromBalanceAfter.toString(),
       toBalanceAfter: toBalanceAfter.toString(),
+      userEthBalance: userEthBalance.toString(),
+      hasSufficientEth,
       hasSufficientBalance,
-      canProceed: hasSufficientBalance,
+      canProceed: hasSufficientBalance && hasSufficientEth,
       fromVirtualAccountId: fromVirtualAccount.id,
       toVirtualAccountId: toVirtualAccount.id,
     };
@@ -254,35 +437,49 @@ class CryptoSwapService {
   /**
    * Execute swap transaction
    * 
-   * Current Implementation (Internal Ledger):
-   * 1. Validate both currencies exist
-   * 2. Calculate swap amounts and gas fees
-   * 3. Validate user has sufficient balance (including gas)
-   * 4. Debit fromCurrency (including gas) from virtual account
-   * 5. Credit toCurrency to virtual account
-   * 6. Create transaction record
-   * 
-   * TODO: Future Blockchain Implementation:
-   * - Check user's deposit address has sufficient on-chain balance
-   * - Estimate actual gas fees from blockchain
-   * - Transfer fromCurrency from user address to master wallet
-   * - Transfer toCurrency from master wallet to user address
-   * - Keep detailed blockchain transaction records
+   * Real Blockchain Implementation for ETH ↔ USDT:
+   * 1. Validate currencies (only ETH ↔ USDT on Ethereum)
+   * 2. Check user has sufficient balance
+   * 3. Check user has ETH for gas (for USDT → ETH swaps)
+   * 4. Execute blockchain transfers:
+   *    - ETH → USDT: User sends ETH to master, master sends USDT to user
+   *    - USDT → ETH: User sends USDT to master, master sends ETH to user
+   * 5. Update balances atomically
+   * 6. Create transaction record with txHash
    */
   async swapCrypto(input: SwapCryptoInput): Promise<SwapCryptoResult> {
     const { userId, fromAmount, fromCurrency, fromBlockchain, toCurrency, toBlockchain } = input;
 
-    // Pre-transaction: Calculate quote and get virtual accounts (outside transaction to avoid timeout)
-    const quote = await this.calculateSwapQuote(input);
-    const totalAmountDecimal = new Decimal(quote.totalAmount);
-    const toAmountDecimal = new Decimal(quote.toAmount);
+    console.log('\n========================================');
+    console.log('[CRYPTO SWAP] Starting swap transaction');
+    console.log('========================================');
+    console.log('User ID:', userId);
+    console.log('From:', fromAmount, fromCurrency, fromBlockchain);
+    console.log('To:', toCurrency, toBlockchain);
+    console.log('========================================\n');
 
-    // Get virtual accounts (outside transaction)
+    // Only ETH ↔ USDT on Ethereum is currently supported
+    if (fromBlockchain.toLowerCase() !== 'ethereum' || toBlockchain.toLowerCase() !== 'ethereum') {
+      throw new Error(`Crypto swap for ${fromBlockchain} to ${toBlockchain} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+    }
+
+    if ((fromCurrency.toUpperCase() !== 'ETH' && fromCurrency.toUpperCase() !== 'USDT') ||
+        (toCurrency.toUpperCase() !== 'ETH' && toCurrency.toUpperCase() !== 'USDT')) {
+      throw new Error(`Crypto swap for ${fromCurrency} to ${toCurrency} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+    }
+
+    // Get virtual accounts with deposit addresses
     const fromVirtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
         currency: fromCurrency.toUpperCase(),
         blockchain: fromBlockchain.toLowerCase(),
+      },
+      include: {
+        depositAddresses: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -291,6 +488,12 @@ class CryptoSwapService {
         userId,
         currency: toCurrency.toUpperCase(),
         blockchain: toBlockchain.toLowerCase(),
+      },
+      include: {
+        depositAddresses: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -301,20 +504,192 @@ class CryptoSwapService {
       throw new Error(`Virtual account not found for ${toCurrency} on ${toBlockchain}`);
     }
 
+    const fromDepositAddress = fromVirtualAccount.depositAddresses[0]?.address;
+    const toDepositAddress = toVirtualAccount.depositAddresses[0]?.address;
+    if (!fromDepositAddress) {
+      throw new Error(`Deposit address not found for ${fromCurrency} on ${fromBlockchain}`);
+    }
+    if (!toDepositAddress) {
+      throw new Error(`Deposit address not found for ${toCurrency} on ${toBlockchain}`);
+    }
+
+    const fromDepositAddressRecord = fromVirtualAccount.depositAddresses[0];
+    if (!fromDepositAddressRecord || !fromDepositAddressRecord.privateKey) {
+      throw new Error('Deposit address private key not found');
+    }
+
+    // Get master wallet
+    const masterWallet = await prisma.masterWallet.findUnique({
+      where: { blockchain: 'ethereum' },
+    });
+    if (!masterWallet || !masterWallet.address || !masterWallet.privateKey) {
+      throw new Error('Master wallet not found or missing private key for Ethereum');
+    }
+
+    // Calculate quote with addresses
+    const quote = await this.calculateSwapQuote(input, fromDepositAddress, masterWallet.address);
+    const totalAmountDecimal = new Decimal(quote.totalAmount);
+    const toAmountDecimal = new Decimal(quote.toAmount);
+    const fromAmountDecimal = new Decimal(quote.fromAmount);
+
     // Check balance
     const fromBalanceBefore = new Decimal(fromVirtualAccount.availableBalance || '0');
     if (fromBalanceBefore.lessThan(totalAmountDecimal)) {
       throw new Error(`Insufficient ${fromCurrency} balance. Required: ${totalAmountDecimal.toString()}, Available: ${fromBalanceBefore.toString()}`);
     }
 
+    // For USDT → ETH swaps: Check if user has enough ETH for gas
+    if (fromCurrency.toUpperCase() === 'USDT') {
+      const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
+      const userEthBalanceStr = await ethereumBalanceService.getETHBalance(fromDepositAddress, false);
+      const userEthBalance = new Decimal(userEthBalanceStr);
+      
+      const { gasFeeEth } = await this.calculateGasFee(
+        new Decimal(quote.fromAmountUsd),
+        fromCurrency,
+        fromBlockchain,
+        new Decimal(quote.rateFromToUsd),
+        fromDepositAddress,
+        masterWallet.address,
+        fromAmountDecimal
+      );
+      
+      const bufferAmount = Decimal.max(
+        gasFeeEth.mul(new Decimal('0.5')),
+        new Decimal('0.0001')
+      );
+      const minimumEthNeeded = gasFeeEth.plus(bufferAmount);
+      
+      if (userEthBalance.lessThan(minimumEthNeeded)) {
+        throw new Error(`Insufficient ETH for gas fees. You need at least ${minimumEthNeeded.toString()} ETH to swap USDT, but you only have ${userEthBalance.toString()} ETH. Please buy some ETH first.`);
+      }
+    }
+
+    // Decrypt private keys
+    const crypto = require('crypto');
+    function decryptPrivateKey(encryptedKey: string): string {
+      const algorithm = 'aes-256-cbc';
+      const key = Buffer.from(process.env.ENCRYPTION_KEY || 'default-key-32-characters-long!!', 'utf8');
+      const parts = encryptedKey.split(':');
+      const iv = Buffer.from(parts[0], 'hex');
+      const encrypted = parts[1];
+      // @ts-ignore
+      const decipher = crypto.createDecipheriv(algorithm, key, iv);
+      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      return decrypted;
+    }
+
+    let userPrivateKey = decryptPrivateKey(fromDepositAddressRecord.privateKey);
+    userPrivateKey = userPrivateKey.trim();
+    if (userPrivateKey.startsWith('0x')) {
+      userPrivateKey = userPrivateKey.substring(2).trim();
+    }
+    if (userPrivateKey.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(userPrivateKey)) {
+      throw new Error('Invalid user private key format');
+    }
+
+    let masterPrivateKey = decryptPrivateKey(masterWallet.privateKey);
+    masterPrivateKey = masterPrivateKey.trim();
+    if (masterPrivateKey.startsWith('0x')) {
+      masterPrivateKey = masterPrivateKey.substring(2).trim();
+    }
+    if (masterPrivateKey.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(masterPrivateKey)) {
+      throw new Error('Invalid master private key format');
+    }
+
+    // Import services
+    const { ethereumGasService } = await import('../ethereum/ethereum.gas.service');
+    const { ethereumTransactionService } = await import('../ethereum/ethereum.transaction.service');
+
+    // Execute blockchain transfers
+    let userToMasterTxHash: string | null = null;
+    let masterToUserTxHash: string | null = null;
+
+    try {
+      // Step 1: User sends fromCurrency to master wallet
+      console.log(`[CRYPTO SWAP] Transferring ${fromCurrency} from user to master wallet`);
+      
+      const userToMasterGas = await ethereumGasService.estimateGasFee(
+        fromDepositAddress,
+        masterWallet.address,
+        fromAmountDecimal.toString(),
+        false
+      );
+      
+      let gasLimit1 = parseInt(userToMasterGas.gasLimit);
+      if (fromCurrency.toUpperCase() === 'USDT') {
+        gasLimit1 = Math.max(gasLimit1, 65000);
+        gasLimit1 = Math.ceil(gasLimit1 * 1.2);
+      } else {
+        gasLimit1 = Math.ceil(gasLimit1 * 1.1);
+      }
+
+      userToMasterTxHash = await ethereumTransactionService.sendTransaction(
+        masterWallet.address,
+        fromAmountDecimal.toString(),
+        fromCurrency.toUpperCase(),
+        userPrivateKey,
+        ethereumGasService.weiToGwei(userToMasterGas.gasPrice),
+        gasLimit1.toString(),
+        false
+      );
+
+      console.log(`[CRYPTO SWAP] User → Master transfer successful: ${userToMasterTxHash}`);
+
+      // Step 2: Master sends toCurrency to user
+      console.log(`[CRYPTO SWAP] Transferring ${toCurrency} from master to user wallet`);
+      
+      const masterToUserGas = await ethereumGasService.estimateGasFee(
+        masterWallet.address,
+        toDepositAddress,
+        toAmountDecimal.toString(),
+        false
+      );
+      
+      let gasLimit2 = parseInt(masterToUserGas.gasLimit);
+      if (toCurrency.toUpperCase() === 'USDT') {
+        gasLimit2 = Math.max(gasLimit2, 65000);
+        gasLimit2 = Math.ceil(gasLimit2 * 1.2);
+      } else {
+        gasLimit2 = Math.ceil(gasLimit2 * 1.1);
+      }
+
+      masterToUserTxHash = await ethereumTransactionService.sendTransaction(
+        toDepositAddress,
+        toAmountDecimal.toString(),
+        toCurrency.toUpperCase(),
+        masterPrivateKey,
+        ethereumGasService.weiToGwei(masterToUserGas.gasPrice),
+        gasLimit2.toString(),
+        false
+      );
+
+      console.log(`[CRYPTO SWAP] Master → User transfer successful: ${masterToUserTxHash}`);
+    } catch (error: any) {
+      console.error('[CRYPTO SWAP] Blockchain transfer failed:', error);
+      cryptoLogger.exception('Blockchain swap failed', error, {
+        userId,
+        fromCurrency: fromCurrency.toUpperCase(),
+        toCurrency: toCurrency.toUpperCase(),
+        fromAmount: fromAmountDecimal.toString(),
+        userToMasterTxHash,
+        masterToUserTxHash,
+        note: 'Blockchain swap failed - virtual accounts not updated.',
+      });
+      throw new Error(`Failed to execute swap: ${error.message || 'Unknown error'}`);
+    }
+
     const toBalanceBefore = new Decimal(toVirtualAccount.availableBalance || '0');
     const fromBalanceAfter = fromBalanceBefore.minus(totalAmountDecimal);
     const toBalanceAfter = toBalanceBefore.plus(toAmountDecimal);
 
-    // Now execute the transaction with increased timeout
-    return await prisma.$transaction(async (tx) => {
+    // Generate transaction ID
+    const transactionId = `SWAP-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
 
-      // Step 4: Debit fromCurrency (including gas fee)
+    // Update balances and create transaction record
+    return await prisma.$transaction(async (tx) => {
+      // Debit fromCurrency
       await tx.virtualAccount.update({
         where: { id: fromVirtualAccount.id },
         data: {
@@ -323,7 +698,7 @@ class CryptoSwapService {
         },
       });
 
-      // Step 5: Credit toCurrency
+      // Credit toCurrency
       await tx.virtualAccount.update({
         where: { id: toVirtualAccount.id },
         data: {
@@ -332,8 +707,7 @@ class CryptoSwapService {
         },
       });
 
-      // Step 6: Create transaction record (using transaction client)
-      const transactionId = `SWAP-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
+      // Create transaction record
       const cryptoTransaction = await tx.cryptoTransaction.create({
         data: {
           userId,
@@ -345,6 +719,8 @@ class CryptoSwapService {
           blockchain: fromVirtualAccount.blockchain,
           cryptoSwap: {
             create: {
+              fromAddress: fromDepositAddress,
+              toAddress: toDepositAddress,
               fromCurrency: quote.fromCurrency,
               fromBlockchain: quote.fromBlockchain,
               fromAmount: new Decimal(quote.fromAmount),
@@ -359,9 +735,20 @@ class CryptoSwapService {
               gasFeeUsd: new Decimal(quote.gasFeeUsd),
               totalAmount: new Decimal(quote.totalAmount),
               totalAmountUsd: new Decimal(quote.totalAmountUsd),
+              txHash: userToMasterTxHash || null, // Store user→master transaction hash (first transaction)
             },
           },
         },
+      });
+
+      console.log('[CRYPTO SWAP] Transaction completed successfully:', {
+        transactionId,
+        userToMasterTxHash,
+        masterToUserTxHash,
+        fromBalanceBefore: fromBalanceBefore.toString(),
+        fromBalanceAfter: fromBalanceAfter.toString(),
+        toBalanceBefore: toBalanceBefore.toString(),
+        toBalanceAfter: toBalanceAfter.toString(),
       });
 
       return {
@@ -384,8 +771,8 @@ class CryptoSwapService {
         toBalanceAfter: toBalanceAfter.toString(),
       };
     }, {
-      maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
-      timeout: 15000, // Maximum time the transaction can run (15 seconds)
+      maxWait: 10000,
+      timeout: 30000, // Increased timeout for blockchain operations
     });
   }
 }

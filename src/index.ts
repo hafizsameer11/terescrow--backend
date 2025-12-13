@@ -17,6 +17,9 @@ import cryptoBuyRouter from './routes/cutomer/crypto.buy.router';
 // Sell Crypto Flow
 import cryptoSellRouter from './routes/cutomer/crypto.sell.router';
 
+// Send Crypto Flow
+import cryptoSendRouter from './routes/cutomer/crypto.send.router';
+
 // Crypto Assets Flow
 import cryptoAssetRouter from './routes/cutomer/crypto.asset.router';
 
@@ -128,6 +131,13 @@ app.use('/api/v2/crypto', cryptoBuyRouter);
 // POST /api/v2/crypto/sell/preview     - Preview transaction
 // POST /api/v2/crypto/sell             - Execute sale
 app.use('/api/v2/crypto', cryptoSellRouter);
+
+// ────────────────────────────────────────────
+// Send Crypto Flow
+// ────────────────────────────────────────────
+// POST /api/v2/crypto/send/preview     - Preview send transaction
+// POST /api/v2/crypto/send             - Execute send to external address
+app.use('/api/v2/crypto', cryptoSendRouter);
 
 // ────────────────────────────────────────────
 // Swap Crypto Flow

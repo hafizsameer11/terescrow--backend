@@ -19,6 +19,7 @@ const swaggerDefinition: SwaggerDefinition = {
     // V2 API Routes - Crypto (Grouped by Flow)
     { name: 'V2 - Crypto - Buy', description: 'Buy cryptocurrency flow: currencies → quote → preview → buy' },
     { name: 'V2 - Crypto - Sell', description: 'Sell cryptocurrency flow: currencies → quote → preview → sell' },
+    { name: 'V2 - Crypto - Send', description: 'Send cryptocurrency to external addresses: preview → send' },
     { name: 'V2 - Crypto - Swap', description: 'Swap cryptocurrency flow: currencies → quote → preview → swap' },
     { name: 'V2 - Crypto - Assets', description: 'Crypto assets management: view assets, get details, deposit addresses' },
     { name: 'V2 - Crypto - Transactions', description: 'Crypto transaction history: list, details, asset transactions' },
