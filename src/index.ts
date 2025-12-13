@@ -47,6 +47,11 @@ import tatumWebhookRouter from './routes/webhooks/tatum.webhook.router';
 import palmpayWebhookRouter from './routes/webhooks/palmpay.webhook.router';
 
 // ============================================
+// Testing Routes
+// ============================================
+import gasEstimationRouter from './routes/testing/gas.estimation.router';
+
+// ============================================
 // V2 API Routes - Admin (Crypto)
 // ============================================
 import cryptoRateRouter from './routes/admin/crypto.rate.router';
@@ -187,6 +192,11 @@ app.use('/api/v2/webhooks/tatum', tatumWebhookRouter);
 app.use('/api/v2/webhooks', palmpayWebhookRouter);
 
 // ============================================
+// Testing Routes
+// ============================================
+app.use('/api/testing/gas', gasEstimationRouter);
+
+// ============================================
 // V2 API Routes - Admin (Crypto)
 // ============================================
 app.use('/api/admin/crypto', cryptoRateRouter);
@@ -223,9 +233,10 @@ app.use('/.well-known', express.static(path.join(__dirname, '../public/.well-kno
 
 // Swagger API Documentation - Custom tag sorter to put V2 routes first
 const customTagsSorter = (a: string, b: string) => {
-  // Priority order: V2 routes first, then Admin, then others
+  // Priority order: Testing routes first, then V2 routes, then Admin, then others
   const getPriority = (tag: string) => {
     // Top priority routes (appear first)
+    if (tag.startsWith('Testing')) return -10; // Testing routes at the very top
     if (tag === 'V2 - Bank Accounts') return -2;
     if (tag === 'V2 - Referrals') return -1;
     if (tag === 'V2 - PalmPay Merchant Order') return -0.5;
@@ -241,6 +252,7 @@ const customTagsSorter = (a: string, b: string) => {
     if (tag.startsWith('Agent')) return 8;
     if (tag.startsWith('Customer')) return 9;
     if (tag.startsWith('Public')) return 10;
+    if (tag.startsWith('Testing')) return 11; // Testing routes after Public
     if (tag.startsWith('Webhooks')) return 5.5; // After V2 but before Admin
     return 20; // Others at the end
   };

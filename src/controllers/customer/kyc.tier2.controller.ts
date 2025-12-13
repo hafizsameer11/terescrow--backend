@@ -14,7 +14,13 @@ export const submitTier2Controller = async (
   next: NextFunction
 ) => {
   try {
-    const user = req.body._user;
+    const user = req.body._user || (req as any).user;
+    
+    // Validate user authentication
+    if (!user || !user.id) {
+      return next(ApiError.unauthorized('User not authenticated'));
+    }
+
     const {
       firstName,
       surName,

@@ -147,15 +147,63 @@ class CryptoBuyService {
     const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
     const cryptoBalanceAfter = cryptoBalanceBefore.plus(amountCryptoDecimal);
 
+    // Check Master Wallet Balance before processing (for Ethereum and USDT only)
+    if (blockchain.toLowerCase() === 'ethereum' && (currency.toUpperCase() === 'ETH' || currency.toUpperCase() === 'USDT')) {
+      try {
+        // Get master wallet for Ethereum
+        const masterWallet = await prisma.masterWallet.findUnique({
+          where: { blockchain: 'ethereum' },
+        });
+
+        if (!masterWallet || !masterWallet.address) {
+          throw new Error('Master wallet not found for Ethereum. Please contact support.');
+        }
+
+        // Import balance service
+        const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
+        
+        let masterBalance: string;
+        if (currency.toUpperCase() === 'ETH') {
+          // Check ETH balance
+          masterBalance = await ethereumBalanceService.getETHBalance(masterWallet.address, false);
+        } else {
+          // Check USDT balance (ERC-20 token) - use contract address from walletCurrency
+          const contractAddress = walletCurrency.contractAddress;
+          if (!contractAddress) {
+            throw new Error(`${currency} contract address not configured in wallet_currencies table. Please contact support.`);
+          }
+          
+          // Use decimals from walletCurrency (USDT uses 6, most ERC-20 use 18)
+          const tokenDecimals = walletCurrency.decimals || 6;
+          
+          masterBalance = await ethereumBalanceService.getERC20Balance(
+            contractAddress,
+            masterWallet.address,
+            tokenDecimals,
+            false // mainnet
+          );
+        }
+
+        const masterBalanceDecimal = new Decimal(masterBalance);
+        const requiredBalance = amountCryptoDecimal;
+
+        // Check if master wallet has sufficient balance
+        if (masterBalanceDecimal.lessThan(requiredBalance)) {
+          throw new Error(
+            `Insufficient master wallet balance. Available: ${masterBalance} ${currency}, Required: ${requiredBalance.toString()} ${currency}`
+          );
+        }
+
+        console.log(`Master wallet balance check passed: ${masterBalance} ${currency} available, ${requiredBalance.toString()} ${currency} required`);
+      } catch (error: any) {
+        console.error('Master wallet balance check failed:', error);
+        // Re-throw the error to prevent transaction processing
+        throw error;
+      }
+    }
+
     // Now execute the transaction with increased timeout
     return await prisma.$transaction(async (tx) => {
-
-      // TODO: Future Implementation - Check Master Wallet Balance
-      // Before proceeding, verify master wallet has sufficient balance:
-      // 1. Get master wallet for this blockchain
-      // 2. Check master wallet balance (using Tatum API)
-      // 3. Verify balance >= amountCrypto + estimated gas fees
-      // 4. If insufficient, throw error or queue for later processing
 
       // TODO: Future Implementation - Estimate Gas Fees
       // Calculate network fees for blockchain transfer:

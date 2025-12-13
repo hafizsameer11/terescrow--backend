@@ -37,6 +37,7 @@ const swaggerDefinition: SwaggerDefinition = {
     { name: 'V2 - Bill Payments', description: 'Bill payment endpoints (Airtime, Data, Betting) using PalmPay' },
     { name: 'V2 - Support Chat', description: 'Support chat endpoints' },
     { name: 'V2 - PIN Management', description: 'PIN management endpoints' },
+    { name: 'Testing - Gas Estimation', description: 'Gas fee estimation testing endpoints for Ethereum transactions' },
     // Admin Routes
     { name: 'Admin', description: 'Admin operations' },
     { name: 'Admin - Gift Cards', description: 'Admin gift card management' },
