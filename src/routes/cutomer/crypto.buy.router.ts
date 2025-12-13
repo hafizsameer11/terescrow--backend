@@ -209,7 +209,7 @@ cryptoBuyRouter.post(
     body('currency').isString().notEmpty().withMessage('Currency is required'),
     body('blockchain').isString().notEmpty().withMessage('Blockchain is required'),
   ],
-  calculateBuyQuoteController
+  previewBuyController
 );
 
 /**
