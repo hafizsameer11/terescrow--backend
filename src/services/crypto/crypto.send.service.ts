@@ -104,31 +104,89 @@ class CryptoSendService {
       throw new Error('Deposit address private key not found');
     }
 
-    // Validate user has sufficient balance
-    const cryptoBalance = new Decimal(virtualAccount.availableBalance || '0');
-    const amountCryptoDecimal = new Decimal(amount);
-
-    if (cryptoBalance.lessThan(amountCryptoDecimal)) {
-      throw new Error(`Insufficient ${currency} balance. Available: ${cryptoBalance.toString()}, Required: ${amountCryptoDecimal.toString()}`);
-    }
-
-    // Get wallet currency for price
+    // Get wallet currency for price and contract address
     const walletCurrency = virtualAccount.walletCurrency;
     if (!walletCurrency || !walletCurrency.price) {
       throw new Error(`Currency ${currency} price not set`);
     }
 
     const cryptoPrice = new Decimal(walletCurrency.price.toString());
+    const amountCryptoDecimal = new Decimal(amount);
     const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
 
+    // STEP 1: Check REAL on-chain balance before proceeding
+    console.log('[CRYPTO SEND] Checking on-chain balance before send');
+    let onChainBalance = new Decimal('0');
+    
     // Initialize variables for gas fees and transaction hash
     let gasFeeEth = new Decimal('0');
     let gasFeeUsd = new Decimal('0');
     let txHash: string | null = null;
 
-    // For Ethereum: Check ETH balance and calculate gas fees
+    // For Ethereum: Check on-chain balance and calculate gas fees
     if (blockchain.toLowerCase() === 'ethereum') {
       const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
+      
+      // Check REAL on-chain balance
+      try {
+        if (currency.toUpperCase() === 'ETH') {
+          // Check native ETH balance
+          const ethBalanceStr = await ethereumBalanceService.getETHBalance(depositAddress, false);
+          onChainBalance = new Decimal(ethBalanceStr);
+          console.log('[CRYPTO SEND] On-chain ETH balance:', onChainBalance.toString());
+        } else if (currency.toUpperCase() === 'USDT') {
+          // Check USDT token balance
+          if (!walletCurrency.contractAddress) {
+            throw new Error(`USDT contract address not configured in database`);
+          }
+          const usdtBalanceStr = await ethereumBalanceService.getERC20Balance(
+            walletCurrency.contractAddress,
+            depositAddress,
+            walletCurrency.decimals || 6,
+            false
+          );
+          onChainBalance = new Decimal(usdtBalanceStr);
+          console.log('[CRYPTO SEND] On-chain USDT balance:', onChainBalance.toString());
+        }
+        
+        // Update virtual account to match on-chain balance if different
+        const virtualBalance = new Decimal(virtualAccount.availableBalance || '0');
+        if (!onChainBalance.equals(virtualBalance)) {
+          console.log('[CRYPTO SEND] Virtual account balance mismatch detected:', {
+            virtualBalance: virtualBalance.toString(),
+            onChainBalance: onChainBalance.toString(),
+            difference: onChainBalance.minus(virtualBalance).toString(),
+          });
+          
+          // Update virtual account to match on-chain balance
+          await prisma.virtualAccount.update({
+            where: { id: virtualAccount.id },
+            data: {
+              availableBalance: onChainBalance.toString(),
+              accountBalance: onChainBalance.toString(),
+            },
+          });
+          
+          console.log('[CRYPTO SEND] Virtual account updated to match on-chain balance');
+          
+          // Refresh virtual account object
+          const updated = await prisma.virtualAccount.findUnique({
+            where: { id: virtualAccount.id },
+          });
+          if (updated) {
+            Object.assign(virtualAccount, updated);
+          }
+        }
+      } catch (error: any) {
+        console.error('[CRYPTO SEND] Error checking on-chain balance:', error);
+        throw new Error(`Failed to verify on-chain balance: ${error.message || 'Unknown error'}`);
+      }
+      
+      // Validate user has sufficient on-chain balance
+      if (onChainBalance.lessThan(amountCryptoDecimal)) {
+        throw new Error(`Insufficient ${currency} balance on-chain. Available: ${onChainBalance.toString()}, Required: ${amountCryptoDecimal.toString()}`);
+      }
+
       const { ethereumGasService } = await import('../ethereum/ethereum.gas.service');
       const { ethereumTransactionService } = await import('../ethereum/ethereum.transaction.service');
 
@@ -268,7 +326,7 @@ class CryptoSendService {
     }
 
     // Calculate final balance after sending
-    const balanceBefore = cryptoBalance;
+    const balanceBefore = onChainBalance; // Use on-chain balance as the source of truth
     const balanceAfter = balanceBefore.minus(amountCryptoDecimal);
 
     // Generate transaction ID
@@ -276,7 +334,7 @@ class CryptoSendService {
 
     // Create transaction record in database
     await prisma.$transaction(async (tx) => {
-      // Debit virtual account
+      // Update virtual account to match expected on-chain balance after send
       await tx.virtualAccount.update({
         where: { id: virtualAccount.id },
         data: {
@@ -299,6 +357,51 @@ class CryptoSendService {
         status: txHash ? 'successful' : 'failed',
       });
     });
+
+    // STEP 2: Verify on-chain balance after transaction (optional, but good for logging)
+    if (txHash && blockchain.toLowerCase() === 'ethereum') {
+      try {
+        const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
+        
+        // Wait a bit for transaction to be processed
+        await new Promise(resolve => setTimeout(resolve, 3000)); // 3 seconds
+        
+        let actualOnChainBalance = new Decimal('0');
+        if (currency.toUpperCase() === 'ETH') {
+          const ethBalanceStr = await ethereumBalanceService.getETHBalance(depositAddress, false);
+          actualOnChainBalance = new Decimal(ethBalanceStr);
+        } else if (currency.toUpperCase() === 'USDT' && walletCurrency.contractAddress) {
+          const usdtBalanceStr = await ethereumBalanceService.getERC20Balance(
+            walletCurrency.contractAddress,
+            depositAddress,
+            walletCurrency.decimals || 6,
+            false
+          );
+          actualOnChainBalance = new Decimal(usdtBalanceStr);
+        }
+        
+        console.log('[CRYPTO SEND] On-chain balance after transaction:', {
+          expected: balanceAfter.toString(),
+          actual: actualOnChainBalance.toString(),
+          difference: actualOnChainBalance.minus(balanceAfter).toString(),
+        });
+        
+        // Update virtual account to match actual on-chain balance if different
+        if (!actualOnChainBalance.equals(balanceAfter)) {
+          console.log('[CRYPTO SEND] Updating virtual account to match actual on-chain balance');
+          await prisma.virtualAccount.update({
+            where: { id: virtualAccount.id },
+            data: {
+              availableBalance: actualOnChainBalance.toString(),
+              accountBalance: actualOnChainBalance.toString(),
+            },
+          });
+        }
+      } catch (error: any) {
+        console.error('[CRYPTO SEND] Error verifying post-transaction balance (non-critical):', error);
+        // Don't throw - this is just for verification
+      }
+    }
 
     console.log('[CRYPTO SEND] Transaction completed successfully:', {
       transactionId,
@@ -375,23 +478,20 @@ class CryptoSendService {
       throw new Error(`Deposit address not found for ${currency} on ${blockchain}. Please contact support.`);
     }
 
-    // Validate user has sufficient balance
-    const cryptoBalance = new Decimal(virtualAccount.availableBalance || '0');
-    const amountCryptoDecimal = new Decimal(amount);
-
-    if (cryptoBalance.lessThan(amountCryptoDecimal)) {
-      throw new Error(`Insufficient ${currency} balance. Available: ${cryptoBalance.toString()}, Required: ${amountCryptoDecimal.toString()}`);
-    }
-
-    // Get wallet currency for price
+    // Get wallet currency for price and contract address
     const walletCurrency = virtualAccount.walletCurrency;
     if (!walletCurrency || !walletCurrency.price) {
       throw new Error(`Currency ${currency} price not set`);
     }
 
     const cryptoPrice = new Decimal(walletCurrency.price.toString());
+    const amountCryptoDecimal = new Decimal(amount);
     const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
 
+    // STEP 1: Check REAL on-chain balance and sync virtual account
+    console.log('[CRYPTO SEND PREVIEW] Checking on-chain balance');
+    let onChainBalance = new Decimal('0');
+    
     // Initialize gas fee variables
     let gasFeeEth = new Decimal('0');
     let gasFeeUsd = new Decimal('0');
@@ -399,16 +499,78 @@ class CryptoSendService {
     let hasSufficientEth = true;
     let gasEstimate: any = null;
 
-    // For Ethereum: Check ETH balance and calculate gas fees
+    // For Ethereum: Check on-chain balance and calculate gas fees
     if (blockchain.toLowerCase() === 'ethereum') {
       const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
       const { ethereumGasService } = await import('../ethereum/ethereum.gas.service');
 
-      // Check user's ETH balance (required for gas)
+      // Check REAL on-chain balance
+      try {
+        if (currency.toUpperCase() === 'ETH') {
+          // Check native ETH balance
+          const ethBalanceStr = await ethereumBalanceService.getETHBalance(depositAddress, false);
+          onChainBalance = new Decimal(ethBalanceStr);
+          console.log('[CRYPTO SEND PREVIEW] On-chain ETH balance:', onChainBalance.toString());
+        } else if (currency.toUpperCase() === 'USDT') {
+          // Check USDT token balance
+          if (!walletCurrency.contractAddress) {
+            throw new Error(`USDT contract address not configured in database`);
+          }
+          const usdtBalanceStr = await ethereumBalanceService.getERC20Balance(
+            walletCurrency.contractAddress,
+            depositAddress,
+            walletCurrency.decimals || 6,
+            false
+          );
+          onChainBalance = new Decimal(usdtBalanceStr);
+          console.log('[CRYPTO SEND PREVIEW] On-chain USDT balance:', onChainBalance.toString());
+        }
+        
+        // Update virtual account to match on-chain balance if different
+        const virtualBalance = new Decimal(virtualAccount.availableBalance || '0');
+        if (!onChainBalance.equals(virtualBalance)) {
+          console.log('[CRYPTO SEND PREVIEW] Virtual account balance mismatch detected:', {
+            virtualBalance: virtualBalance.toString(),
+            onChainBalance: onChainBalance.toString(),
+            difference: onChainBalance.minus(virtualBalance).toString(),
+          });
+          
+          // Update virtual account to match on-chain balance
+          await prisma.virtualAccount.update({
+            where: { id: virtualAccount.id },
+            data: {
+              availableBalance: onChainBalance.toString(),
+              accountBalance: onChainBalance.toString(),
+            },
+          });
+          
+          console.log('[CRYPTO SEND PREVIEW] Virtual account updated to match on-chain balance');
+          
+          // Refresh virtual account object
+          const updated = await prisma.virtualAccount.findUnique({
+            where: { id: virtualAccount.id },
+          });
+          if (updated) {
+            Object.assign(virtualAccount, updated);
+          }
+        }
+      } catch (error: any) {
+        console.error('[CRYPTO SEND PREVIEW] Error checking on-chain balance:', error);
+        // Use virtual account balance as fallback
+        onChainBalance = new Decimal(virtualAccount.availableBalance || '0');
+        console.warn('[CRYPTO SEND PREVIEW] Using virtual account balance as fallback:', onChainBalance.toString());
+      }
+
+      // Validate user has sufficient on-chain balance
+      if (onChainBalance.lessThan(amountCryptoDecimal)) {
+        throw new Error(`Insufficient ${currency} balance on-chain. Available: ${onChainBalance.toString()}, Required: ${amountCryptoDecimal.toString()}`);
+      }
+
+      // Check user's ETH balance (required for gas) - always check real-time
       try {
         const userEthBalanceStr = await ethereumBalanceService.getETHBalance(depositAddress, false);
         userEthBalance = new Decimal(userEthBalanceStr);
-        console.log('[CRYPTO SEND PREVIEW] User ETH balance:', userEthBalance.toString());
+        console.log('[CRYPTO SEND PREVIEW] User ETH balance (on-chain):', userEthBalance.toString());
       } catch (error: any) {
         console.error('[CRYPTO SEND PREVIEW] Error checking user ETH balance:', error);
         userEthBalance = new Decimal('0');
@@ -488,8 +650,8 @@ class CryptoSendService {
       console.log('[CRYPTO SEND PREVIEW] Gas fee estimate:', gasEstimate);
     }
 
-    // Calculate final balance after sending
-    const balanceBefore = cryptoBalance;
+    // Calculate final balance after sending (use on-chain balance as source of truth)
+    const balanceBefore = onChainBalance;
     const balanceAfter = balanceBefore.minus(amountCryptoDecimal);
 
     return {
