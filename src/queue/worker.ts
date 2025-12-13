@@ -2,6 +2,7 @@ import Queue, { Job } from 'bull';
 import { redisConfig } from '../config/redis.config';
 import { processBillPaymentStatusJob, BillPaymentStatusJobData } from './jobs/billpayment.status.job';
 import { processCreateVirtualAccountJob, CreateVirtualAccountJobData } from '../jobs/tatum/create.virtual.account.job';
+import { processRetrySellTokenTransferJob, RetrySellTokenTransferJobData } from '../jobs/tatum/retry.sell.token.transfer.job';
 
 /**
  * Queue Worker
@@ -134,6 +135,9 @@ if (require.main === module) {
     'tatum': {
       'create-virtual-account': async (job: Job) => {
         await processCreateVirtualAccountJob(job as Job<CreateVirtualAccountJobData>);
+      },
+      'retry-sell-token-transfer': async (job: Job) => {
+        await processRetrySellTokenTransferJob(job as Job<RetrySellTokenTransferJobData>);
       },
       // Add more tatum job processors here as needed
     },

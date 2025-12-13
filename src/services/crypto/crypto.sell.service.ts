@@ -258,24 +258,42 @@ class CryptoSellService {
         const ethPrice = ethWalletCurrency?.price ? new Decimal(ethWalletCurrency.price.toString()) : new Decimal('0');
 
         // Check if user needs ETH
-        // Send at least 2x the estimated gas fee to ensure sufficient balance
-        // Tatum's actual requirement may be higher than our estimate
-        const minimumEthNeeded = tokenGasFeeEth.mul(new Decimal('2')).plus(new Decimal('0.002'));
+        // Add a reasonable buffer: 50% of gas fee or 0.0001 ETH (0.1 mETH), whichever is higher
+        // This accounts for gas price fluctuations and estimation differences
+        const bufferAmount = Decimal.max(
+          tokenGasFeeEth.mul(new Decimal('0.5')), // 50% of gas fee
+          new Decimal('0.0001') // Minimum 0.1 mETH buffer
+        );
+        const minimumEthNeeded = tokenGasFeeEth.plus(bufferAmount);
+        const toleranceBuffer = tokenGasFeeEth.mul(new Decimal('0.1')); // 10% tolerance for comparison
+        const minimumEthWithTolerance = minimumEthNeeded.minus(toleranceBuffer);
         ethNeededForGas = minimumEthNeeded;
 
         let ethTransferGasEstimate: any = null;
         let ethGasLimit = 0;
         let ethGasPriceWei = '0';
+        let ethToSend: Decimal = new Decimal('0');
 
-        if (userEthBalance.lessThan(minimumEthNeeded)) {
+        // Only transfer ETH if user's balance is significantly below the required amount
+        if (userEthBalance.lessThan(minimumEthWithTolerance)) {
           needsEthTransfer = true;
           console.log('[CRYPTO SELL] User needs ETH transfer');
+          console.log('  User ETH balance:', userEthBalance.toString());
+          console.log('  Token gas fee:', tokenGasFeeEth.toString());
+          console.log('  Buffer amount:', bufferAmount.toString());
+          console.log('  Minimum ETH needed:', minimumEthNeeded.toString());
+          console.log('  Minimum with tolerance:', minimumEthWithTolerance.toString());
 
-          // Estimate gas for ETH transfer
+          // Calculate ETH amount to send: gas fee + buffer + small additional safety margin
+          // Add only 0.0001 ETH (0.1 mETH) extra for safety, not 0.001 ETH
+          ethToSend = minimumEthNeeded.plus(new Decimal('0.0001')); // Small safety margin (0.1 mETH)
+          console.log('  ETH to send:', ethToSend.toString());
+
+          // Estimate gas for ETH transfer (estimate for sending ethToSend amount)
           ethTransferGasEstimate = await ethereumGasService.estimateGasFee(
             masterWallet.address,
             depositAddress,
-            minimumEthNeeded.toString(),
+            ethToSend.toString(),
             false
           );
 
@@ -320,7 +338,7 @@ class CryptoSellService {
           try {
             ethTransferTxHash = await ethereumTransactionService.sendTransaction(
               depositAddress,
-              minimumEthNeeded.toString(),
+              ethToSend.toString(),
               'ETH',
               masterPrivateKey,
               ethereumGasService.weiToGwei(ethGasPriceWei),
@@ -337,7 +355,7 @@ class CryptoSellService {
               userId,
               from: masterWallet.address,
               to: depositAddress,
-              amount: minimumEthNeeded.toString(),
+              amount: ethToSend.toString(),
               txHash: ethTransferTxHash,
             });
 
@@ -353,7 +371,8 @@ class CryptoSellService {
               try {
                 const currentBalance = await ethereumBalanceService.getETHBalance(depositAddress, false);
                 const currentBalanceDecimal = new Decimal(currentBalance);
-                const requiredBalance = tokenGasFeeEth.plus(new Decimal('0.001'));
+                // Required balance should match what we calculated (gas fee + buffer + small margin)
+                const requiredBalance = tokenGasFeeEth.plus(bufferAmount).plus(new Decimal('0.0001'));
 
                 console.log(`[CRYPTO SELL] Balance check ${retries + 1}/${maxRetries}:`, {
                   current: currentBalanceDecimal.toString(),
@@ -388,7 +407,7 @@ class CryptoSellService {
             cryptoLogger.exception('ETH transfer to user', error, {
               userId,
               depositAddress,
-              ethNeeded: minimumEthNeeded.toString(),
+              ethNeeded: ethToSend.toString(),
             });
             throw new Error(`Failed to transfer ETH to user wallet: ${error.message || 'Unknown error'}`);
           }
@@ -449,13 +468,13 @@ class CryptoSellService {
             currency: 'USDT',
           });
 
-          // If ETH transfer succeeded but token transfer failed, log this critical situation
+          // If ETH transfer succeeded but token transfer failed, enqueue retry job
           if (needsEthTransfer && ethTransferTxHash) {
             console.error('[CRYPTO SELL] CRITICAL: ETH transfer succeeded but token transfer failed!', {
               userId,
               depositAddress,
               ethTransferTxHash,
-              ethAmount: minimumEthNeeded.toString(),
+              ethAmount: ethToSend.toString(),
               tokenAmount: amountCryptoDecimal.toString(),
               currency: 'USDT',
               error: error.message,
@@ -465,11 +484,60 @@ class CryptoSellService {
               userId,
               depositAddress,
               ethTransferTxHash,
-              ethAmount: minimumEthNeeded.toString(),
+              ethAmount: ethToSend.toString(),
               tokenAmount: amountCryptoDecimal.toString(),
               currency: 'USDT',
-              note: 'ETH was successfully transferred to user wallet, but token transfer failed. Manual intervention may be required.',
+              note: 'ETH was successfully transferred to user wallet, but token transfer failed. Enqueuing retry job.',
             });
+
+            // Enqueue retry job to attempt token transfer again after ETH settles
+            try {
+              const { queueManager } = await import('../../queue/queue.manager');
+              const finalAmountNgnCalc = amountNgn.minus(totalGasFeeNgn);
+              const finalAmountNgnCalcDecimal = finalAmountNgnCalc.greaterThan(0) ? finalAmountNgnCalc : new Decimal('0');
+
+              await queueManager.addJob(
+                'tatum',
+                'retry-sell-token-transfer',
+                {
+                  userId,
+                  depositAddress,
+                  masterWalletAddress: masterWalletAddress || '',
+                  amount: amountCryptoDecimal.toString(),
+                  currency: currency.toUpperCase(),
+                  blockchain: blockchain.toLowerCase(),
+                  virtualAccountId: virtualAccount.id,
+                  fiatWalletId: fiatWallet.id,
+                  amountNgn: finalAmountNgnCalcDecimal.toString(),
+                  ethTransferTxHash,
+                  ethAmountSent: ethToSend.toString(),
+                  attemptNumber: 1, // First retry attempt
+                },
+                {
+                  attempts: 3, // Total 3 attempts (initial + 2 retries)
+                  backoff: {
+                    type: 'exponential',
+                    delay: 10000, // Start with 10 seconds, then 20s, 40s
+                  },
+                  removeOnComplete: true,
+                  removeOnFail: false, // Keep failed jobs for manual review
+                }
+              );
+
+              console.log('[CRYPTO SELL] Enqueued retry job for token transfer', {
+                userId,
+                depositAddress,
+                ethTransferTxHash,
+                attemptNumber: 1,
+              });
+
+              // Don't throw error - let the retry job handle it
+              throw new Error(`Token transfer failed. Retry job enqueued. Please wait for transaction to complete.`);
+            } catch (queueError: any) {
+              console.error('[CRYPTO SELL] Failed to enqueue retry job:', queueError);
+              // If queue fails, still throw the original error
+              throw new Error(`Failed to transfer token from user wallet: ${error.message || 'Unknown error'}`);
+            }
           }
 
           throw new Error(`Failed to transfer token from user wallet: ${error.message || 'Unknown error'}`);
@@ -477,16 +545,52 @@ class CryptoSellService {
       } catch (error: any) {
         console.error('[CRYPTO SELL] Blockchain transfer error:', error);
 
-        // If ETH was sent but token transfer failed, we cannot rollback the on-chain ETH transfer
-        // Log this as a critical issue that needs manual intervention
+        // If ETH was sent but token transfer failed, retry job should have been enqueued
+        // If we reach here, it means the retry job enqueue also failed or wasn't triggered
         if (needsEthTransfer && ethTransferTxHash && !tokenTransferTxHash) {
-          console.error('[CRYPTO SELL] CRITICAL PARTIAL FAILURE - ETH sent but token transfer failed', {
+          console.error('[CRYPTO SELL] CRITICAL PARTIAL FAILURE - ETH sent but token transfer failed and retry job not enqueued', {
             userId,
             depositAddress,
             ethTransferTxHash,
             error: error.message,
-            actionRequired: 'User wallet now has ETH but sell transaction failed. Consider manual refund or retry.',
+            actionRequired: 'User wallet now has ETH but sell transaction failed. Manual intervention required.',
           });
+
+          // Try one more time to enqueue the retry job
+          try {
+            const { queueManager } = await import('../../queue/queue.manager');
+            const finalAmountNgnCalc = amountNgn.minus(totalGasFeeNgn);
+            const finalAmountNgnCalcDecimal = finalAmountNgnCalc.greaterThan(0) ? finalAmountNgnCalc : new Decimal('0');
+
+            await queueManager.addJob(
+              'tatum',
+              'retry-sell-token-transfer',
+              {
+                userId,
+                depositAddress,
+                masterWalletAddress: masterWalletAddress || '',
+                amount: amountCryptoDecimal.toString(),
+                currency: currency.toUpperCase(),
+                blockchain: blockchain.toLowerCase(),
+                virtualAccountId: virtualAccount.id,
+                fiatWalletId: fiatWallet.id,
+                amountNgn: finalAmountNgnCalcDecimal.toString(),
+                ethTransferTxHash,
+                ethAmountSent: ethToSend.toString(),
+                attemptNumber: 1,
+              },
+              {
+                attempts: 3,
+                backoff: {
+                  type: 'exponential',
+                  delay: 10000,
+                },
+              }
+            );
+            console.log('[CRYPTO SELL] Successfully enqueued retry job from catch block');
+          } catch (queueError: any) {
+            console.error('[CRYPTO SELL] Failed to enqueue retry job from catch block:', queueError);
+          }
         }
 
         throw error;
@@ -789,10 +893,10 @@ class CryptoSellService {
     let userEthBalance = new Decimal('0');
     let gasEstimate: any = null;
 
-    // For USDT ERC-20: Check ETH balance and calculate gas fees
+    // For USDT ERC-20: Check ETH balance FIRST, then calculate gas fees
     if (blockchain.toLowerCase() === 'ethereum' && currency.toUpperCase() === 'USDT') {
       try {
-        console.log('[CRYPTO SELL PREVIEW] Checking user ETH balance and calculating gas fees');
+        console.log('[CRYPTO SELL PREVIEW] Starting gas fee calculations for Ethereum USDT sell');
         console.log('User deposit address:', depositAddress);
 
         // Import services
@@ -808,7 +912,8 @@ class CryptoSellService {
           throw new Error('Master wallet not found for Ethereum');
         }
 
-        // Check user's ETH balance
+        // STEP 1: Check user's ETH balance FIRST (before any other calculations)
+        console.log('[CRYPTO SELL PREVIEW] Step 1: Checking user ETH balance');
         try {
           const userEthBalanceStr = await ethereumBalanceService.getETHBalance(depositAddress, false);
           userEthBalance = new Decimal(userEthBalanceStr);
@@ -818,8 +923,8 @@ class CryptoSellService {
           userEthBalance = new Decimal('0');
         }
 
-        // Estimate gas fee for token transfer (user to master wallet)
-        console.log('[CRYPTO SELL PREVIEW] Estimating gas for token transfer');
+        // STEP 2: Estimate gas fee for token transfer (user to master wallet)
+        console.log('[CRYPTO SELL PREVIEW] Step 2: Estimating gas for token transfer');
         const tokenTransferGasEstimate = await ethereumGasService.estimateGasFee(
           depositAddress,
           masterWallet.address,
@@ -864,21 +969,36 @@ class CryptoSellService {
         });
 
         // Check if user has enough ETH to pay for gas
-        const minimumEthNeeded = tokenGasFeeEth.plus(new Decimal('0.001')); // Add small buffer
+        // Add a reasonable buffer: 50% of gas fee or 0.0001 ETH (0.1 mETH), whichever is higher
+        // This accounts for gas price fluctuations and estimation differences
+        const bufferAmount = Decimal.max(
+          tokenGasFeeEth.mul(new Decimal('0.5')), // 50% of gas fee
+          new Decimal('0.0001') // Minimum 0.1 mETH buffer
+        );
+        const minimumEthNeeded = tokenGasFeeEth.plus(bufferAmount);
+        const toleranceBuffer = tokenGasFeeEth.mul(new Decimal('0.1')); // 10% tolerance for comparison
+        const minimumEthWithTolerance = minimumEthNeeded.minus(toleranceBuffer);
         ethNeededForGas = minimumEthNeeded;
 
-        if (userEthBalance.lessThan(minimumEthNeeded)) {
+        // Only transfer ETH if user's balance is significantly below the required amount
+        if (userEthBalance.lessThan(minimumEthWithTolerance)) {
           needsEthTransfer = true;
           console.log('[CRYPTO SELL PREVIEW] User does not have sufficient ETH, will need transfer');
           console.log('  User ETH balance:', userEthBalance.toString());
           console.log('  Minimum ETH needed:', minimumEthNeeded.toString());
+          console.log('  Minimum with tolerance:', minimumEthWithTolerance.toString());
 
           // Estimate gas for ETH transfer (master wallet to user)
-          console.log('[CRYPTO SELL PREVIEW] Estimating gas for ETH transfer to user');
+          // Calculate how much ETH to send: minimum needed + small safety margin
+          const ethToSendPreview = minimumEthNeeded.plus(new Decimal('0.0001')); // Small safety margin (0.1 mETH)
+          
+          // STEP 3: Calculate ETH transfer gas fee (with buffer) and convert to USD → NGN
+          console.log('[CRYPTO SELL PREVIEW] Step 3: Estimating gas for ETH transfer to user');
+          console.log('  ETH to send (preview):', ethToSendPreview.toString());
           const ethTransferGasEstimate = await ethereumGasService.estimateGasFee(
             masterWallet.address,
             depositAddress,
-            minimumEthNeeded.toString(),
+            ethToSendPreview.toString(),
             false // mainnet
           );
 
@@ -891,34 +1011,55 @@ class CryptoSellService {
             ethGasPriceWei
           ));
 
-          // Convert ETH transfer gas fee to USD and NGN
+          // Convert ETH transfer gas fee: ETH → USD → NGN
+          // Step 1: ETH to USD (using ETH price)
           const ethTransferGasFeeUsd = ethTransferGasFeeEth.mul(ethPrice);
+          // Step 2: USD to NGN (using USD to NGN rate from quote)
           ethTransferGasFeeNgn = ethTransferGasFeeUsd.mul(new Decimal(quote.rateUsdToNgn));
 
-          console.log('[CRYPTO SELL PREVIEW] ETH transfer gas estimate:', {
+          console.log('[CRYPTO SELL PREVIEW] ETH transfer gas fee (with buffer):', {
             gasLimit: ethGasLimit,
-            gasPriceGwei: ethereumGasService.weiToGwei(ethGasPriceWei),
+            gasPrice: {
+              wei: ethGasPriceWei,
+              gwei: ethereumGasService.weiToGwei(ethGasPriceWei),
+            },
             gasFeeEth: ethTransferGasFeeEth.toString(),
             gasFeeUsd: ethTransferGasFeeUsd.toString(),
             gasFeeNgn: ethTransferGasFeeNgn.toString(),
+            conversion: {
+              ethPriceUsd: ethPrice.toString(),
+              usdToNgnRate: quote.rateUsdToNgn,
+            },
           });
 
-          // Convert ETH needed to NGN
-          ethNeededNgn = ethNeededForGas.mul(ethPrice).mul(new Decimal(quote.rateUsdToNgn));
-          console.log('[CRYPTO SELL PREVIEW] ETH needed for gas (in NGN):', ethNeededNgn.toString());
+          // Convert ETH amount needed to NGN: ETH → USD → NGN
+          const ethNeededUsd = ethNeededForGas.mul(ethPrice);
+          ethNeededNgn = ethNeededUsd.mul(new Decimal(quote.rateUsdToNgn));
+          console.log('[CRYPTO SELL PREVIEW] ETH amount needed for gas (converted to NGN):', {
+            eth: ethNeededForGas.toString(),
+            usd: ethNeededUsd.toString(),
+            ngn: ethNeededNgn.toString(),
+          });
         } else {
           console.log('[CRYPTO SELL PREVIEW] User has sufficient ETH balance');
         }
 
         // Calculate total gas fees
-        totalGasFeeEth = needsEthTransfer 
-          ? ethNeededForGas.plus(tokenGasFeeEth) // ETH needed + token transfer gas
-          : tokenGasFeeEth; // Only token transfer gas
-
-        totalGasFeeUsd = totalGasFeeEth.mul(ethPrice);
-        totalGasFeeNgn = needsEthTransfer
-          ? ethTransferGasFeeNgn.plus(tokenTransferGasFeeNgn) // Both transfer gas fees
-          : tokenTransferGasFeeNgn; // Only token transfer gas
+        // If ETH transfer is needed: ETH transfer gas fee + token transfer gas fee
+        // If no ETH transfer: only token transfer gas fee
+        if (needsEthTransfer) {
+          // Total gas in ETH: ETH transfer gas fee + token transfer gas fee
+          totalGasFeeEth = ethTransferGasFeeEth.plus(tokenGasFeeEth);
+          // Total gas in USD: already calculated separately and summed
+          totalGasFeeUsd = ethTransferGasFeeUsd.plus(tokenGasFeeUsd);
+          // Total gas in NGN: already calculated separately and summed
+          totalGasFeeNgn = ethTransferGasFeeNgn.plus(tokenTransferGasFeeNgn);
+        } else {
+          // Only token transfer gas
+          totalGasFeeEth = tokenGasFeeEth;
+          totalGasFeeUsd = tokenGasFeeUsd;
+          totalGasFeeNgn = tokenTransferGasFeeNgn;
+        }
 
         // Add minimum 10 NGN buffer to total gas fee
         const minGasFeeBuffer = new Decimal('10');
@@ -939,11 +1080,21 @@ class CryptoSellService {
             gasFeeUsd: tokenGasFeeUsd.toString(),
             gasFeeNgn: tokenTransferGasFeeNgn.toString(),
           },
+          ethTransfer: needsEthTransfer ? {
+            gasLimit: ethGasLimit.toString(),
+            gasPrice: {
+              wei: ethGasPriceWei,
+              gwei: ethereumGasService.weiToGwei(ethGasPriceWei),
+            },
+            gasFeeEth: ethTransferGasFeeEth.toString(),
+            gasFeeUsd: ethTransferGasFeeUsd.toString(),
+            gasFeeNgn: ethTransferGasFeeNgn.toString(),
+          } : null,
           needsEthTransfer,
           userEthBalance: userEthBalance.toString(),
           ethNeededForGas: ethNeededForGas.toString(),
+          ethNeededUsd: needsEthTransfer ? ethNeededForGas.mul(ethPrice).toString() : '0',
           ethNeededNgn: needsEthTransfer ? ethNeededNgn.toString() : '0',
-          ethTransferGasFeeNgn: needsEthTransfer ? ethTransferGasFeeNgn.toString() : '0',
         };
 
         console.log('[CRYPTO SELL PREVIEW] Total gas fees:', {
@@ -1000,11 +1151,12 @@ class CryptoSellService {
         usd: totalGasFeeUsd.toString(),
         ngn: totalGasFeeNgn.toString(),
         tokenTransfer: gasEstimate?.tokenTransfer,
+        ethTransfer: gasEstimate?.ethTransfer || null,
         needsEthTransfer: needsEthTransfer,
         userEthBalance: userEthBalance.toString(),
         ethNeededForGas: ethNeededForGas.toString(),
+        ethNeededUsd: gasEstimate?.ethNeededUsd || '0',
         ethNeededNgn: ethNeededNgn.toString(),
-        ethTransferGasFeeNgn: ethTransferGasFeeNgn.toString(),
       } : null,
       
       // Final amount after gas fees
