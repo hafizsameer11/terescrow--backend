@@ -54,10 +54,16 @@ class CryptoSendService {
       throw new Error(`Crypto send for ${blockchain} blockchain is not active yet. Only Ethereum (ETH and USDT) is currently supported.`);
     }
 
+    // Normalize currency (handle formats like "USDT ETH" -> "USDT")
+    const normalizedCurrency = currency.toUpperCase().split(' ')[0]; // Take first word (e.g., "USDT ETH" -> "USDT")
+    
     // Only ETH and USDT are currently supported
-    if (currency.toUpperCase() !== 'ETH' && currency.toUpperCase() !== 'USDT') {
+    if (normalizedCurrency !== 'ETH' && normalizedCurrency !== 'USDT') {
       throw new Error(`Crypto send for ${currency} on ${blockchain} is not active yet. Only ETH and USDT on Ethereum are currently supported.`);
     }
+    
+    // Use normalized currency for rest of the function
+    const currencyCode = normalizedCurrency;
 
     // Validate recipient address format
     if (!toAddress || !toAddress.startsWith('0x') || toAddress.length !== 42) {
@@ -78,7 +84,7 @@ class CryptoSendService {
     const virtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
-        currency: currency.toUpperCase(),
+        currency: currencyCode,
         blockchain: blockchain.toLowerCase(),
       },
       include: {
@@ -129,12 +135,12 @@ class CryptoSendService {
       
       // Check REAL on-chain balance
       try {
-        if (currency.toUpperCase() === 'ETH') {
+        if (currencyCode === 'ETH') {
           // Check native ETH balance
           const ethBalanceStr = await ethereumBalanceService.getETHBalance(depositAddress, false);
           onChainBalance = new Decimal(ethBalanceStr);
           console.log('[CRYPTO SEND] On-chain ETH balance:', onChainBalance.toString());
-        } else if (currency.toUpperCase() === 'USDT') {
+        } else if (currencyCode === 'USDT') {
           // Check USDT token balance
           if (!walletCurrency.contractAddress) {
             throw new Error(`USDT contract address not configured in database`);
@@ -203,7 +209,7 @@ class CryptoSendService {
 
       // Estimate gas fee
       let gasLimit = 21000; // Default for ETH transfer
-      if (currency.toUpperCase() === 'USDT') {
+      if (currencyCode === 'USDT') {
         gasLimit = 65000; // ERC-20 token transfer
         gasLimit = Math.ceil(gasLimit * 1.2); // Add 20% buffer
       } else {
@@ -244,12 +250,12 @@ class CryptoSendService {
       );
       const minimumEthNeeded = gasFeeEth.plus(bufferAmount);
 
-      if (currency.toUpperCase() === 'USDT') {
+      if (currencyCode === 'USDT') {
         // For USDT: Check if user has enough ETH for gas (separate from USDT amount)
         if (userEthBalance.lessThan(minimumEthNeeded)) {
           throw new Error(`Insufficient ETH for gas fees. You need at least ${minimumEthNeeded.toString()} ETH to send USDT, but you only have ${userEthBalance.toString()} ETH. Please buy some ETH first.`);
         }
-      } else if (currency.toUpperCase() === 'ETH') {
+      } else if (currencyCode === 'ETH') {
         // For ETH: Check if user has enough ETH for amount + gas fee
         const totalEthNeeded = amountCryptoDecimal.plus(minimumEthNeeded);
         if (userEthBalance.lessThan(totalEthNeeded)) {
@@ -291,7 +297,7 @@ class CryptoSendService {
         txHash = await ethereumTransactionService.sendTransaction(
           toAddress,
           amountCryptoDecimal.toString(),
-          currency.toUpperCase(),
+          currencyCode,
           userPrivateKey,
           ethereumGasService.weiToGwei(gasPriceWei),
           gasLimit.toString(),
@@ -302,7 +308,7 @@ class CryptoSendService {
         cryptoLogger.transaction('SEND_COMPLETE', {
           transactionId: `SEND-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`,
           userId,
-          currency: currency.toUpperCase(),
+          currency: currencyCode,
           blockchain: blockchain.toLowerCase(),
           amountCrypto: amountCryptoDecimal.toString(),
           amountUsd: amountUsd.toString(),
@@ -315,7 +321,7 @@ class CryptoSendService {
         console.error('[CRYPTO SEND] Blockchain transfer failed:', error);
         cryptoLogger.exception('Blockchain transfer failed', error, {
           userId,
-          currency: currency.toUpperCase(),
+          currency: currencyCode,
           blockchain: blockchain.toLowerCase(),
           amount: amountCryptoDecimal.toString(),
           toAddress,
@@ -367,10 +373,10 @@ class CryptoSendService {
         await new Promise(resolve => setTimeout(resolve, 3000)); // 3 seconds
         
         let actualOnChainBalance = new Decimal('0');
-        if (currency.toUpperCase() === 'ETH') {
+        if (currencyCode === 'ETH') {
           const ethBalanceStr = await ethereumBalanceService.getETHBalance(depositAddress, false);
           actualOnChainBalance = new Decimal(ethBalanceStr);
-        } else if (currency.toUpperCase() === 'USDT' && walletCurrency.contractAddress) {
+        } else if (currencyCode === 'USDT' && walletCurrency.contractAddress) {
           const usdtBalanceStr = await ethereumBalanceService.getERC20Balance(
             walletCurrency.contractAddress,
             depositAddress,
@@ -443,21 +449,25 @@ class CryptoSendService {
       throw new Error(`Crypto send for ${blockchain} blockchain is not active yet. Only Ethereum (ETH and USDT) is currently supported.`);
     }
 
-    // Only ETH and USDT are currently supported
-    if (currency.toUpperCase() !== 'ETH' && currency.toUpperCase() !== 'USDT') {
-      throw new Error(`Crypto send for ${currency} on ${blockchain} is not active yet. Only ETH and USDT on Ethereum are currently supported.`);
-    }
-
     // Validate recipient address format
     if (!toAddress || !toAddress.startsWith('0x') || toAddress.length !== 42) {
       throw new Error('Invalid recipient address. Must be a valid Ethereum address (0x...).');
+    }
+
+    // Normalize currency (handle formats like "USDT ETH" -> "USDT")
+    const normalizedCurrency = currency.toUpperCase().split(' ')[0]; // Take first word (e.g., "USDT ETH" -> "USDT")
+    const currencyCode = normalizedCurrency;
+    
+    // Only ETH and USDT are currently supported
+    if (currencyCode !== 'ETH' && currencyCode !== 'USDT') {
+      throw new Error(`Crypto send for ${currency} on ${blockchain} is not active yet. Only ETH and USDT on Ethereum are currently supported.`);
     }
 
     // Get user's virtual account for this crypto with deposit address
     const virtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
-        currency: currency.toUpperCase(),
+        currency: currencyCode,
         blockchain: blockchain.toLowerCase(),
       },
       include: {
@@ -470,18 +480,18 @@ class CryptoSendService {
     });
 
     if (!virtualAccount) {
-      throw new Error(`Virtual account not found for ${currency} on ${blockchain}`);
+      throw new Error(`Virtual account not found for ${currencyCode} on ${blockchain}`);
     }
 
     const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
     if (!depositAddress) {
-      throw new Error(`Deposit address not found for ${currency} on ${blockchain}. Please contact support.`);
+      throw new Error(`Deposit address not found for ${currencyCode} on ${blockchain}. Please contact support.`);
     }
 
     // Get wallet currency for price and contract address
     const walletCurrency = virtualAccount.walletCurrency;
     if (!walletCurrency || !walletCurrency.price) {
-      throw new Error(`Currency ${currency} price not set`);
+      throw new Error(`Currency ${currencyCode} price not set`);
     }
 
     const cryptoPrice = new Decimal(walletCurrency.price.toString());
@@ -506,12 +516,12 @@ class CryptoSendService {
 
       // Check REAL on-chain balance
       try {
-        if (currency.toUpperCase() === 'ETH') {
+        if (currencyCode === 'ETH') {
           // Check native ETH balance
           const ethBalanceStr = await ethereumBalanceService.getETHBalance(depositAddress, false);
           onChainBalance = new Decimal(ethBalanceStr);
           console.log('[CRYPTO SEND PREVIEW] On-chain ETH balance:', onChainBalance.toString());
-        } else if (currency.toUpperCase() === 'USDT') {
+        } else if (currencyCode === 'USDT') {
           // Check USDT token balance
           if (!walletCurrency.contractAddress) {
             throw new Error(`USDT contract address not configured in database`);
@@ -578,7 +588,7 @@ class CryptoSendService {
 
       // Estimate gas fee
       let gasLimit = 21000; // Default for ETH transfer
-      if (currency.toUpperCase() === 'USDT') {
+      if (currencyCode === 'USDT') {
         gasLimit = 65000; // ERC-20 token transfer
         gasLimit = Math.ceil(gasLimit * 1.2); // Add 20% buffer
       } else {
@@ -612,7 +622,7 @@ class CryptoSendService {
       );
       const minimumEthNeeded = gasFeeEth.plus(bufferAmount);
 
-      if (currency.toUpperCase() === 'USDT') {
+      if (currencyCode === 'USDT') {
         // For USDT: Check if user has enough ETH for gas (separate from USDT amount)
         hasSufficientEth = userEthBalance.greaterThanOrEqualTo(minimumEthNeeded);
 
@@ -622,7 +632,7 @@ class CryptoSendService {
             minimumEthNeeded: minimumEthNeeded.toString(),
           });
         }
-      } else if (currency.toUpperCase() === 'ETH') {
+      } else if (currencyCode === 'ETH') {
         // For ETH: Check if user has enough ETH for amount + gas fee
         const totalEthNeeded = amountCryptoDecimal.plus(minimumEthNeeded);
         hasSufficientEth = userEthBalance.greaterThanOrEqualTo(totalEthNeeded);
@@ -655,7 +665,7 @@ class CryptoSendService {
     const balanceAfter = balanceBefore.minus(amountCryptoDecimal);
 
     return {
-      currency: currency.toUpperCase(),
+      currency: currencyCode,
       blockchain: blockchain.toLowerCase(),
       currencyName: walletCurrency.name || currency,
       currencySymbol: walletCurrency.symbol || null,
