@@ -319,8 +319,8 @@ billPaymentRouter.post('/create-order', authenticateUser, createBillOrderControl
  *     summary: Query bill payment order status
  *     tags: [V2 - Bill Payments]
  *     description: |
- *       **V2 API** - Query the status of a bill payment order.
- *       Updates local transaction status based on PalmPay response.
+ *       **V2 API** - Query the status of a bill payment order from the database.
+ *       Returns the current status stored in our database.
  *       Can query by billPaymentId OR by sceneCode + orderNo/outOrderNo.
  *     security:
  *       - bearerAuth: []
@@ -383,9 +383,14 @@ billPaymentRouter.post('/create-order', authenticateUser, createBillOrderControl
  *                       type: string
  *                     completedTime:
  *                       type: number
+ *                       description: Timestamp in milliseconds, or null if not completed
+ *                     errorMsg:
+ *                       type: string
+ *                       nullable: true
  *                 billPayment:
  *                   type: object
  *                   nullable: true
+ *                   description: Full bill payment details from database
  */
 billPaymentRouter.get('/order-status', authenticateUser, queryOrderStatusController);
 

@@ -406,7 +406,6 @@ export const queryOrderStatusController = async (
     const user = req.body._user;
 
     let billPayment;
-    let orderStatus;
 
     // If billPaymentId is provided, query by that first
     if (billPaymentId) {
@@ -421,120 +420,76 @@ export const queryOrderStatusController = async (
       if (!billPayment) {
         return next(ApiError.notFound('Bill payment not found'));
       }
-
-      // Use bill payment's scene code and order numbers
-      const sceneCodeFromBill = billPayment.sceneCode as any;
-      orderStatus = await palmpayBillPaymentService.queryOrderStatus(
-        sceneCodeFromBill,
-        billPayment.palmpayOrderId || undefined,
-        billPayment.palmpayOrderNo || undefined
-      );
     } else {
       // Query by sceneCode and order numbers
-      if (!sceneCode || typeof sceneCode !== 'string') {
-        return next(ApiError.badRequest('sceneCode is required and must be a string'));
-      }
-
-      if (!outOrderNo && !orderNo) {
-        return next(ApiError.badRequest('Either outOrderNo or orderNo must be provided'));
-      }
-
-      orderStatus = await palmpayBillPaymentService.queryOrderStatus(
-        sceneCode as any,
-        outOrderNo as string | undefined,
-        orderNo as string | undefined
-      );
-
-      // Find bill payment by order numbers
-      if (orderStatus.outOrderNo || orderStatus.orderNo) {
-        billPayment = await prisma.billPayment.findFirst({
-          where: {
-            OR: [
-              { palmpayOrderId: orderStatus.outOrderNo },
-              { palmpayOrderNo: orderStatus.orderNo },
-            ],
-            userId: user.id, // Ensure user owns this bill payment
-          },
-          include: { transaction: true },
-        });
-      }
-    }
-
-    // Update local BillPayment and transaction if found
-    if (billPayment && orderStatus) {
-      const statusMap: Record<number, string> = {
-        1: 'pending',
-        2: 'completed',
-        3: 'failed',
-        4: 'cancelled',
+      const where: any = {
+        userId: user.id,
       };
 
-      const newStatus = statusMap[orderStatus.orderStatus] || 'pending';
-
-      // Handle wallet refunds for failed/cancelled orders
-      if (orderStatus.orderStatus === PalmPayOrderStatus.FAILED || orderStatus.orderStatus === PalmPayOrderStatus.CANCELLED) {
-        if (billPayment.status === 'pending') {
-          try {
-            const refundAmount = billPayment.amount.toNumber();
-            const currentWallet = await prisma.fiatWallet.findUnique({
-              where: { id: billPayment.walletId },
-            });
-
-            if (currentWallet) {
-              const refundBalance = new Decimal(currentWallet.balance).plus(refundAmount);
-              await prisma.fiatWallet.update({
-                where: { id: billPayment.walletId },
-                data: { balance: refundBalance },
-              });
-            }
-          } catch (refundError) {
-            console.error('Failed to refund wallet:', refundError);
-          }
-        }
+      if (sceneCode && typeof sceneCode === 'string') {
+        where.sceneCode = sceneCode;
       }
 
-      // Update BillPayment
-      await prisma.billPayment.update({
-        where: { id: billPayment.id },
-        data: {
-          palmpayStatus: orderStatus.orderStatus.toString(),
-          status: newStatus,
-          ...(orderStatus.orderStatus === 2 && orderStatus.completedTime
-            ? { completedAt: new Date(orderStatus.completedTime) }
-            : {}),
-          ...(orderStatus.errorMsg ? { errorMessage: orderStatus.errorMsg } : {}),
-          providerResponse: JSON.stringify(orderStatus),
-          ...(orderStatus.orderStatus === 2 ? { billReference: orderStatus.orderNo } : {}),
-        },
+      if (outOrderNo || orderNo) {
+        where.OR = [];
+        if (outOrderNo) {
+          where.OR.push({ palmpayOrderId: outOrderNo as string });
+        }
+        if (orderNo) {
+          where.OR.push({ palmpayOrderNo: orderNo as string });
+        }
+      } else {
+        return next(ApiError.badRequest('Either billPaymentId, outOrderNo, or orderNo must be provided'));
+      }
+
+      billPayment = await prisma.billPayment.findFirst({
+        where,
+        include: { transaction: true },
       });
 
-      // Update related transaction
-      await prisma.fiatTransaction.update({
-        where: { id: billPayment.transactionId },
-        data: {
-          palmpayStatus: orderStatus.orderStatus.toString(),
-          status: newStatus,
-          ...(orderStatus.orderStatus === 2 && orderStatus.completedTime
-            ? { completedAt: new Date(orderStatus.completedTime) }
-            : {}),
-          ...(orderStatus.errorMsg ? { errorMessage: orderStatus.errorMsg } : {}),
-        },
-      });
+      if (!billPayment) {
+        return next(ApiError.notFound('Bill payment not found'));
+      }
     }
 
+    // Build response from database record
+    const palmpayStatus = billPayment.palmpayStatus ? parseInt(billPayment.palmpayStatus) : null;
+    
     return res.status(200).json(
       new ApiResponse(200, {
-        orderStatus,
-        billPayment: billPayment ? {
+        orderStatus: {
+          outOrderNo: billPayment.palmpayOrderId || null,
+          orderNo: billPayment.palmpayOrderNo || null,
+          billerId: billPayment.billerId || null,
+          itemId: billPayment.itemId || null,
+          orderStatus: palmpayStatus,
+          amount: billPayment.amount ? billPayment.amount.toNumber() : null,
+          sceneCode: billPayment.sceneCode,
+          currency: billPayment.currency || 'NGN',
+          errorMsg: billPayment.errorMessage || null,
+          completedTime: billPayment.completedAt ? billPayment.completedAt.getTime() : null,
+        },
+        billPayment: {
           id: billPayment.id,
+          transactionId: billPayment.transactionId,
           status: billPayment.status,
           sceneCode: billPayment.sceneCode,
           billType: billPayment.billType,
           billerId: billPayment.billerId,
+          billerName: billPayment.billerName,
+          itemId: billPayment.itemId,
+          itemName: billPayment.itemName,
           rechargeAccount: billPayment.rechargeAccount,
           amount: billPayment.amount.toString(),
           currency: billPayment.currency,
-        } : null,
+          palmpayOrderId: billPayment.palmpayOrderId,
+          palmpayOrderNo: billPayment.palmpayOrderNo,
+          palmpayStatus: billPayment.palmpayStatus,
+          billReference: billPayment.billReference,
+          errorMessage: billPayment.errorMessage,
+          createdAt: billPayment.createdAt,
+          completedAt: billPayment.completedAt,
+        },
       })
     );
   } catch (error: any) {

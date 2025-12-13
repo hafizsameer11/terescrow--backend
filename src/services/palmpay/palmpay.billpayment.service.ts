@@ -313,8 +313,20 @@ class PalmPayBillPaymentService {
 
     const signature = palmpayAuth.generateSignature(request);
 
+    // Log complete request details to console
+    console.log('\n========================================');
+    console.log('[PALMPAY BILL PAYMENT] QUERY ORDER STATUS REQUEST');
+    console.log('========================================');
+    console.log('🌐 Endpoint:', `${this.baseUrl}/api/v2/bill-payment/order/query`);
+    console.log('🔑 Signature:', signature);
+    console.log('📦 Request Body:', JSON.stringify(request, null, 2));
+    console.log('========================================\n');
+
+    // Log to file via logger
+    palmpayLogger.apiCall('/api/v2/bill-payment/order/queryOrderStatus', request);
+
     try {
-      const response = await axios.post<PalmPayQueryBillOrderResponse>(
+      const response = await axios.post<PalmPayBaseResponse<PalmPayQueryBillOrderResponse>>(
         `${this.baseUrl}/api/v2/bill-payment/order/query`,
         request,
         {
@@ -327,12 +339,61 @@ class PalmPayBillPaymentService {
         }
       );
 
-      palmpayLogger.apiCall('/api/v2/bill-payment/order/queryOrderStatus', undefined, response.data);
-      return response.data;
+      // Log complete response details to console
+      console.log('\n========================================');
+      console.log('[PALMPAY BILL PAYMENT] QUERY ORDER STATUS RESPONSE');
+      console.log('========================================');
+      console.log('✅ Status Code:', response.status, response.statusText);
+      console.log('📦 Full Response Body:', JSON.stringify(response.data, null, 2));
+      console.log('🔍 Response Code:', response.data.respCode);
+      console.log('💬 Response Message:', response.data.respMsg);
+      if (response.data.data) {
+        console.log('📊 Unwrapped Data:', JSON.stringify(response.data.data, null, 2));
+      }
+      console.log('========================================\n');
+
+      // Check for errors in response
+      if (response.data.respCode !== '00000000') {
+        palmpayLogger.error('PalmPay queryOrderStatus - Error response', undefined, { 
+          respCode: response.data.respCode,
+          respMsg: response.data.respMsg,
+          data: response.data.data
+        });
+        throw new Error(
+          response.data.respMsg || 'Failed to query order status'
+        );
+      }
+      
+      // Check if data exists
+      if (!response.data.data) {
+        palmpayLogger.error('PalmPay queryOrderStatus - No data in response', undefined, { response: response.data });
+        throw new Error('PalmPay API returned no data');
+      }
+      
+      // Log response for debugging (with both request and response)
+      palmpayLogger.apiCall('/api/v2/bill-payment/order/queryOrderStatus', request, response.data);
+      
+      return response.data.data;
     } catch (error: any) {
+      // Log complete error details to console
+      console.log('\n========================================');
+      console.log('[PALMPAY BILL PAYMENT] QUERY ORDER STATUS ERROR');
+      console.log('========================================');
+      console.log('❌ Error Message:', error.message);
+      console.log('📋 Error Stack:', error.stack);
+      if (error.response) {
+        console.log('📊 Response Status:', error.response.status, error.response.statusText);
+        console.log('📦 Error Response Body:', JSON.stringify(error.response.data, null, 2));
+      }
+      if (error.request) {
+        console.log('📡 Request Details:', error.request);
+      }
+      console.log('========================================\n');
+
       palmpayLogger.apiCall('/api/v2/bill-payment/order/queryOrderStatus', request, undefined, error);
+      const errorData = error.response?.data as any;
       throw new Error(
-        error.response?.data?.respMsg || error.message || 'Failed to query order status'
+        errorData?.respMsg || error.message || 'Failed to query order status'
       );
     }
   }
