@@ -303,7 +303,24 @@ class CryptoBuyService {
         false // mainnet
       );
 
-      gasLimit = gasEstimateResult.gasLimit;
+      // For ERC-20 token transfers, we need higher gas limit than ETH transfers
+      // ETH transfers: ~21,000 gas
+      // ERC-20 transfers: ~65,000-100,000 gas (depending on token)
+      let estimatedGasLimit = parseInt(gasEstimateResult.gasLimit);
+      
+      if (currency.toUpperCase() !== 'ETH') {
+        // For ERC-20 tokens, use a safer gas limit
+        // Tatum's estimation might be for ETH transfers, so use standard ERC-20 limit
+        const erc20GasLimit = 65000; // Standard ERC-20 transfer gas limit
+        // Use the higher of estimated or standard ERC-20 limit, with 20% buffer for safety
+        estimatedGasLimit = Math.max(estimatedGasLimit, erc20GasLimit);
+        estimatedGasLimit = Math.ceil(estimatedGasLimit * 1.2); // Add 20% buffer
+      } else {
+        // For ETH transfers, add 10% buffer
+        estimatedGasLimit = Math.ceil(estimatedGasLimit * 1.1);
+      }
+      
+      gasLimit = estimatedGasLimit.toString();
       const gasPriceWei = gasEstimateResult.gasPrice;
       gasPriceGwei = ethereumGasService.weiToGwei(gasPriceWei);
 
