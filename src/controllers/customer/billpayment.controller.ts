@@ -281,7 +281,7 @@ export const createBillOrderController = async (
         data: {
           palmpayOrderNo: palmpayResponse.orderNo,
           palmpayStatus: palmpayResponse.orderStatus?.toString() || null,
-          providerResponse: palmpayResponse as any,
+          providerResponse: JSON.stringify(palmpayResponse),
         },
       });
 

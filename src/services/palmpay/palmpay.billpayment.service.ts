@@ -11,6 +11,7 @@ import {
   PalmPayCreateBillOrderResponse,
   PalmPayQueryBillOrderRequest,
   PalmPayQueryBillOrderResponse,
+  PalmPayBaseResponse,
 } from '../../types/palmpay.types';
 import { palmpayConfig } from './palmpay.config';
 import { palmpayAuth } from './palmpay.auth.service';
@@ -44,7 +45,6 @@ class PalmPayBillPaymentService {
     };
 
     const signature = palmpayAuth.generateSignature(request);
-    palmpayLogger.apiCall('/api/v2/bill-payment/biller/query', request);
     try {
       const response = await axios.post<PalmPayBiller[]>(
         `${this.baseUrl}/api/v2/bill-payment/biller/query`,
@@ -59,7 +59,7 @@ class PalmPayBillPaymentService {
         }
       );
 
-      palmpayLogger.apiCall('/api/v2/bill-payment/biller/query', undefined, response.data);
+      palmpayLogger.apiCall('/api/v2/bill-payment/biller/query', request, response.data);
       return response.data;
     } catch (error: any) {
       palmpayLogger.apiCall('/api/v2/bill-payment/biller/query', request, undefined, error);
@@ -142,7 +142,6 @@ class PalmPayBillPaymentService {
     const signature = palmpayAuth.generateSignature(request);
 
     try {
-      palmpayLogger.apiCall('/api/v2/bill-payment/rechargeaccount/query', request);
       const response = await axios.post<PalmPayQueryRechargeAccountResponse>(
         `${this.baseUrl}/api/v2/bill-payment/rechargeaccount/query`,
         request,
@@ -156,7 +155,7 @@ class PalmPayBillPaymentService {
         }
       );
 
-      palmpayLogger.apiCall('/api/v2/bill-payment/rechargeaccount/query', undefined, response.data);
+      palmpayLogger.apiCall('/api/v2/bill-payment/rechargeaccount/query', request, response.data);
       return response.data;
     } catch (error: any) {
       palmpayLogger.apiCall('/api/v2/bill-payment/rechargeaccount/query', request, undefined, error);
@@ -184,37 +183,97 @@ class PalmPayBillPaymentService {
       nonceStr,
     };
 
-    palmpayLogger.apiCall('/api/v2/bill-payment/order/create', fullRequest);
     const signature = palmpayAuth.generateSignature(fullRequest);
+    const endpoint = `${this.baseUrl}/api/v2/bill-payment/order/create`;
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${palmpayConfig.getApiKey()}`,
+      'Signature': signature,
+      'CountryCode': palmpayConfig.getCountryCode(),
+    };
+
+    // Log complete request details to console
+    console.log('\n========================================');
+    console.log('[PALMPAY BILL PAYMENT] CREATE ORDER REQUEST');
+    console.log('========================================');
+    console.log('📡 Complete URL:', endpoint);
+    console.log('🔑 Signature:', signature);
+    console.log('📋 Request Headers:', JSON.stringify(headers, null, 2));
+    console.log('📦 Request Body:', JSON.stringify(fullRequest, null, 2));
+    console.log('========================================\n');
+
+    // Log to file via logger
+    palmpayLogger.apiCall('/api/v2/bill-payment/order/create', fullRequest);
 
     try {
-      const response = await axios.post<PalmPayCreateBillOrderResponse>(
-        `${this.baseUrl}/api/v2/bill-payment/order/create`,
+      const response = await axios.post<PalmPayBaseResponse<PalmPayCreateBillOrderResponse>>(
+        endpoint,
         fullRequest,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${palmpayConfig.getApiKey()}`,
-            'Signature': signature,
-            'CountryCode': palmpayConfig.getCountryCode(),
-          },
-        }
+        { headers }
       );
 
-      // Log response for debugging
-      palmpayLogger.apiCall('/api/v2/bill-payment/order/create', undefined, response.data);
-      
-      // Check if response has error structure
-      const responseData = response.data as any;
-      if (responseData && !responseData.orderNo && !responseData.orderStatus) {
-        palmpayLogger.error('PalmPay createBillOrder - Invalid response structure', undefined, { responseData });
+      // Log complete response details to console
+      console.log('\n========================================');
+      console.log('[PALMPAY BILL PAYMENT] CREATE ORDER RESPONSE');
+      console.log('========================================');
+      console.log('✅ Status Code:', response.status, response.statusText);
+      console.log('📋 Response Headers:', JSON.stringify(response.headers, null, 2));
+      console.log('📦 Full Response Body:', JSON.stringify(response.data, null, 2));
+      console.log('🔍 Response Code:', response.data.respCode);
+      console.log('💬 Response Message:', response.data.respMsg);
+      if (response.data.data) {
+        console.log('📊 Unwrapped Data:', JSON.stringify(response.data.data, null, 2));
+      }
+      console.log('========================================\n');
+
+      // Check for errors in response
+      if (response.data.respCode !== '00000000') {
+        palmpayLogger.error('PalmPay createBillOrder - Error response', undefined, { 
+          respCode: response.data.respCode,
+          respMsg: response.data.respMsg,
+          data: response.data.data
+        });
         throw new Error(
-          responseData?.respMsg || responseData?.msg || 'Invalid response from PalmPay'
+          response.data.respMsg || 'Failed to create bill payment order'
+        );
+      }
+      
+      // Check if data exists
+      if (!response.data.data) {
+        palmpayLogger.error('PalmPay createBillOrder - No data in response', undefined, { response: response.data });
+        throw new Error('PalmPay API returned no data');
+      }
+      
+      // Log response for debugging (with both request and response)
+      palmpayLogger.apiCall('/api/v2/bill-payment/order/create', fullRequest, response.data);
+      
+      // Validate response data structure
+      const orderData = response.data.data;
+      if (!orderData.orderNo && orderData.orderStatus === undefined) {
+        palmpayLogger.error('PalmPay createBillOrder - Invalid data structure', undefined, { orderData });
+        throw new Error(
+          orderData?.msg || response.data.respMsg || 'Invalid response from PalmPay'
         );
       }
 
-      return response.data;
+      return orderData;
     } catch (error: any) {
+      // Log complete error details to console
+      console.log('\n========================================');
+      console.log('[PALMPAY BILL PAYMENT] CREATE ORDER ERROR');
+      console.log('========================================');
+      console.log('❌ Error Message:', error.message);
+      console.log('📋 Error Stack:', error.stack);
+      if (error.response) {
+        console.log('📊 Response Status:', error.response.status, error.response.statusText);
+        console.log('📋 Response Headers:', JSON.stringify(error.response.headers, null, 2));
+        console.log('📦 Error Response Body:', JSON.stringify(error.response.data, null, 2));
+      }
+      if (error.request) {
+        console.log('📡 Request Details:', error.request);
+      }
+      console.log('========================================\n');
+
       palmpayLogger.apiCall('/api/v2/bill-payment/order/create', fullRequest, undefined, error);
       const errorData = error.response?.data as any;
       throw new Error(
