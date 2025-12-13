@@ -23,7 +23,6 @@ const cryptoTransactionRouter = express.Router();
  *     x-order: 1
  *     description: |
  *       Get all crypto transactions for the authenticated user with optional filtering.
- *       If IS_MOCK_DATA=true and user has no transactions, returns mock data for frontend development.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -47,7 +46,7 @@ const cryptoTransactionRouter = express.Router();
  *         description: Pagination offset
  *     responses:
  *       200:
- *         description: Transactions retrieved successfully. Returns mock data if IS_MOCK_DATA=true and user has no transactions.
+ *         description: Transactions retrieved successfully.
  *         content:
  *           application/json:
  *             schema:
@@ -68,9 +67,6 @@ const cryptoTransactionRouter = express.Router();
  *                       type: integer
  *                     offset:
  *                       type: integer
- *                     isMockData:
- *                       type: boolean
- *                       description: Indicates if returned data is mock data
  *       401:
  *         description: Unauthorized
  */
