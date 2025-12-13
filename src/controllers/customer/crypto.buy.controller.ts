@@ -120,6 +120,7 @@ export const buyCryptoController = async (
     }
 
     const { amount, currency, blockchain } = req.body;
+    console.log('Buying cryptocurrency:', { amount, currency, blockchain });
 
     const result = await cryptoBuyService.buyCrypto({
       userId,
