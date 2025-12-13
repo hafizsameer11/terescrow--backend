@@ -396,7 +396,10 @@ billPaymentRouter.get('/order-status', authenticateUser, queryOrderStatusControl
  *     summary: Get bill payment history
  *     tags: [V2 - Bill Payments]
  *     description: |
- *       **V2 API** - Get user's bill payment transaction history with pagination and filters.
+ *       **V2 API** - Get user's bill payment transaction history with pagination and optional filters.
+ *       
+ *       If no filters are provided, returns all bill payments for the user.
+ *       All query parameters are optional - use them to filter the results.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -412,11 +415,12 @@ billPaymentRouter.get('/order-status', authenticateUser, queryOrderStatusControl
  *           default: 20
  *       - in: query
  *         name: sceneCode
+ *         required: false
  *         schema:
  *           type: string
  *         description: |
- *           Business scenario code. Examples: airtime, data, betting.
- *           Any scene code value is accepted.
+ *           (Optional) Business scenario code. Examples: airtime, data, betting.
+ *           Any scene code value is accepted. If not provided, returns all scene codes.
  *         examples:
  *           airtime:
  *             value: airtime
@@ -426,13 +430,17 @@ billPaymentRouter.get('/order-status', authenticateUser, queryOrderStatusControl
  *             value: betting
  *       - in: query
  *         name: billerId
+ *         required: false
  *         schema:
  *           type: string
+ *         description: (Optional) Filter by biller ID (e.g., MTN, AIRTEL, GLO). If not provided, returns all billers.
  *       - in: query
  *         name: status
+ *         required: false
  *         schema:
  *           type: string
  *           enum: [pending, processing, completed, failed, cancelled]
+ *         description: (Optional) Filter by transaction status. If not provided, returns all statuses.
  *     responses:
  *       200:
  *         description: Bill payment history retrieved successfully
