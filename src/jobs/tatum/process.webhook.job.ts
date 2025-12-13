@@ -46,15 +46,128 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       }
     }
 
-    // For address-based webhooks, we can't process them the same way
-    // They don't have accountId, so we need to find by address
+    // Handle address-based webhooks (ADDRESS_EVENT)
+    // These webhooks don't have accountId, but we can find the deposit address by matching the address
     if (isAddressWebhook && !webhookData.accountId) {
-      tatumLogger.info('Address-based webhook without accountId - ignoring (no virtual account mapping)', {
-        address: webhookAddress,
-        subscriptionType: webhookData.subscriptionType,
-        txId: webhookData.txId,
+      const txId = webhookData.txId || webhookData.txHash;
+      const webhookAddr = webhookData.address?.toLowerCase();
+      const counterAddress = webhookData.counterAddress?.toLowerCase();
+      
+      // Check for duplicate by txId
+      if (txId) {
+        const existingTx = await prisma.cryptoTransaction.findFirst({
+          where: {
+            OR: [
+              { 
+                cryptoReceive: { 
+                  txHash: txId 
+                } 
+              },
+              { 
+                cryptoSend: { 
+                  txHash: txId 
+                } 
+              },
+            ],
+          },
+        });
+        
+        if (existingTx) {
+          tatumLogger.info('Address-based webhook already processed (duplicate txId)', {
+            txId,
+            address: webhookAddr,
+            counterAddress,
+          });
+          return { processed: false, reason: 'duplicate_tx' };
+        }
+      }
+      
+      // If no counterAddress, it's a send transaction - ignore (we handle sends synchronously)
+      if (!counterAddress) {
+        tatumLogger.info('Address-based webhook without counterAddress - ignoring (send transaction)', {
+          address: webhookAddr,
+          txId,
+          subscriptionType: webhookData.subscriptionType,
+        });
+        return { processed: false, reason: 'send_transaction_ignore' };
+      }
+      
+      // Has counterAddress - this is a RECEIVE transaction
+      // Find deposit address by matching the webhook address
+      if (!webhookAddr) {
+        tatumLogger.warn('Address-based webhook missing address field', {
+          txId,
+          subscriptionType: webhookData.subscriptionType,
+        });
+        return { processed: false, reason: 'missing_address' };
+      }
+      
+      // Find deposit address with case-insensitive matching
+      const allDepositAddresses = await prisma.depositAddress.findMany({
+        include: {
+          virtualAccount: {
+            include: {
+              walletCurrency: true,
+            },
+          },
+        },
       });
-      return { processed: false, reason: 'address_webhook_no_account' };
+      
+      // Case-insensitive address matching
+      const depositAddressRecord = allDepositAddresses.find(
+        da => da.address.toLowerCase() === webhookAddr.toLowerCase()
+      );
+      
+      if (!depositAddressRecord || !depositAddressRecord.virtualAccount) {
+        tatumLogger.info('Address-based webhook - deposit address not found', {
+          address: webhookAddr,
+          txId,
+          counterAddress,
+        });
+        return { processed: false, reason: 'deposit_address_not_found' };
+      }
+      
+      // Process as receive transaction
+      const virtualAccount = depositAddressRecord.virtualAccount;
+      const amountStr = webhookData.amount || '0';
+      const asset = webhookData.asset; // Contract address for tokens, 'ETH' for native
+      const isToken = asset && asset !== 'ETH' && webhookData.type === 'token';
+      
+      tatumLogger.info('Processing address-based webhook as receive transaction', {
+        address: webhookAddr,
+        counterAddress,
+        amount: amountStr,
+        asset,
+        isToken,
+        txId,
+        virtualAccountId: virtualAccount.id,
+        userId: virtualAccount.userId,
+        currency: virtualAccount.currency,
+      });
+      
+      // Process as receive - continue with normal flow using virtualAccount
+      // We'll set accountId to virtualAccount.accountId for compatibility
+      webhookData.accountId = virtualAccount.accountId;
+      webhookData.currency = virtualAccount.currency;
+      // Set from and to addresses for address-based webhooks
+      webhookData.from = counterAddress; // Sender
+      webhookData.to = webhookAddr; // Receiver (our deposit address)
+      // For tokens, we need to match the asset (contract address) with walletCurrency
+      if (isToken) {
+        const walletCurrencies = await prisma.walletCurrency.findMany({
+          where: {
+            blockchain: virtualAccount.blockchain,
+            contractAddress: { not: null },
+          },
+        });
+        // Case-insensitive contract address matching
+        const walletCurrency = walletCurrencies.find(
+          wc => wc.contractAddress?.toLowerCase() === asset.toLowerCase()
+        );
+        if (walletCurrency) {
+          webhookData.currency = walletCurrency.currency;
+        }
+      }
     }
 
     const { accountId, reference, txId, amount, currency, from, to, date, blockHeight, blockHash, index } = webhookData;

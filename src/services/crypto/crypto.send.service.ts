@@ -338,7 +338,7 @@ class CryptoSendService {
     // Generate transaction ID
     const transactionId = `SEND-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Create transaction record in database
+    // Create transaction record in database (with increased timeout for blockchain operations)
     await prisma.$transaction(async (tx) => {
       // Update virtual account to match expected on-chain balance after send
       await tx.virtualAccount.update({
@@ -362,6 +362,9 @@ class CryptoSendService {
         networkFee: gasFeeEth.toString(),
         status: txHash ? 'successful' : 'failed',
       });
+    }, {
+      maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
+      timeout: 30000, // Maximum time the transaction can run (30 seconds - increased for blockchain operations)
     });
 
     // STEP 2: Verify on-chain balance after transaction (optional, but good for logging)
