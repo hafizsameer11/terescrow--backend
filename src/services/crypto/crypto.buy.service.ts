@@ -253,6 +253,48 @@ class CryptoBuyService {
 
       masterWalletAddress = masterWallet.address;
 
+      // Decrypt private key before use
+      const crypto = require('crypto');
+      function decryptPrivateKey(encryptedKey: string): string {
+        const algorithm = 'aes-256-cbc';
+        const key = Buffer.from(process.env.ENCRYPTION_KEY || 'default-key-32-characters-long!!', 'utf8');
+        const parts = encryptedKey.split(':');
+        const iv = Buffer.from(parts[0], 'hex');
+        const encrypted = parts[1];
+        // @ts-ignore - Buffer is valid for CipherKey, TypeScript type definition issue
+        const decipher = crypto.createDecipheriv(algorithm, key, iv);
+        let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
+      }
+
+      let decryptedPrivateKey = decryptPrivateKey(masterWallet.privateKey);
+      
+      // Clean and validate private key
+      decryptedPrivateKey = decryptedPrivateKey.trim();
+      
+      // Remove 0x prefix if present (Tatum accepts both formats, but 64 chars without 0x is standard)
+      const hasPrefix = decryptedPrivateKey.startsWith('0x');
+      if (hasPrefix) {
+        decryptedPrivateKey = decryptedPrivateKey.substring(2).trim();
+      }
+      
+      // Validate private key length (Ethereum private keys are 64 hex characters without 0x)
+      if (decryptedPrivateKey.length !== 64) {
+        cryptoLogger.exception('Invalid private key length', new Error(`Private key length: ${decryptedPrivateKey.length}`), {
+          expectedLength: 64,
+          actualLength: decryptedPrivateKey.length,
+          hasPrefix: hasPrefix,
+          keyPreview: decryptedPrivateKey.substring(0, 10) + '...',
+        });
+        throw new Error(`Invalid private key format. Expected 64 hex characters, got ${decryptedPrivateKey.length}`);
+      }
+      
+      // Validate it's valid hex
+      if (!/^[0-9a-fA-F]{64}$/.test(decryptedPrivateKey)) {
+        throw new Error('Invalid private key format. Must be 64 hexadecimal characters (0-9, a-f, A-F)');
+      }
+
       // Estimate gas fee
       const gasEstimateResult = await ethereumGasService.estimateGasFee(
         masterWallet.address,
@@ -313,7 +355,7 @@ class CryptoBuyService {
           depositAddress,
           amountCryptoDecimal.toString(),
           currency.toUpperCase(),
-          masterWallet.privateKey,
+          decryptedPrivateKey,
           gasPriceGwei,
           gasLimit,
           false // mainnet
