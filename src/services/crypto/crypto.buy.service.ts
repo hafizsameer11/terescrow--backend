@@ -160,6 +160,7 @@ class CryptoBuyService {
     // Check Master Wallet Balance before processing (for Ethereum and USDT only)
     if (blockchain.toLowerCase() === 'ethereum' && (currency.toUpperCase() === 'ETH' || currency.toUpperCase() === 'USDT')) {
       try {
+        console.log('Checking master wallet balance for Ethereum and USDT');
         // Get master wallet for Ethereum
         const masterWallet = await prisma.masterWallet.findUnique({
           where: { blockchain: 'ethereum' },
