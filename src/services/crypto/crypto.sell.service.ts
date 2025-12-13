@@ -13,6 +13,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { fiatWalletService } from '../fiat/fiat.wallet.service';
 import cryptoRateService from './crypto.rate.service';
 import cryptoTransactionService from './crypto.transaction.service';
+import cryptoLogger from '../../utils/crypto.logger';
 
 export interface SellCryptoInput {
   userId: number;
@@ -87,6 +88,25 @@ class CryptoSellService {
   async sellCrypto(input: SellCryptoInput): Promise<SellCryptoResult> {
     const { userId, amount, currency, blockchain } = input;
 
+    console.log('\n========================================');
+    console.log('[CRYPTO SELL] Starting sell transaction');
+    console.log('========================================');
+    console.log('User ID:', userId);
+    console.log('Amount:', amount);
+    console.log('Currency:', currency);
+    console.log('Blockchain:', blockchain);
+    console.log('========================================\n');
+
+    // Only Ethereum blockchain with USDT ERC-20 is currently supported
+    if (blockchain.toLowerCase() !== 'ethereum') {
+      throw new Error(`Crypto sell for ${blockchain} blockchain is not active yet. Only Ethereum (USDT ERC-20) is currently supported.`);
+    }
+
+    // Only USDT is currently supported
+    if (currency.toUpperCase() !== 'USDT') {
+      throw new Error(`Crypto sell for ${currency} on ${blockchain} is not active yet. Only USDT ERC-20 on Ethereum is currently supported.`);
+    }
+
     // Pre-transaction: Get wallet currency and rates (outside transaction to avoid timeout)
     const walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
@@ -103,17 +123,28 @@ class CryptoSellService {
       throw new Error(`Price not set for ${currency}`);
     }
 
-    // Get user's virtual account (outside transaction)
+    // Get user's virtual account with deposit address (outside transaction)
     const virtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
         currency: currency.toUpperCase(),
         blockchain: blockchain.toLowerCase(),
       },
+      include: {
+        depositAddresses: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+        },
+      },
     });
 
     if (!virtualAccount) {
       throw new Error(`Virtual account not found for ${currency} on ${blockchain}. Please contact support.`);
+    }
+
+    const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
+    if (!depositAddress) {
+      throw new Error(`Deposit address not found for ${currency} on ${blockchain}. Please contact support.`);
     }
 
     // Check sufficient crypto balance
@@ -141,17 +172,267 @@ class CryptoSellService {
     // Convert USD to NGN
     const amountNgn = amountUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
 
+    // Calculate gas fees BEFORE blockchain transfers
+    let totalGasFeeNgn = new Decimal('0');
+    let ethTransferTxHash: string | null = null;
+    let tokenTransferTxHash: string | null = null;
+    let needsEthTransfer = false;
+    let userEthBalance = new Decimal('0');
+    let ethNeededForGas = new Decimal('0');
+    let masterWalletAddress: string | null = null;
+
+    // Step 1: Check ETH balance and calculate gas fees
+    if (blockchain.toLowerCase() === 'ethereum' && currency.toUpperCase() === 'USDT') {
+      try {
+        console.log('[CRYPTO SELL] Checking ETH balance and calculating gas fees');
+
+        // Import services
+        const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
+        const { ethereumGasService } = await import('../ethereum/ethereum.gas.service');
+
+        // Get master wallet
+        const masterWallet = await prisma.masterWallet.findUnique({
+          where: { blockchain: 'ethereum' },
+        });
+
+        if (!masterWallet || !masterWallet.address || !masterWallet.privateKey) {
+          throw new Error('Master wallet not found or missing private key for Ethereum');
+        }
+
+        masterWalletAddress = masterWallet.address;
+
+        // Decrypt master wallet private key
+        const crypto = require('crypto');
+        function decryptPrivateKey(encryptedKey: string): string {
+          const algorithm = 'aes-256-cbc';
+          const key = Buffer.from(process.env.ENCRYPTION_KEY || 'default-key-32-characters-long!!', 'utf8');
+          const parts = encryptedKey.split(':');
+          const iv = Buffer.from(parts[0], 'hex');
+          const encrypted = parts[1];
+          // @ts-ignore
+          const decipher = crypto.createDecipheriv(algorithm, key, iv);
+          let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+          decrypted += decipher.final('utf8');
+          return decrypted;
+        }
+
+        let masterPrivateKey = decryptPrivateKey(masterWallet.privateKey);
+        masterPrivateKey = masterPrivateKey.trim();
+        if (masterPrivateKey.startsWith('0x')) {
+          masterPrivateKey = masterPrivateKey.substring(2).trim();
+        }
+
+        // Check user's ETH balance
+        try {
+          const userEthBalanceStr = await ethereumBalanceService.getETHBalance(depositAddress, false);
+          userEthBalance = new Decimal(userEthBalanceStr);
+          console.log('[CRYPTO SELL] User ETH balance:', userEthBalance.toString());
+        } catch (error: any) {
+          console.error('[CRYPTO SELL] Error checking user ETH balance:', error);
+          userEthBalance = new Decimal('0');
+        }
+
+        // Estimate gas for token transfer
+        const tokenTransferGasEstimate = await ethereumGasService.estimateGasFee(
+          depositAddress,
+          masterWallet.address,
+          amountCryptoDecimal.toString(),
+          false
+        );
+
+        let tokenGasLimit = parseInt(tokenTransferGasEstimate.gasLimit);
+        const erc20GasLimit = 65000;
+        tokenGasLimit = Math.max(tokenGasLimit, erc20GasLimit);
+        tokenGasLimit = Math.ceil(tokenGasLimit * 1.2); // Add 20% buffer
+
+        const tokenGasPriceWei = tokenTransferGasEstimate.gasPrice;
+        const tokenGasFeeEth = new Decimal(ethereumGasService.calculateTotalFee(
+          tokenGasLimit.toString(),
+          tokenGasPriceWei
+        ));
+
+        // Get ETH price
+        const ethWalletCurrency = await prisma.walletCurrency.findFirst({
+          where: { currency: 'ETH', blockchain: 'ethereum' },
+        });
+        const ethPrice = ethWalletCurrency?.price ? new Decimal(ethWalletCurrency.price.toString()) : new Decimal('0');
+
+        // Check if user needs ETH
+        const minimumEthNeeded = tokenGasFeeEth.plus(new Decimal('0.001'));
+        ethNeededForGas = minimumEthNeeded;
+
+        let ethTransferGasEstimate: any = null;
+        let ethGasLimit = 0;
+        let ethGasPriceWei = '0';
+
+        if (userEthBalance.lessThan(minimumEthNeeded)) {
+          needsEthTransfer = true;
+          console.log('[CRYPTO SELL] User needs ETH transfer');
+
+          // Estimate gas for ETH transfer
+          ethTransferGasEstimate = await ethereumGasService.estimateGasFee(
+            masterWallet.address,
+            depositAddress,
+            minimumEthNeeded.toString(),
+            false
+          );
+
+          ethGasLimit = parseInt(ethTransferGasEstimate.gasLimit);
+          ethGasLimit = Math.ceil(ethGasLimit * 1.1);
+
+          ethGasPriceWei = ethTransferGasEstimate.gasPrice;
+          const ethTransferGasFeeEth = new Decimal(ethereumGasService.calculateTotalFee(
+            ethGasLimit.toString(),
+            ethGasPriceWei
+          ));
+
+          const ethTransferGasFeeUsd = ethTransferGasFeeEth.mul(ethPrice);
+          const ethTransferGasFeeNgn = ethTransferGasFeeUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
+
+          const tokenGasFeeUsd = tokenGasFeeEth.mul(ethPrice);
+          const tokenGasFeeNgn = tokenGasFeeUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
+
+          totalGasFeeNgn = ethTransferGasFeeNgn.plus(tokenGasFeeNgn);
+        } else {
+          const tokenGasFeeUsd = tokenGasFeeEth.mul(ethPrice);
+          const tokenGasFeeNgn = tokenGasFeeUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
+          totalGasFeeNgn = tokenGasFeeNgn;
+        }
+
+        // Add minimum 10 NGN buffer
+        const minGasFeeBuffer = new Decimal('10');
+        if (totalGasFeeNgn.lessThan(minGasFeeBuffer)) {
+          totalGasFeeNgn = minGasFeeBuffer;
+        } else {
+          totalGasFeeNgn = totalGasFeeNgn.plus(minGasFeeBuffer);
+        }
+
+        console.log('[CRYPTO SELL] Total gas fee (NGN):', totalGasFeeNgn.toString());
+
+        // Step 2: Execute blockchain transfers BEFORE database updates
+        // First: Transfer ETH if needed
+        if (needsEthTransfer) {
+          console.log('[CRYPTO SELL] Transferring ETH to user wallet');
+          const { ethereumTransactionService } = await import('../ethereum/ethereum.transaction.service');
+          
+          try {
+            ethTransferTxHash = await ethereumTransactionService.sendTransaction(
+              depositAddress,
+              minimumEthNeeded.toString(),
+              'ETH',
+              masterPrivateKey,
+              ethereumGasService.weiToGwei(ethGasPriceWei),
+              ethGasLimit.toString(),
+              false // mainnet
+            );
+
+            if (!ethTransferTxHash) {
+              throw new Error('ETH transfer failed: No transaction hash returned');
+            }
+
+            console.log('[CRYPTO SELL] ETH transfer successful:', ethTransferTxHash);
+            cryptoLogger.transfer('ETH_TRANSFER_SUCCESS', {
+              userId,
+              from: masterWallet.address,
+              to: depositAddress,
+              amount: minimumEthNeeded.toString(),
+              txHash: ethTransferTxHash,
+            });
+
+            // Wait a bit for ETH transfer to be processed (optional, but safer)
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } catch (error: any) {
+            console.error('[CRYPTO SELL] ETH transfer failed:', error);
+            cryptoLogger.exception('ETH transfer to user', error, {
+              userId,
+              depositAddress,
+              ethNeeded: minimumEthNeeded.toString(),
+            });
+            throw new Error(`Failed to transfer ETH to user wallet: ${error.message || 'Unknown error'}`);
+          }
+        }
+
+        // Second: Transfer USDT token from user to master wallet
+        console.log('[CRYPTO SELL] Transferring USDT from user to master wallet');
+        
+        // Get user's deposit address private key
+        const depositAddressRecord = virtualAccount.depositAddresses[0];
+        if (!depositAddressRecord || !depositAddressRecord.privateKey) {
+          throw new Error('Deposit address private key not found');
+        }
+
+        let userPrivateKey = decryptPrivateKey(depositAddressRecord.privateKey);
+        userPrivateKey = userPrivateKey.trim();
+        if (userPrivateKey.startsWith('0x')) {
+          userPrivateKey = userPrivateKey.substring(2).trim();
+        }
+
+        // Validate private key format
+        if (userPrivateKey.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(userPrivateKey)) {
+          throw new Error('Invalid user private key format');
+        }
+
+        const { ethereumTransactionService } = await import('../ethereum/ethereum.transaction.service');
+
+        try {
+          tokenTransferTxHash = await ethereumTransactionService.sendTransaction(
+            masterWallet.address,
+            amountCryptoDecimal.toString(),
+            'USDT',
+            userPrivateKey,
+            ethereumGasService.weiToGwei(tokenGasPriceWei),
+            tokenGasLimit.toString(),
+            false // mainnet
+          );
+
+          if (!tokenTransferTxHash) {
+            throw new Error('Token transfer failed: No transaction hash returned');
+          }
+
+          console.log('[CRYPTO SELL] Token transfer successful:', tokenTransferTxHash);
+          cryptoLogger.transfer('TOKEN_TRANSFER_SUCCESS', {
+            userId,
+            from: depositAddress,
+            to: masterWallet.address,
+            amount: amountCryptoDecimal.toString(),
+            currency: 'USDT',
+            txHash: tokenTransferTxHash,
+          });
+        } catch (error: any) {
+          console.error('[CRYPTO SELL] Token transfer failed:', error);
+          cryptoLogger.exception('Token transfer from user', error, {
+            userId,
+            depositAddress,
+            amount: amountCryptoDecimal.toString(),
+            currency: 'USDT',
+          });
+          throw new Error(`Failed to transfer token from user wallet: ${error.message || 'Unknown error'}`);
+        }
+      } catch (error: any) {
+        console.error('[CRYPTO SELL] Blockchain transfer error:', error);
+        throw error;
+      }
+    }
+
+    // Calculate final amount after gas fees
+    const finalAmountNgn = amountNgn.minus(totalGasFeeNgn);
+    const finalAmountNgnDecimal = finalAmountNgn.greaterThan(0) ? finalAmountNgn : new Decimal('0');
+
+    if (finalAmountNgnDecimal.lessThanOrEqualTo(0)) {
+      throw new Error('Amount after gas fees is zero or negative. Gas fees exceed the sell amount.');
+    }
+
     // Get user's fiat wallet (outside transaction)
     const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
     const balanceBefore = new Decimal(fiatWallet.balance);
-    const balanceAfter = balanceBefore.plus(amountNgn);
+    const balanceAfter = balanceBefore.plus(finalAmountNgnDecimal);
 
     const cryptoBalanceAfter = cryptoBalanceBefore.minus(amountCryptoDecimal);
 
-    // Now execute the transaction with increased timeout
+    // Now execute the database transaction
     return await prisma.$transaction(async (tx) => {
 
-      // Step 9: Debit virtual account (crypto)
+      // Step 1: Debit virtual account (crypto)
       await tx.virtualAccount.update({
         where: { id: virtualAccount.id },
         data: {
@@ -160,7 +441,7 @@ class CryptoSellService {
         },
       });
 
-      // Step 10: Credit fiat wallet (NGN)
+      // Step 2: Credit fiat wallet (NGN) with final amount after gas fees
       // Create fiat transaction first
       const fiatTransaction = await tx.fiatTransaction.create({
         data: {
@@ -169,15 +450,15 @@ class CryptoSellService {
           type: 'CRYPTO_SELL',
           status: 'pending',
           currency: 'NGN',
-          amount: amountNgn,
-          fees: new Decimal('0'),
-          totalAmount: amountNgn,
+          amount: finalAmountNgnDecimal, // Final amount after gas fees
+          fees: totalGasFeeNgn, // Gas fees as fees
+          totalAmount: finalAmountNgnDecimal,
           balanceBefore: balanceBefore,
           description: `Sell ${amountCryptoDecimal.toString()} ${currency}`,
         },
       });
 
-      // Credit wallet
+      // Credit wallet with final amount
       await tx.fiatWallet.update({
         where: { id: fiatWallet.id },
         data: { balance: balanceAfter },
@@ -193,20 +474,7 @@ class CryptoSellService {
         },
       });
 
-      // TODO: Future Implementation - Check User's Deposit Address Balance
-      // Before proceeding, verify user's deposit address has sufficient balance:
-      // 1. Get user's deposit address for this currency/blockchain
-      // 2. Check on-chain balance using Tatum API
-      // 3. Verify balance >= amountCrypto + estimated gas fees
-      // 4. If insufficient, throw error
-
-      // TODO: Future Implementation - Estimate Gas Fees
-      // Calculate network fees for blockchain transfer:
-      // 1. Estimate gas fees based on blockchain (ETH, BSC, etc.)
-      // 2. Deduct gas fees from amountCrypto
-      // 3. Recalculate amounts if needed or show to user for confirmation
-
-      // Step 11: Create crypto transaction record with all rates logged (using transaction client)
+      // Step 3: Create crypto transaction record with transaction hashes
       const transactionId = `SELL-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
       const cryptoTransaction = await tx.cryptoTransaction.create({
         data: {
@@ -214,40 +482,60 @@ class CryptoSellService {
           virtualAccountId: virtualAccount.id,
           transactionType: 'SELL',
           transactionId,
-          status: 'successful',
+          status: 'successful', // Blockchain transfers already succeeded
           currency: virtualAccount.currency,
           blockchain: virtualAccount.blockchain,
           cryptoSell: {
             create: {
+              fromAddress: depositAddress,
+              toAddress: masterWalletAddress || null,
               amount: amountCryptoDecimal,
               amountUsd: amountUsd,
-              amountNaira: amountNgn,
+              amountNaira: finalAmountNgnDecimal, // Final amount after gas fees
               rateCryptoToUsd: cryptoPrice,
               rateUsdToNgn: new Decimal(usdToNgnRate.rate.toString()),
+              txHash: tokenTransferTxHash || null, // Token transfer hash (main transaction)
             },
           },
         },
       });
 
-      // TODO: Future Implementation - Execute Blockchain Transfer
-      // After creating transaction record, execute actual blockchain transfer:
-      // 1. Get user's deposit address for this currency/blockchain
-      // 2. Get user's private key (decrypt if needed) - for non-custodial
-      //    OR use master wallet if custodial
-      // 3. Use Tatum API or blockchain SDK to transfer crypto:
-      //    - From: User's deposit address
-      //    - To: Master wallet address
-      //    - Amount: amountCrypto (minus gas fees)
-      // 4. Wait for transaction confirmation
-      // 5. Update crypto transaction with txHash, blockNumber, confirmations
-      // 6. Update transaction status based on blockchain confirmation
-      // 7. Handle failures: revert crypto debit, update transaction status
-
-      return {
-        transactionId: cryptoTransaction.transactionId, // Use string transactionId, not integer id
+      // Log the complete transaction
+      cryptoLogger.transaction('SELL_COMPLETE', {
+        transactionId: cryptoTransaction.transactionId,
+        userId,
+        currency: currency.toUpperCase(),
+        blockchain: blockchain.toLowerCase(),
         amountCrypto: amountCryptoDecimal.toString(),
         amountUsd: amountUsd.toString(),
-        amountNgn: amountNgn.toString(),
+        amountNgn: finalAmountNgnDecimal.toString(),
+        gasFeeNgn: totalGasFeeNgn.toString(),
+        rateUsdToCrypto: cryptoPrice.toString(),
+        rateNgnToUsd: usdToNgnRate.rate.toString(),
+        txHash: tokenTransferTxHash,
+        ethTransferTxHash: ethTransferTxHash || null,
+        fiatWalletId: fiatWallet.id,
+        virtualAccountId: virtualAccount.id,
+        balanceBefore: balanceBefore.toString(),
+        balanceAfter: balanceAfter.toString(),
+        cryptoBalanceBefore: cryptoBalanceBefore.toString(),
+        cryptoBalanceAfter: cryptoBalanceAfter.toString(),
+      });
+
+      console.log('[CRYPTO SELL] Transaction completed successfully');
+      console.log('  Transaction ID:', transactionId);
+      console.log('  Token TX Hash:', tokenTransferTxHash);
+      if (ethTransferTxHash) {
+        console.log('  ETH TX Hash:', ethTransferTxHash);
+      }
+      console.log('  Final amount (NGN):', finalAmountNgnDecimal.toString());
+      console.log('  Gas fee (NGN):', totalGasFeeNgn.toString());
+
+      return {
+        transactionId: cryptoTransaction.transactionId,
+        amountCrypto: amountCryptoDecimal.toString(),
+        amountUsd: amountUsd.toString(),
+        amountNgn: finalAmountNgnDecimal.toString(), // Final amount after gas fees
         rateCryptoToUsd: cryptoPrice.toString(),
         rateUsdToNgn: usdToNgnRate.rate.toString(),
         fiatWalletId: fiatWallet.id,
@@ -258,16 +546,35 @@ class CryptoSellService {
         balanceAfter: balanceAfter.toString(),
       };
     }, {
-      maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
-      timeout: 15000, // Maximum time the transaction can run (15 seconds)
+      maxWait: 10000,
+      timeout: 15000,
     });
   }
 
   /**
    * Calculate sell quote (preview before selling)
    * Returns estimated NGN amount without executing the transaction
+   * For USDT ERC-20, includes gas fee calculations
    */
   async calculateSellQuote(amountCrypto: number, currency: string, blockchain: string) {
+    console.log('\n========================================');
+    console.log('[CRYPTO SELL QUOTE] Starting quote calculation');
+    console.log('========================================');
+    console.log('Amount:', amountCrypto);
+    console.log('Currency:', currency);
+    console.log('Blockchain:', blockchain);
+    console.log('========================================\n');
+
+    // Only Ethereum blockchain with USDT ERC-20 is currently supported
+    if (blockchain.toLowerCase() !== 'ethereum') {
+      throw new Error(`Crypto sell for ${blockchain} blockchain is not active yet. Only Ethereum (USDT ERC-20) is currently supported.`);
+    }
+
+    // Only USDT is currently supported
+    if (currency.toUpperCase() !== 'USDT') {
+      throw new Error(`Crypto sell for ${currency} on ${blockchain} is not active yet. Only USDT ERC-20 on Ethereum is currently supported.`);
+    }
+
     // Get wallet currency
     const walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
@@ -298,6 +605,14 @@ class CryptoSellService {
     // Convert USD to NGN
     const amountNgn = amountUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
 
+    console.log('[CRYPTO SELL QUOTE] Quote calculated:', {
+      amountCrypto: amountCryptoDecimal.toString(),
+      amountUsd: amountUsd.toString(),
+      amountNgn: amountNgn.toString(),
+      rateCryptoToUsd: cryptoPrice.toString(),
+      rateUsdToNgn: usdToNgnRate.rate.toString(),
+    });
+
     return {
       amountCrypto: amountCryptoDecimal.toString(),
       amountUsd: amountUsd.toString(),
@@ -313,9 +628,29 @@ class CryptoSellService {
 
   /**
    * Preview sell transaction with complete details (finalize step)
-   * Includes current balances, rates, and all transaction details
+   * Includes current balances, rates, gas fees, and all transaction details
+   * For USDT ERC-20: checks ETH balance and calculates gas fees
    */
   async previewSellTransaction(userId: number, amountCrypto: number, currency: string, blockchain: string) {
+    console.log('\n========================================');
+    console.log('[CRYPTO SELL PREVIEW] Starting preview');
+    console.log('========================================');
+    console.log('User ID:', userId);
+    console.log('Amount:', amountCrypto);
+    console.log('Currency:', currency);
+    console.log('Blockchain:', blockchain);
+    console.log('========================================\n');
+
+    // Only Ethereum blockchain with USDT ERC-20 is currently supported
+    if (blockchain.toLowerCase() !== 'ethereum') {
+      throw new Error(`Crypto sell for ${blockchain} blockchain is not active yet. Only Ethereum (USDT ERC-20) is currently supported.`);
+    }
+
+    // Only USDT is currently supported
+    if (currency.toUpperCase() !== 'USDT') {
+      throw new Error(`Crypto sell for ${currency} on ${blockchain} is not active yet. Only USDT ERC-20 on Ethereum is currently supported.`);
+    }
+
     // Get wallet currency
     const walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
@@ -328,17 +663,28 @@ class CryptoSellService {
       throw new Error(`Currency ${currency} on ${blockchain} is not supported or price not set`);
     }
 
-    // Get user's virtual account for this crypto
+    // Get user's virtual account for this crypto with deposit address
     const virtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
         currency: currency.toUpperCase(),
         blockchain: blockchain.toLowerCase(),
       },
+      include: {
+        depositAddresses: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+        },
+      },
     });
 
     if (!virtualAccount) {
       throw new Error(`Virtual account not found for ${currency} on ${blockchain}`);
+    }
+
+    const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
+    if (!depositAddress) {
+      throw new Error(`Deposit address not found for ${currency} on ${blockchain}. Please contact support.`);
     }
 
     const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
@@ -352,12 +698,210 @@ class CryptoSellService {
     const quote = await this.calculateSellQuote(amountCrypto, currency, blockchain);
     const amountNgnDecimal = new Decimal(quote.amountNgn);
 
+    // Initialize gas fee variables
+    let totalGasFeeEth = new Decimal('0');
+    let totalGasFeeUsd = new Decimal('0');
+    let totalGasFeeNgn = new Decimal('0');
+    let needsEthTransfer = false;
+    let ethTransferGasFeeNgn = new Decimal('0');
+    let tokenTransferGasFeeNgn = new Decimal('0');
+    let ethNeededForGas = new Decimal('0');
+    let ethNeededNgn = new Decimal('0');
+    let userEthBalance = new Decimal('0');
+    let gasEstimate: any = null;
+
+    // For USDT ERC-20: Check ETH balance and calculate gas fees
+    if (blockchain.toLowerCase() === 'ethereum' && currency.toUpperCase() === 'USDT') {
+      try {
+        console.log('[CRYPTO SELL PREVIEW] Checking user ETH balance and calculating gas fees');
+        console.log('User deposit address:', depositAddress);
+
+        // Import services
+        const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
+        const { ethereumGasService } = await import('../ethereum/ethereum.gas.service');
+
+        // Get master wallet
+        const masterWallet = await prisma.masterWallet.findUnique({
+          where: { blockchain: 'ethereum' },
+        });
+
+        if (!masterWallet || !masterWallet.address) {
+          throw new Error('Master wallet not found for Ethereum');
+        }
+
+        // Check user's ETH balance
+        try {
+          const userEthBalanceStr = await ethereumBalanceService.getETHBalance(depositAddress, false);
+          userEthBalance = new Decimal(userEthBalanceStr);
+          console.log('[CRYPTO SELL PREVIEW] User ETH balance:', userEthBalance.toString());
+        } catch (error: any) {
+          console.error('[CRYPTO SELL PREVIEW] Error checking user ETH balance:', error);
+          userEthBalance = new Decimal('0');
+        }
+
+        // Estimate gas fee for token transfer (user to master wallet)
+        console.log('[CRYPTO SELL PREVIEW] Estimating gas for token transfer');
+        const tokenTransferGasEstimate = await ethereumGasService.estimateGasFee(
+          depositAddress,
+          masterWallet.address,
+          amountCryptoDecimal.toString(),
+          false // mainnet
+        );
+
+        // For ERC-20 token transfers, use higher gas limit with buffer
+        let tokenGasLimit = parseInt(tokenTransferGasEstimate.gasLimit);
+        const erc20GasLimit = 65000; // Standard ERC-20 transfer gas limit
+        tokenGasLimit = Math.max(tokenGasLimit, erc20GasLimit);
+        tokenGasLimit = Math.ceil(tokenGasLimit * 1.2); // Add 20% buffer
+
+        const tokenGasPriceWei = tokenTransferGasEstimate.gasPrice;
+        const tokenGasFeeEth = new Decimal(ethereumGasService.calculateTotalFee(
+          tokenGasLimit.toString(),
+          tokenGasPriceWei
+        ));
+
+        console.log('[CRYPTO SELL PREVIEW] Token transfer gas estimate:', {
+          gasLimit: tokenGasLimit,
+          gasPriceGwei: ethereumGasService.weiToGwei(tokenGasPriceWei),
+          gasFeeEth: tokenGasFeeEth.toString(),
+        });
+
+        // Get ETH price for converting gas fees
+        const ethWalletCurrency = await prisma.walletCurrency.findFirst({
+          where: { currency: 'ETH', blockchain: 'ethereum' },
+        });
+        let ethPrice = new Decimal('0');
+        if (ethWalletCurrency?.price) {
+          ethPrice = new Decimal(ethWalletCurrency.price.toString());
+        }
+
+        // Convert token transfer gas fee to USD and NGN
+        const tokenGasFeeUsd = tokenGasFeeEth.mul(ethPrice);
+        tokenTransferGasFeeNgn = tokenGasFeeUsd.mul(new Decimal(quote.rateUsdToNgn));
+        console.log('[CRYPTO SELL PREVIEW] Token transfer gas fee:', {
+          eth: tokenGasFeeEth.toString(),
+          usd: tokenGasFeeUsd.toString(),
+          ngn: tokenTransferGasFeeNgn.toString(),
+        });
+
+        // Check if user has enough ETH to pay for gas
+        const minimumEthNeeded = tokenGasFeeEth.plus(new Decimal('0.001')); // Add small buffer
+        ethNeededForGas = minimumEthNeeded;
+
+        if (userEthBalance.lessThan(minimumEthNeeded)) {
+          needsEthTransfer = true;
+          console.log('[CRYPTO SELL PREVIEW] User does not have sufficient ETH, will need transfer');
+          console.log('  User ETH balance:', userEthBalance.toString());
+          console.log('  Minimum ETH needed:', minimumEthNeeded.toString());
+
+          // Estimate gas for ETH transfer (master wallet to user)
+          console.log('[CRYPTO SELL PREVIEW] Estimating gas for ETH transfer to user');
+          const ethTransferGasEstimate = await ethereumGasService.estimateGasFee(
+            masterWallet.address,
+            depositAddress,
+            minimumEthNeeded.toString(),
+            false // mainnet
+          );
+
+          let ethGasLimit = parseInt(ethTransferGasEstimate.gasLimit);
+          ethGasLimit = Math.ceil(ethGasLimit * 1.1); // Add 10% buffer for ETH transfer
+
+          const ethGasPriceWei = ethTransferGasEstimate.gasPrice;
+          const ethTransferGasFeeEth = new Decimal(ethereumGasService.calculateTotalFee(
+            ethGasLimit.toString(),
+            ethGasPriceWei
+          ));
+
+          // Convert ETH transfer gas fee to USD and NGN
+          const ethTransferGasFeeUsd = ethTransferGasFeeEth.mul(ethPrice);
+          ethTransferGasFeeNgn = ethTransferGasFeeUsd.mul(new Decimal(quote.rateUsdToNgn));
+
+          console.log('[CRYPTO SELL PREVIEW] ETH transfer gas estimate:', {
+            gasLimit: ethGasLimit,
+            gasPriceGwei: ethereumGasService.weiToGwei(ethGasPriceWei),
+            gasFeeEth: ethTransferGasFeeEth.toString(),
+            gasFeeUsd: ethTransferGasFeeUsd.toString(),
+            gasFeeNgn: ethTransferGasFeeNgn.toString(),
+          });
+
+          // Convert ETH needed to NGN
+          ethNeededNgn = ethNeededForGas.mul(ethPrice).mul(new Decimal(quote.rateUsdToNgn));
+          console.log('[CRYPTO SELL PREVIEW] ETH needed for gas (in NGN):', ethNeededNgn.toString());
+        } else {
+          console.log('[CRYPTO SELL PREVIEW] User has sufficient ETH balance');
+        }
+
+        // Calculate total gas fees
+        totalGasFeeEth = needsEthTransfer 
+          ? ethNeededForGas.plus(tokenGasFeeEth) // ETH needed + token transfer gas
+          : tokenGasFeeEth; // Only token transfer gas
+
+        totalGasFeeUsd = totalGasFeeEth.mul(ethPrice);
+        totalGasFeeNgn = needsEthTransfer
+          ? ethTransferGasFeeNgn.plus(tokenTransferGasFeeNgn) // Both transfer gas fees
+          : tokenTransferGasFeeNgn; // Only token transfer gas
+
+        // Add minimum 10 NGN buffer to total gas fee
+        const minGasFeeBuffer = new Decimal('10');
+        if (totalGasFeeNgn.lessThan(minGasFeeBuffer)) {
+          totalGasFeeNgn = minGasFeeBuffer;
+        } else {
+          totalGasFeeNgn = totalGasFeeNgn.plus(minGasFeeBuffer);
+        }
+
+        gasEstimate = {
+          tokenTransfer: {
+            gasLimit: tokenGasLimit.toString(),
+            gasPrice: {
+              wei: tokenGasPriceWei,
+              gwei: ethereumGasService.weiToGwei(tokenGasPriceWei),
+            },
+            gasFeeEth: tokenGasFeeEth.toString(),
+            gasFeeUsd: tokenGasFeeUsd.toString(),
+            gasFeeNgn: tokenTransferGasFeeNgn.toString(),
+          },
+          needsEthTransfer,
+          userEthBalance: userEthBalance.toString(),
+          ethNeededForGas: ethNeededForGas.toString(),
+          ethNeededNgn: needsEthTransfer ? ethNeededNgn.toString() : '0',
+          ethTransferGasFeeNgn: needsEthTransfer ? ethTransferGasFeeNgn.toString() : '0',
+        };
+
+        console.log('[CRYPTO SELL PREVIEW] Total gas fees:', {
+          eth: totalGasFeeEth.toString(),
+          usd: totalGasFeeUsd.toString(),
+          ngn: totalGasFeeNgn.toString(),
+        });
+
+      } catch (error: any) {
+        console.error('[CRYPTO SELL PREVIEW] Error in gas fee calculation:', error);
+        console.error('[CRYPTO SELL PREVIEW] Stack:', error.stack);
+        // Don't fail the preview, but log the error
+      }
+    }
+
+    // Calculate final amount after deducting gas fees
+    const finalAmountNgn = amountNgnDecimal.minus(totalGasFeeNgn);
+    const finalAmountNgnDecimal = finalAmountNgn.greaterThan(0) ? finalAmountNgn : new Decimal('0');
+
     // Calculate balances after transaction
     const cryptoBalanceAfter = cryptoBalanceBefore.minus(amountCryptoDecimal);
-    const fiatBalanceAfter = fiatBalanceBefore.plus(amountNgnDecimal);
+    const fiatBalanceAfter = fiatBalanceBefore.plus(finalAmountNgnDecimal);
 
     // Check if sufficient balance
     const hasSufficientBalance = cryptoBalanceBefore.gte(amountCryptoDecimal);
+    const hasSufficientAmountAfterGas = finalAmountNgnDecimal.greaterThan(0);
+    const canProceed = hasSufficientBalance && hasSufficientAmountAfterGas;
+
+    console.log('[CRYPTO SELL PREVIEW] Final calculations:');
+    console.log('  Amount before gas:', amountNgnDecimal.toString(), 'NGN');
+    console.log('  Total gas fee:', totalGasFeeNgn.toString(), 'NGN');
+    console.log('  Final amount received:', finalAmountNgnDecimal.toString(), 'NGN');
+    console.log('  Can proceed:', canProceed);
+
+    console.log('\n========================================');
+    console.log('[CRYPTO SELL PREVIEW] Preview complete');
+    console.log('========================================\n');
 
     return {
       // Transaction details
@@ -369,7 +913,23 @@ class CryptoSellService {
       // Amounts
       amountCrypto: quote.amountCrypto,
       amountUsd: quote.amountUsd,
-      amountNgn: quote.amountNgn,
+      amountNgn: quote.amountNgn, // Amount before gas fees
+      
+      // Gas fees (Ethereum only)
+      gasFee: blockchain.toLowerCase() === 'ethereum' ? {
+        eth: totalGasFeeEth.toString(),
+        usd: totalGasFeeUsd.toString(),
+        ngn: totalGasFeeNgn.toString(),
+        tokenTransfer: gasEstimate?.tokenTransfer,
+        needsEthTransfer: needsEthTransfer,
+        userEthBalance: userEthBalance.toString(),
+        ethNeededForGas: ethNeededForGas.toString(),
+        ethNeededNgn: ethNeededNgn.toString(),
+        ethTransferGasFeeNgn: ethTransferGasFeeNgn.toString(),
+      } : null,
+      
+      // Final amount after gas fees
+      finalAmountNgn: finalAmountNgnDecimal.toString(),
       
       // Rates
       rateCryptoToUsd: quote.rateCryptoToUsd,
@@ -385,7 +945,8 @@ class CryptoSellService {
       
       // Validation
       hasSufficientBalance,
-      canProceed: hasSufficientBalance,
+      hasSufficientAmountAfterGas,
+      canProceed,
       
       // Additional info
       virtualAccountId: virtualAccount.id,

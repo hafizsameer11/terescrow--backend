@@ -13,6 +13,7 @@ import { body, validationResult } from 'express-validator';
 /**
  * Calculate sell quote (preview)
  * POST /api/v2/crypto/sell/quote
+ * Note: For consistency, this now calls previewSellTransaction to include gas fees
  */
 export const calculateSellQuoteController = async (
   req: Request,
@@ -33,9 +34,10 @@ export const calculateSellQuoteController = async (
 
     const { amount, currency, blockchain } = req.body;
 
-    const quote = await cryptoSellService.calculateSellQuote(amount, currency, blockchain);
+    // Use preview function to get quote with gas fees
+    const preview = await cryptoSellService.previewSellTransaction(userId, amount, currency, blockchain);
 
-    return new ApiResponse(200, quote, 'Sell quote calculated successfully').send(res);
+    return new ApiResponse(200, preview, 'Sell quote calculated successfully').send(res);
   } catch (error: any) {
     console.error('Error in calculateSellQuoteController:', error);
     if (error instanceof ApiError) {
