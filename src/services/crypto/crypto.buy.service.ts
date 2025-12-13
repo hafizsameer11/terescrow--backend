@@ -342,6 +342,20 @@ class CryptoBuyService {
       
       gasFeeUsd = gasFeeEth.mul(ethPrice);
       gasFeeNgn = gasFeeUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
+      
+      // Add minimum 10 NGN buffer to gas fee for safety
+      const minGasFeeBuffer = new Decimal('10');
+      if (gasFeeNgn.lessThan(minGasFeeBuffer)) {
+        gasFeeNgn = minGasFeeBuffer;
+        cryptoLogger.gasEstimate({
+          note: 'Gas fee adjusted to minimum 10 NGN buffer',
+          original: gasFeeUsd.mul(new Decimal(usdToNgnRate.rate.toString())).toString(),
+          adjusted: gasFeeNgn.toString(),
+        });
+      } else {
+        // Add 10 NGN buffer even if gas fee is already higher
+        gasFeeNgn = gasFeeNgn.plus(minGasFeeBuffer);
+      }
 
       cryptoLogger.gasEstimate({
         from: masterWallet.address,
@@ -455,7 +469,7 @@ class CryptoBuyService {
           virtualAccountId: virtualAccount.id,
           transactionType: 'BUY',
           transactionId,
-          status: txHash ? 'pending' : 'successful', // pending if blockchain transfer initiated
+          status: 'successful', // Transaction is successful once we get txHash from Tatum
           currency: virtualAccount.currency,
           blockchain: virtualAccount.blockchain,
           cryptoBuy: {
@@ -592,6 +606,15 @@ class CryptoBuyService {
    * Includes current balances, rates, gas fees, and all transaction details
    */
   async previewBuyTransaction(userId: number, amountCrypto: number, currency: string, blockchain: string) {
+    console.log('\n========================================');
+    console.log('[CRYPTO BUY PREVIEW] Starting preview');
+    console.log('========================================');
+    console.log('User ID:', userId);
+    console.log('Amount:', amountCrypto);
+    console.log('Currency:', currency);
+    console.log('Blockchain:', blockchain);
+    console.log('========================================\n');
+
     // Only Ethereum blockchain is currently supported for real blockchain transactions
     if (blockchain.toLowerCase() !== 'ethereum') {
       throw new Error(`Crypto buy for ${blockchain} blockchain is not active yet. Only Ethereum (ETH and USDT) is currently supported.`);
@@ -658,6 +681,7 @@ class CryptoBuyService {
 
     // For Ethereum blockchain: Check master wallet balance and calculate gas fees
     if (blockchain.toLowerCase() === 'ethereum' && (currency.toUpperCase() === 'ETH' || currency.toUpperCase() === 'USDT')) {
+      console.log('[CRYPTO BUY PREVIEW] Entering Ethereum gas fee calculation block');
       try {
         // Import services
         const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
@@ -668,20 +692,34 @@ class CryptoBuyService {
           where: { blockchain: 'ethereum' },
         });
 
+        console.log('[CRYPTO BUY PREVIEW] Master wallet check:', {
+          masterWalletFound: !!masterWallet,
+          masterWalletAddress: masterWallet?.address || 'null',
+          depositAddress: depositAddress || 'null',
+        });
+
         if (masterWallet && masterWallet.address && depositAddress) {
+          console.log('[CRYPTO BUY PREVIEW] Checking master wallet balance');
+          console.log('Master wallet address:', masterWallet.address);
+          console.log('Deposit address:', depositAddress);
+          console.log('Required amount:', amountCryptoDecimal.toString(), currency);
+
           // Check master wallet balance
           if (currency.toUpperCase() === 'ETH') {
             masterWalletBalance = await ethereumBalanceService.getETHBalance(masterWallet.address, false);
+            console.log('[CRYPTO BUY PREVIEW] Master wallet ETH balance:', masterWalletBalance);
           } else {
             // USDT
             const contractAddress = walletCurrency.contractAddress;
             if (contractAddress) {
+              console.log('[CRYPTO BUY PREVIEW] Checking USDT balance (contract:', contractAddress + ')');
               masterWalletBalance = await ethereumBalanceService.getERC20Balance(
                 contractAddress,
                 masterWallet.address,
                 walletCurrency.decimals || 6,
                 false
               );
+              console.log('[CRYPTO BUY PREVIEW] Master wallet USDT balance:', masterWalletBalance);
             }
           }
 
@@ -689,35 +727,72 @@ class CryptoBuyService {
           if (masterWalletBalance) {
             const masterBalanceDecimal = new Decimal(masterWalletBalance);
             hasSufficientMasterBalance = masterBalanceDecimal.gte(amountCryptoDecimal);
+            console.log('[CRYPTO BUY PREVIEW] Master wallet has sufficient balance:', hasSufficientMasterBalance);
+            if (!hasSufficientMasterBalance) {
+              console.log('[CRYPTO BUY PREVIEW] WARNING: Master wallet balance insufficient!');
+              console.log('  Available:', masterWalletBalance, currency);
+              console.log('  Required:', amountCryptoDecimal.toString(), currency);
+            }
           }
 
           // Estimate gas fee
+          console.log('[CRYPTO BUY PREVIEW] Estimating gas fee');
           const gasPrice = await ethereumGasService.getGasPrice(false);
+          console.log('[CRYPTO BUY PREVIEW] Current gas price:', gasPrice.gwei, 'Gwei');
+          
           const gasEstimateResult = await ethereumGasService.estimateGasFee(
             masterWallet.address,
             depositAddress,
             amountCryptoDecimal.toString(),
             false
           );
+          console.log('[CRYPTO BUY PREVIEW] Initial gas estimate:', {
+            gasLimit: gasEstimateResult.gasLimit,
+            gasPrice: ethereumGasService.weiToGwei(gasEstimateResult.gasPrice) + ' Gwei',
+          });
+
+          // For ERC-20 token transfers, we need higher gas limit than ETH transfers
+          // ETH transfers: ~21,000 gas
+          // ERC-20 transfers: ~65,000-100,000 gas (depending on token)
+          let estimatedGasLimit = parseInt(gasEstimateResult.gasLimit);
+          
+          if (currency.toUpperCase() !== 'ETH') {
+            // For ERC-20 tokens, use a safer gas limit
+            // Tatum's estimation might be for ETH transfers, so use standard ERC-20 limit
+            const erc20GasLimit = 65000; // Standard ERC-20 transfer gas limit
+            // Use the higher of estimated or standard ERC-20 limit, with 20% buffer for safety
+            estimatedGasLimit = Math.max(estimatedGasLimit, erc20GasLimit);
+            console.log('[CRYPTO BUY PREVIEW] ERC-20 token detected - applying minimum gas limit:', erc20GasLimit);
+            estimatedGasLimit = Math.ceil(estimatedGasLimit * 1.2); // Add 20% buffer
+            console.log('[CRYPTO BUY PREVIEW] Adjusted gas limit with 20% buffer:', estimatedGasLimit);
+          } else {
+            // For ETH transfers, add 10% buffer
+            estimatedGasLimit = Math.ceil(estimatedGasLimit * 1.1);
+            console.log('[CRYPTO BUY PREVIEW] ETH transfer - adjusted gas limit with 10% buffer:', estimatedGasLimit);
+          }
+          
+          const adjustedGasLimit = estimatedGasLimit.toString();
 
           gasEstimate = {
-            gasLimit: gasEstimateResult.gasLimit,
+            gasLimit: adjustedGasLimit,
             gasPrice: {
               wei: gasEstimateResult.gasPrice,
               gwei: ethereumGasService.weiToGwei(gasEstimateResult.gasPrice),
             },
           };
 
-          // Calculate gas fee in ETH
+          // Calculate gas fee in ETH using adjusted gas limit
           gasFeeEth = new Decimal(ethereumGasService.calculateTotalFee(
-            gasEstimateResult.gasLimit,
+            adjustedGasLimit,
             gasEstimateResult.gasPrice
           ));
+          console.log('[CRYPTO BUY PREVIEW] Gas fee in ETH:', gasFeeEth.toString());
 
           // Convert gas fee to USD (using ETH price)
           let ethPrice = new Decimal('0');
           if (currency.toUpperCase() === 'ETH') {
             ethPrice = new Decimal(walletCurrency.price.toString());
+            console.log('[CRYPTO BUY PREVIEW] Using ETH price from wallet currency:', ethPrice.toString(), 'USD');
           } else {
             // Get ETH price for converting gas fee
             const ethWalletCurrency = await prisma.walletCurrency.findFirst({
@@ -725,22 +800,57 @@ class CryptoBuyService {
             });
             if (ethWalletCurrency?.price) {
               ethPrice = new Decimal(ethWalletCurrency.price.toString());
+              console.log('[CRYPTO BUY PREVIEW] Using ETH price for gas conversion:', ethPrice.toString(), 'USD');
             }
           }
           
           gasFeeUsd = gasFeeEth.mul(ethPrice);
+          console.log('[CRYPTO BUY PREVIEW] Gas fee in USD:', gasFeeUsd.toString());
 
-          // Convert gas fee to NGN (using same rate as purchase)
-          const usdToNgnRate = await cryptoRateService.getRateForAmount('BUY', parseFloat(gasFeeUsd.toString()));
-          if (usdToNgnRate) {
-            gasFeeNgn = gasFeeUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
+          // Convert gas fee to NGN (using same rate as purchase from quote)
+          // Use the same USD to NGN rate that was used for the purchase amount
+          const quoteUsdToNgnRate = parseFloat(quote.rateNgnToUsd);
+          if (quoteUsdToNgnRate > 0) {
+            // rateNgnToUsd is NGN per USD, so: gasFeeNgn = gasFeeUsd * rate
+            gasFeeNgn = gasFeeUsd.mul(new Decimal(quoteUsdToNgnRate.toString()));
+            console.log('[CRYPTO BUY PREVIEW] Using USD to NGN rate from quote:', quoteUsdToNgnRate);
+          } else {
+            // Fallback: fetch rate if not available in quote
+            console.log('[CRYPTO BUY PREVIEW] Rate not in quote, fetching from service');
+            const usdToNgnRate = await cryptoRateService.getRateForAmount('BUY', parseFloat(gasFeeUsd.toString()));
+            if (usdToNgnRate) {
+              gasFeeNgn = gasFeeUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
+              console.log('[CRYPTO BUY PREVIEW] Fetched USD to NGN rate:', usdToNgnRate.rate);
+            }
           }
+          
+          // Add minimum 10 NGN buffer to gas fee for safety
+          const minGasFeeBuffer = new Decimal('10');
+          if (gasFeeNgn.lessThan(minGasFeeBuffer)) {
+            console.log('[CRYPTO BUY PREVIEW] Gas fee below minimum buffer, adjusting:', {
+              original: gasFeeNgn.toString(),
+              buffer: minGasFeeBuffer.toString(),
+            });
+            gasFeeNgn = minGasFeeBuffer;
+          } else {
+            // Add 10 NGN buffer even if gas fee is already higher
+            gasFeeNgn = gasFeeNgn.plus(minGasFeeBuffer);
+            console.log('[CRYPTO BUY PREVIEW] Added 10 NGN buffer to gas fee');
+          }
+          console.log('[CRYPTO BUY PREVIEW] Final gas fee in NGN (with buffer):', gasFeeNgn.toString());
 
           // Add gas fee to total amount
           totalAmountNgn = amountNgnDecimal.plus(gasFeeNgn);
+          console.log('[CRYPTO BUY PREVIEW] Total amount breakdown:');
+          console.log('  Crypto amount (NGN):', amountNgnDecimal.toString());
+          console.log('  Gas fee (NGN):', gasFeeNgn.toString());
+          console.log('  Total amount (NGN):', totalAmountNgn.toString());
+        } else {
+          console.log('[CRYPTO BUY PREVIEW] Master wallet or deposit address not found - skipping gas calculation');
         }
       } catch (error: any) {
-        console.error('Error in gas fee calculation or master wallet check:', error);
+        console.error('[CRYPTO BUY PREVIEW] Error in gas fee calculation or master wallet check:', error);
+        console.error('[CRYPTO BUY PREVIEW] Stack:', error.stack);
         // Don't fail the preview, just log the error
       }
     }
@@ -749,9 +859,38 @@ class CryptoBuyService {
     const fiatBalanceAfter = fiatBalance.minus(totalAmountNgn);
     const cryptoBalanceAfter = cryptoBalanceBefore.plus(amountCryptoDecimal);
 
+    console.log('[CRYPTO BUY PREVIEW] Balance calculations:');
+    console.log('  Fiat balance before:', fiatBalance.toString());
+    console.log('  Fiat balance after:', fiatBalanceAfter.toString());
+    console.log('  Crypto balance before:', cryptoBalanceBefore.toString());
+    console.log('  Crypto balance after:', cryptoBalanceAfter.toString());
+
     // Check if sufficient balance (including gas fees)
     const hasSufficientBalance = fiatBalance.gte(totalAmountNgn);
     const canProceed = hasSufficientBalance && hasSufficientMasterBalance;
+    
+    console.log('[CRYPTO BUY PREVIEW] Sufficiency checks:');
+    console.log('  Has sufficient fiat balance:', hasSufficientBalance);
+    console.log('  Has sufficient master wallet balance:', hasSufficientMasterBalance);
+    console.log('  Can proceed:', canProceed);
+
+    console.log('\n========================================');
+    console.log('[CRYPTO BUY PREVIEW] Preview complete');
+    console.log('========================================');
+    console.log('Gas fee estimate:', {
+      eth: gasFeeEth.toString(),
+      usd: gasFeeUsd.toString(),
+      ngn: gasFeeNgn.toString(),
+      gasLimit: gasEstimate?.gasLimit || 'undefined',
+      gasPriceGwei: gasEstimate?.gasPrice?.gwei || 'undefined',
+      gasEstimateObject: gasEstimate ? 'exists' : 'null/undefined',
+    });
+    console.log('Total amount breakdown:');
+    console.log('  Crypto amount (NGN):', amountNgnDecimal.toString());
+    console.log('  Gas fee (NGN):', gasFeeNgn.toString());
+    console.log('  Total amount (NGN):', totalAmountNgn.toString());
+    console.log('Can proceed:', canProceed);
+    console.log('========================================\n');
 
     return {
       // Transaction details

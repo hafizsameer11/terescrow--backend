@@ -58,8 +58,12 @@ const swaggerDefinition: SwaggerDefinition = {
       description: 'Development server',
     },
     {
-      url: 'https://api.terescrow.com',
+      url: 'https://backend.tercescrow.site',
       description: 'Production server',
+    },
+    {
+      url: 'https://api.terescrow.com',
+      description: 'Production server (legacy)',
     },
   ],
   components: {

@@ -12,24 +12,105 @@ import tatumLogger from '../../utils/tatum.logger';
 /**
  * Process blockchain webhook from Tatum
  */
-export async function processBlockchainWebhook(webhookData: TatumWebhookPayload) {
+export async function processBlockchainWebhook(webhookData: TatumWebhookPayload | any) {
   try {
+    // Handle address-based webhooks (ADDRESS_EVENT subscription type)
+    const isAddressWebhook = webhookData.subscriptionType === 'ADDRESS_EVENT';
+    const webhookAddress = webhookData.address || webhookData.to || webhookData.counterAddress;
+    
+    // Check if webhook address matches any master wallet - IGNORE these
+    // This handles address-based webhooks (ADDRESS_EVENT) where transactions involve master wallet
+    if (webhookAddress) {
+      // Normalize address to lowercase for comparison (Ethereum addresses are case-insensitive)
+      const normalizedAddress = webhookAddress.toLowerCase();
+      
+      // Check all master wallets (typically only a few, so in-memory filter is fine)
+      const allMasterWallets = await prisma.masterWallet.findMany({
+        where: { address: { not: null } },
+      });
+      
+      const masterWallet = allMasterWallets.find(
+        mw => mw.address?.toLowerCase() === normalizedAddress
+      );
+
+      if (masterWallet) {
+        tatumLogger.info(`Ignoring webhook from master wallet address: ${webhookAddress}`, {
+          address: webhookAddress,
+          normalizedAddress,
+          subscriptionType: webhookData.subscriptionType,
+          txId: webhookData.txId,
+          masterWalletId: masterWallet.id,
+          blockchain: masterWallet.blockchain,
+        });
+        return { processed: false, reason: 'master_wallet' };
+      }
+    }
+
+    // For address-based webhooks, we can't process them the same way
+    // They don't have accountId, so we need to find by address
+    if (isAddressWebhook && !webhookData.accountId) {
+      tatumLogger.info('Address-based webhook without accountId - ignoring (no virtual account mapping)', {
+        address: webhookAddress,
+        subscriptionType: webhookData.subscriptionType,
+        txId: webhookData.txId,
+      });
+      return { processed: false, reason: 'address_webhook_no_account' };
+    }
+
     const { accountId, reference, txId, amount, currency, from, to, date, blockHeight, blockHash, index } = webhookData;
+
+    if (!accountId) {
+      tatumLogger.warn('Webhook missing accountId', {
+        subscriptionType: webhookData.subscriptionType,
+        txId: webhookData.txId,
+        address: webhookAddress,
+      });
+      return { processed: false, reason: 'missing_account_id' };
+    }
 
     tatumLogger.webhookProcessing(webhookData);
 
-    // Check for duplicate (by reference)
+    // Check for duplicate (by reference or txId)
     const existingWebhook = await prisma.webhookResponse.findFirst({
-      where: { reference },
+      where: {
+        OR: [
+          { reference },
+          { txId },
+        ],
+      },
     });
 
     if (existingWebhook) {
-      tatumLogger.warn(`Webhook with reference ${reference} already processed`, {
+      tatumLogger.warn(`Webhook already processed (reference: ${reference}, txId: ${txId})`, {
         accountId,
         reference,
+        txId,
         existingWebhookId: existingWebhook.id,
       });
       return { processed: false, reason: 'duplicate' };
+    }
+
+    // Check if from address is master wallet (ignore outbound transfers from master wallet)
+    if (from) {
+      const normalizedFrom = from.toLowerCase();
+      const allMasterWallets = await prisma.masterWallet.findMany({
+        where: { address: { not: null } },
+      });
+      const fromMasterWallet = allMasterWallets.find(
+        mw => mw.address?.toLowerCase() === normalizedFrom
+      );
+
+      if (fromMasterWallet) {
+        tatumLogger.info(`Ignoring webhook from master wallet: ${from}`, {
+          accountId,
+          reference,
+          from,
+          normalizedFrom,
+          masterWalletId: fromMasterWallet.id,
+          blockchain: fromMasterWallet.blockchain,
+        });
+        return { processed: false, reason: 'master_wallet' };
+      }
     }
 
     // Get virtual account
@@ -51,21 +132,6 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload)
       currency: virtualAccount.currency,
       blockchain: virtualAccount.blockchain,
     });
-
-    // Check if from address is master wallet (ignore top-ups)
-    const masterWallet = await prisma.masterWallet.findFirst({
-      where: { address: from },
-    });
-
-    if (masterWallet) {
-      tatumLogger.info(`Ignoring webhook from master wallet: ${from}`, {
-        accountId,
-        reference,
-        from,
-        masterWalletId: masterWallet.id,
-      });
-      return { processed: false, reason: 'master_wallet' };
-    }
 
     // Log webhook to WebhookResponse table
     const webhookResponse = await prisma.webhookResponse.create({
