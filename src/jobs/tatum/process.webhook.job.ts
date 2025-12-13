@@ -170,7 +170,24 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       }
     }
 
-    const { accountId, reference, txId, amount, currency, from, to, date, blockHeight, blockHash, index } = webhookData;
+    const { accountId, reference, txId, amount, currency, from, to, date, timestamp, blockHeight, blockHash, index } = webhookData;
+    
+    // Handle date/timestamp - address-based webhooks use timestamp, others use date
+    let transactionDate: Date;
+    if (date) {
+      transactionDate = new Date(date);
+    } else if (timestamp) {
+      // timestamp is in milliseconds
+      transactionDate = new Date(timestamp);
+    } else {
+      // Default to now if neither is available
+      transactionDate = new Date();
+    }
+    
+    // Validate date
+    if (isNaN(transactionDate.getTime())) {
+      transactionDate = new Date();
+    }
 
     if (!accountId) {
       tatumLogger.warn('Webhook missing accountId', {
@@ -259,7 +276,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         blockHash,
         fromAddress: from,
         toAddress: to,
-        transactionDate: new Date(date),
+        transactionDate: transactionDate,
         index,
       },
     });
@@ -298,7 +315,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         txId,
         fromAddress: from,
         toAddress: to,
-        transactionDate: new Date(date),
+        transactionDate: transactionDate,
         status: 'inWallet',
         index,
         userId: virtualAccount.userId,

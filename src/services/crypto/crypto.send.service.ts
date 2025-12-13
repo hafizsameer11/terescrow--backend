@@ -338,78 +338,57 @@ class CryptoSendService {
     // Generate transaction ID
     const transactionId = `SEND-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Create transaction record in database (with increased timeout for blockchain operations)
-    await prisma.$transaction(async (tx) => {
-      // Update virtual account to match expected on-chain balance after send
-      await tx.virtualAccount.update({
-        where: { id: virtualAccount.id },
-        data: {
-          availableBalance: balanceAfter.toString(),
-          accountBalance: balanceAfter.toString(),
-        },
-      });
-
-      // Create crypto transaction
-      await cryptoTransactionService.createSendTransaction({
-        userId,
-        virtualAccountId: virtualAccount.id,
-        transactionId,
-        fromAddress: depositAddress,
-        toAddress,
-        amount: amountCryptoDecimal.toString(),
-        amountUsd: amountUsd.toString(),
-        txHash: txHash || '',
-        networkFee: gasFeeEth.toString(),
-        status: txHash ? 'successful' : 'failed',
-      });
-    }, {
-      maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
-      timeout: 30000, // Maximum time the transaction can run (30 seconds - increased for blockchain operations)
-    });
-
-    // STEP 2: Verify on-chain balance after transaction (optional, but good for logging)
-    if (txHash && blockchain.toLowerCase() === 'ethereum') {
-      try {
-        const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
-        
-        // Wait a bit for transaction to be processed
-        await new Promise(resolve => setTimeout(resolve, 3000)); // 3 seconds
-        
-        let actualOnChainBalance = new Decimal('0');
-        if (currencyCode === 'ETH') {
-          const ethBalanceStr = await ethereumBalanceService.getETHBalance(depositAddress, false);
-          actualOnChainBalance = new Decimal(ethBalanceStr);
-        } else if (currencyCode === 'USDT' && walletCurrency.contractAddress) {
-          const usdtBalanceStr = await ethereumBalanceService.getERC20Balance(
-            walletCurrency.contractAddress,
-            depositAddress,
-            walletCurrency.decimals || 6,
-            false
-          );
-          actualOnChainBalance = new Decimal(usdtBalanceStr);
-        }
-        
-        console.log('[CRYPTO SEND] On-chain balance after transaction:', {
-          expected: balanceAfter.toString(),
-          actual: actualOnChainBalance.toString(),
-          difference: actualOnChainBalance.minus(balanceAfter).toString(),
+    // Update database records (do this quickly without verification to avoid timeout)
+    // Blockchain transfer already succeeded, so we just need to update balances
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Update virtual account to match expected on-chain balance after send
+        await tx.virtualAccount.update({
+          where: { id: virtualAccount.id },
+          data: {
+            availableBalance: balanceAfter.toString(),
+            accountBalance: balanceAfter.toString(),
+          },
         });
-        
-        // Update virtual account to match actual on-chain balance if different
-        if (!actualOnChainBalance.equals(balanceAfter)) {
-          console.log('[CRYPTO SEND] Updating virtual account to match actual on-chain balance');
-          await prisma.virtualAccount.update({
-            where: { id: virtualAccount.id },
-            data: {
-              availableBalance: actualOnChainBalance.toString(),
-              accountBalance: actualOnChainBalance.toString(),
+
+        // Create crypto transaction directly (without service method to avoid extra queries)
+        await tx.cryptoTransaction.create({
+          data: {
+            userId,
+            virtualAccountId: virtualAccount.id,
+            transactionType: 'SEND',
+            transactionId,
+            status: txHash ? 'successful' : 'failed',
+            currency: virtualAccount.currency,
+            blockchain: virtualAccount.blockchain,
+            cryptoSend: {
+              create: {
+                fromAddress: depositAddress,
+                toAddress,
+                amount: amountCryptoDecimal,
+                amountUsd: amountUsd,
+                txHash: txHash || '',
+                networkFee: gasFeeEth,
+              },
             },
-          });
-        }
-      } catch (error: any) {
-        console.error('[CRYPTO SEND] Error verifying post-transaction balance (non-critical):', error);
-        // Don't throw - this is just for verification
-      }
+          },
+        });
+      }, {
+        maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
+        timeout: 15000, // 15 seconds should be plenty for simple DB updates
+      });
+    } catch (error: any) {
+      // If database update fails, log it but don't fail the entire operation
+      // The blockchain transfer already succeeded
+      console.error('[CRYPTO SEND] Error updating database after blockchain transfer:', error);
+      cryptoLogger.exception('Database update failed after successful blockchain transfer', error, {
+        userId,
+        currency: currencyCode,
+        txHash,
+        transactionId,
+        note: 'Blockchain transfer succeeded but database update failed. Manual reconciliation may be needed.',
+      });
+      // Continue to return success since blockchain transfer worked
     }
 
     console.log('[CRYPTO SEND] Transaction completed successfully:', {
