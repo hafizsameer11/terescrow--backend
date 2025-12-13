@@ -357,12 +357,11 @@ async function completeSellTransaction(data: {
       const cryptoPrice = walletCurrency?.price ? new Decimal(walletCurrency.price.toString()) : new Decimal('1');
       const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
 
-      // Get USD to NGN rate
+      // Get USD to NGN rate (CryptoRate doesn't have fromCurrency/toCurrency, just transactionType)
       const cryptoRate = await tx.cryptoRate.findFirst({
         where: {
           transactionType: 'SELL',
-          fromCurrency: 'USD',
-          toCurrency: 'NGN',
+          isActive: true,
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -380,8 +379,8 @@ async function completeSellTransaction(data: {
           blockchain: blockchain.toLowerCase(),
           cryptoSell: {
             create: {
-              fromAddress: depositAddress,
-              toAddress: masterWalletAddress,
+              fromAddress: depositAddressFromData || null,
+              toAddress: masterWalletAddressFromData || null,
               amount: amountCryptoDecimal,
               amountUsd,
               amountNaira: amountNgnDecimal,
@@ -429,7 +428,7 @@ async function notifyUserToContactAdmin(
         userId,
         type: InAppNotificationType.customeer,
         title: 'Transaction Assistance Required',
-        message: `Your ${currency} sell transaction needs manual processing. Please contact support with transaction ID: ${ethTransferTxHash}`,
+        description: `Your ${currency} sell transaction needs manual processing. Please contact support with transaction ID: ${ethTransferTxHash}`,
         isRead: false,
       },
     });
