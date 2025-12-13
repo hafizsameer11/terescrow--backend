@@ -59,6 +59,7 @@ model User {
   referrals            User[]              @relation("UserReferrals")
   referrer             User?               @relation("UserReferrals", fields: [referredBy], references: [id])
   customRole           CustomRole?         @relation(fields: [customRoleId], references: [id])
+  palmpayUserVirtualAccounts PalmPayUserVirtualAccount[]
   means                WaysOfHearing?      @relation(fields: [meansId], references: [id])
   otps                 UserOTP?
 
@@ -716,6 +717,46 @@ model PalmPayConfig {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model PalmPayUserVirtualAccount {
+  id                 Int       @id @default(autoincrement())
+  userId             Int
+  merchantOrderId    String    @unique @map("merchant_order_id") @db.VarChar(32)
+  palmpayOrderNo     String?   @unique @map("palmpay_order_no") @db.VarChar(50)
+  amount             Decimal   @db.Decimal(15, 2)
+  currency           String    @default("NGN") @db.VarChar(10)
+  orderStatus        Int       @default(1) @map("order_status")
+  title              String?   @db.VarChar(100)
+  description        String?   @db.VarChar(200)
+  payerAccountType   String?   @map("payer_account_type") @db.VarChar(50)
+  payerAccountId     String?   @map("payer_account_id") @db.VarChar(200)
+  payerBankName      String?   @map("payer_bank_name") @db.VarChar(200)
+  payerAccountName   String?   @map("payer_account_name") @db.VarChar(200)
+  payerVirtualAccNo  String?   @unique @map("payer_virtual_acc_no") @db.VarChar(200)
+  checkoutUrl        String?   @map("checkout_url") @db.Text
+  sdkSessionId       String?   @map("sdk_session_id") @db.VarChar(50)
+  sdkSignKey         String?   @map("sdk_sign_key") @db.VarChar(50)
+  payMethod          String?   @map("pay_method") @db.VarChar(50)
+  productType        String?   @map("product_type") @db.VarChar(50)
+  notifyUrl          String?   @map("notify_url") @db.VarChar(200)
+  callBackUrl        String?   @map("call_back_url") @db.VarChar(200)
+  remark             String?   @db.VarChar(200)
+  fiatTransactionId  String?   @map("fiat_transaction_id") @db.VarChar(255)
+  metadata           String?   @db.LongText
+  errorMessage       String?   @map("error_message") @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  completedAt        DateTime? @map("completed_at")
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([merchantOrderId])
+  @@index([palmpayOrderNo])
+  @@index([payerVirtualAccNo])
+  @@index([orderStatus])
+  @@index([createdAt])
+  @@map("PalmPayUserVirtualAccount")
 }
 
 model SupportChat {

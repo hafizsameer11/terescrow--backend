@@ -17,6 +17,9 @@ export interface PalmPayCreateOrderRequest {
   customerInfo?: string; // JSON string with customer info
   remark?: string; // Remarks (200 chars max)
   splitDetail?: string; // JSON string for split payments
+  productType?: string; // "bank_transfer", "pay_wallet", "mmo"
+  userId?: string; // Unique user ID on merchant (50 chars max)
+  userMobileNo?: string; // User mobile phone number (15 chars max, e.g., 07011698742)
 }
 
 export interface PalmPayQueryOrderRequest {
@@ -85,12 +88,18 @@ export interface PalmPayCreateOrderResponse {
   orderNo: string; // PalmPay's order number
   orderStatus: number; // 1=PENDING, 2=SUCCESS, 3=FAILED, 4=CANCELLED
   message: string;
-  checkoutUrl: string; // H5 payment URL
-  payToken: string; // Token for SDK payment
+  checkoutUrl?: string; // H5 payment URL
+  payToken?: string; // Token for SDK payment
+  payerAccountType?: string; // Account type (pay with bank transfer -1)
+  payerAccountId?: string; // Unique account id (returned when -1)
+  payerBankName?: string; // Bank name of virtual account (returned when -1)
+  payerAccountName?: string; // Account name of virtual account (returned when -1)
+  payerVirtualAccNo?: string; // Virtual account number (returned when -1)
   sdkSessionId: string;
   sdkSignKey: string;
   currency: string;
   orderAmount: number; // Amount in cents
+  payMethod?: string; // "bank_transfer", "pay_wallet", "mmo"
 }
 
 export interface PalmPayQueryOrderResponse {

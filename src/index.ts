@@ -32,6 +32,7 @@ import userWalletRouter from './routes/cutomer/user.wallet.router';
 import giftCardRouter from './routes/cutomer/giftcard.router';
 import palmpayDepositRouter from './routes/cutomer/palmpay.deposit.router';
 import palmpayPayoutRouter from './routes/cutomer/palmpay.payout.router';
+import palmpayMerchantOrderRouter from './routes/cutomer/palmpay.merchant.order.router';
 import fiatWalletRouter from './routes/cutomer/fiat.wallet.router';
 import kycRouter from './routes/cutomer/kyc.router';
 import billPaymentRouter from './routes/cutomer/billpayment.router';
@@ -171,6 +172,7 @@ app.use('/api/v2/transactions', transactionOverviewRouter);
 app.use('/api/v2/giftcards', giftCardRouter);
 app.use('/api/v2/payments/palmpay/deposit', palmpayDepositRouter);
 app.use('/api/v2/payments/palmpay', palmpayPayoutRouter);
+app.use('/api/v2/payment/merchant', palmpayMerchantOrderRouter);
 app.use('/api/v2/wallets', fiatWalletRouter);
 app.use('/api/v2/kyc', kycRouter);
 app.use('/api/v2/bill-payments', billPaymentRouter);
@@ -226,6 +228,7 @@ const customTagsSorter = (a: string, b: string) => {
     // Top priority routes (appear first)
     if (tag === 'V2 - Bank Accounts') return -2;
     if (tag === 'V2 - Referrals') return -1;
+    if (tag === 'V2 - PalmPay Merchant Order') return -0.5;
     // V2 Crypto flows in specific order
     if (tag === 'V2 - Crypto - Buy') return 0;
     if (tag === 'V2 - Crypto - Sell') return 1;

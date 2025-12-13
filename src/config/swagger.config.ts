@@ -31,6 +31,7 @@ const swaggerDefinition: SwaggerDefinition = {
     { name: 'V2 - Gift Cards', description: 'Gift card management endpoints' },
     { name: 'V2 - PalmPay Deposit', description: 'PalmPay wallet deposit (top-up) endpoints' },
     { name: 'V2 - PalmPay Payout', description: 'PalmPay withdrawal (payout) endpoints' },
+    { name: 'V2 - PalmPay Merchant Order', description: 'PalmPay merchant order creation with bank transfer endpoints' },
     { name: 'V2 - Fiat Wallet', description: 'Fiat wallet management endpoints' },
     { name: 'V2 - KYC Management', description: 'KYC tier verification endpoints' },
     { name: 'V2 - Bill Payments', description: 'Bill payment endpoints (Airtime, Data, Betting) using PalmPay' },

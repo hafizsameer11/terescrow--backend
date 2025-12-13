@@ -26,14 +26,14 @@ export const initiateDepositController = async (
       return next(ApiError.badRequest('Amount must be greater than 0'));
     }
 
-    // Convert amount to cents
+    // Convert amount to cents (minimum 10,000 kobo = 100 NGN for bank transfer)
     const amountInCents = Math.round(parseFloat(amount) * 100);
-    if (amountInCents < 100) {
-      return next(ApiError.badRequest('Minimum amount is 1.00 NGN'));
+    if (amountInCents < 10000) {
+      return next(ApiError.badRequest('Minimum amount is 100.00 NGN (10,000 kobo)'));
     }
 
-    // Generate unique order ID
-    const orderId = `deposit_${uuidv4().replace(/-/g, '')}`.substring(0, 32);
+    // Generate unique merchant order ID
+    const merchantOrderId = `deposit_${uuidv4().replace(/-/g, '')}`.substring(0, 32);
 
     // Get or create wallet
     const wallet = await fiatWalletService.getOrCreateWallet(user.id, currency);
@@ -51,30 +51,56 @@ export const initiateDepositController = async (
         fees: 0,
         totalAmount: parseFloat(amount),
         description: `Wallet top-up - ${amount} ${currency}`,
-        palmpayOrderId: orderId,
+        palmpayOrderId: merchantOrderId,
       },
     });
 
-    // Prepare customer info
-    const customerInfo: PalmPayCustomerInfo = {
-      userId: user.id.toString(),
-      userName: `${user.firstname} ${user.lastname}`,
-      phone: user.phoneNumber,
-      email: user.email,
-    };
+    // Prepare goodsDetails for bank transfer (use -1 to get virtual account)
+    const goodsDetails = JSON.stringify([{ goodsId: '-1' }]);
 
-    // Call PalmPay API to create order
+    // Call PalmPay merchant order API with bank_transfer
     const palmpayResponse = await palmpayCheckout.createOrder({
-      orderId,
+      orderId: merchantOrderId,
       title: 'Wallet Top-up',
       description: `Deposit to ${currency} wallet`,
       amount: amountInCents,
       currency: currency.toUpperCase(),
-      notifyUrl: palmpayConfig.getWebhookUrl(),
+      notifyUrl: `${palmpayConfig.getWebhookUrl()}/deposit`,
       callBackUrl: `${process.env.FRONTEND_URL || 'https://app.terescrow.com'}/deposit/success`,
-      orderExpireTime: 3600, // 1 hour
-      customerInfo: JSON.stringify(customerInfo),
+      productType: 'bank_transfer',
+      goodsDetails: goodsDetails,
+      userId: user.id.toString(),
+      userMobileNo: user.phoneNumber,
       remark: `Wallet top-up transaction for user ${user.id}`,
+    });
+
+    // Save merchant order details including virtual account info
+    const merchantOrder = await prisma.palmPayUserVirtualAccount.create({
+      data: {
+        userId: user.id,
+        merchantOrderId: merchantOrderId,
+        palmpayOrderNo: palmpayResponse.orderNo,
+        amount: parseFloat(amount),
+        currency: currency.toUpperCase(),
+        orderStatus: palmpayResponse.orderStatus,
+        title: 'Wallet Top-up',
+        description: `Deposit to ${currency} wallet`,
+        payerAccountType: palmpayResponse.payerAccountType?.toString() || null,
+        payerAccountId: palmpayResponse.payerAccountId || null,
+        payerBankName: palmpayResponse.payerBankName || null,
+        payerAccountName: palmpayResponse.payerAccountName || null,
+        payerVirtualAccNo: palmpayResponse.payerVirtualAccNo || null,
+        checkoutUrl: palmpayResponse.checkoutUrl || null,
+        sdkSessionId: palmpayResponse.sdkSessionId || null,
+        sdkSignKey: palmpayResponse.sdkSignKey || null,
+        payMethod: palmpayResponse.payMethod || null,
+        productType: 'bank_transfer',
+        notifyUrl: `${palmpayConfig.getWebhookUrl()}/deposit`,
+        callBackUrl: `${process.env.FRONTEND_URL || 'https://app.terescrow.com'}/deposit/success`,
+        remark: `Wallet top-up transaction for user ${user.id}`,
+        fiatTransactionId: transaction.id,
+        metadata: JSON.stringify(palmpayResponse),
+      },
     });
 
     // Update transaction with PalmPay order number
@@ -91,14 +117,21 @@ export const initiateDepositController = async (
     return res.status(200).json(
       new ApiResponse(200, {
         transactionId: transaction.id,
-        orderId: orderId,
+        merchantOrderId: merchantOrderId,
         orderNo: palmpayResponse.orderNo,
-        checkoutUrl: palmpayResponse.checkoutUrl,
         amount: amount,
         currency: currency.toUpperCase(),
         status: 'pending',
-        expiresAt: new Date(Date.now() + 3600000).toISOString(), // 1 hour from now
-      }, 'Deposit initiated successfully')
+        // Virtual account details for bank transfer
+        virtualAccount: {
+          accountType: palmpayResponse.payerAccountType,
+          accountId: palmpayResponse.payerAccountId,
+          bankName: palmpayResponse.payerBankName,
+          accountName: palmpayResponse.payerAccountName,
+          accountNumber: palmpayResponse.payerVirtualAccNo,
+        },
+        checkoutUrl: palmpayResponse.checkoutUrl,
+      }, 'Deposit initiated successfully. Please transfer to the provided virtual account.')
     );
   } catch (error: any) {
     console.error('Deposit initiation error:', error);

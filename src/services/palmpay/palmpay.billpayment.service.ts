@@ -153,6 +153,7 @@ class PalmPayBillPaymentService {
         }
       );
 
+      console.log('response palmpay billpayment service', response.data);
       return response.data;
     } catch (error: any) {
       console.error('PalmPay queryRechargeAccount error:', error.response?.data || error.message);
