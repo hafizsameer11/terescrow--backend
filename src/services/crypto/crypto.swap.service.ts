@@ -623,7 +623,10 @@ class CryptoSwapService {
     // Calculate quote with addresses
     const quote = await this.calculateSwapQuote(input, fromDepositAddress, masterWallet.address);
     const totalAmountDecimal = new Decimal(quote.totalAmount);
-    const toAmountDecimal = new Decimal(quote.toAmount);
+    
+    // Round toAmount to 18 decimal places for Ethereum (to avoid "too many decimal places" error)
+    // ETH and ERC-20 tokens use 18 decimals, so we need to round to 18 decimal places
+    const toAmountDecimal = new Decimal(quote.toAmount).toDecimalPlaces(18);
     const fromAmountDecimal = new Decimal(quote.fromAmount);
 
     // Check balance
@@ -704,10 +707,13 @@ class CryptoSwapService {
       // Step 1: User sends fromCurrency to master wallet
       console.log(`[CRYPTO SWAP] Transferring ${fromCurrency} from user to master wallet`);
       
+      // Round fromAmount to 18 decimal places for Ethereum transactions
+      const fromAmountRounded = fromAmountDecimal.toDecimalPlaces(18);
+      
       const userToMasterGas = await ethereumGasService.estimateGasFee(
         fromDepositAddress,
         masterWallet.address,
-        fromAmountDecimal.toString(),
+        fromAmountRounded.toString(),
         false
       );
       
@@ -721,7 +727,7 @@ class CryptoSwapService {
 
       userToMasterTxHash = await ethereumTransactionService.sendTransaction(
         masterWallet.address,
-        fromAmountDecimal.toString(),
+        fromAmountRounded.toString(),
         fromCurrency.toUpperCase(),
         userPrivateKey,
         ethereumGasService.weiToGwei(userToMasterGas.gasPrice),
@@ -734,6 +740,7 @@ class CryptoSwapService {
       // Step 2: Master sends toCurrency to user
       console.log(`[CRYPTO SWAP] Transferring ${toCurrency} from master to user wallet`);
       
+      // toAmountDecimal is already rounded to 18 decimal places above
       const masterToUserGas = await ethereumGasService.estimateGasFee(
         masterWallet.address,
         toDepositAddress,
