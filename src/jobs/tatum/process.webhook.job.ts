@@ -49,44 +49,15 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
     // Handle address-based webhooks (ADDRESS_EVENT)
     // These webhooks don't have accountId, but we can find the deposit address by matching the address
     if (isAddressWebhook && !webhookData.accountId) {
-      const txId = webhookData.txId || webhookData.txHash;
+      const addressTxId = webhookData.txId || webhookData.txHash;
       const webhookAddr = webhookData.address?.toLowerCase();
       const counterAddress = webhookData.counterAddress?.toLowerCase();
-      
-      // Check for duplicate by txId
-      if (txId) {
-        const existingTx = await prisma.cryptoTransaction.findFirst({
-          where: {
-            OR: [
-              { 
-                cryptoReceive: { 
-                  txHash: txId 
-                } 
-              },
-              { 
-                cryptoSend: { 
-                  txHash: txId 
-                } 
-              },
-            ],
-          },
-        });
-        
-        if (existingTx) {
-          tatumLogger.info('Address-based webhook already processed (duplicate txId)', {
-            txId,
-            address: webhookAddr,
-            counterAddress,
-          });
-          return { processed: false, reason: 'duplicate_tx' };
-        }
-      }
       
       // If no counterAddress, it's a send transaction - ignore (we handle sends synchronously)
       if (!counterAddress) {
         tatumLogger.info('Address-based webhook without counterAddress - ignoring (send transaction)', {
           address: webhookAddr,
-          txId,
+          txId: addressTxId,
           subscriptionType: webhookData.subscriptionType,
         });
         return { processed: false, reason: 'send_transaction_ignore' };
@@ -96,7 +67,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       // Find deposit address by matching the webhook address
       if (!webhookAddr) {
         tatumLogger.warn('Address-based webhook missing address field', {
-          txId,
+          txId: addressTxId,
           subscriptionType: webhookData.subscriptionType,
         });
         return { processed: false, reason: 'missing_address' };
@@ -121,14 +92,14 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       if (!depositAddressRecord || !depositAddressRecord.virtualAccount) {
         tatumLogger.info('Address-based webhook - deposit address not found', {
           address: webhookAddr,
-          txId,
+          txId: addressTxId,
           counterAddress,
         });
         return { processed: false, reason: 'deposit_address_not_found' };
       }
       
       // Process as receive transaction
-      const virtualAccount = depositAddressRecord.virtualAccount;
+      const addressVirtualAccount = depositAddressRecord.virtualAccount;
       const amountStr = webhookData.amount || '0';
       const asset = webhookData.asset; // Contract address for tokens, 'ETH' for native
       const isToken = asset && asset !== 'ETH' && webhookData.type === 'token';
@@ -139,16 +110,16 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         amount: amountStr,
         asset,
         isToken,
-        txId,
-        virtualAccountId: virtualAccount.id,
-        userId: virtualAccount.userId,
-        currency: virtualAccount.currency,
+        txId: addressTxId,
+        virtualAccountId: addressVirtualAccount.id,
+        userId: addressVirtualAccount.userId,
+        currency: addressVirtualAccount.currency,
       });
       
       // Process as receive - continue with normal flow using virtualAccount
       // We'll set accountId to virtualAccount.accountId for compatibility
-      webhookData.accountId = virtualAccount.accountId;
-      webhookData.currency = virtualAccount.currency;
+      webhookData.accountId = addressVirtualAccount.accountId;
+      webhookData.currency = addressVirtualAccount.currency;
       // Set from and to addresses for address-based webhooks
       webhookData.from = counterAddress; // Sender
       webhookData.to = webhookAddr; // Receiver (our deposit address)
@@ -156,7 +127,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       if (isToken) {
         const walletCurrencies = await prisma.walletCurrency.findMany({
           where: {
-            blockchain: virtualAccount.blockchain,
+            blockchain: addressVirtualAccount.blockchain,
             contractAddress: { not: null },
           },
         });
@@ -166,6 +137,86 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         );
         if (walletCurrency) {
           webhookData.currency = walletCurrency.currency;
+        }
+      }
+      
+      // IMPORTANT: Check for duplicates and save WebhookResponse EARLY to "claim" this webhook
+      // This must happen AFTER we've set up all the webhook data but BEFORE processing
+      // This prevents race conditions where multiple webhooks arrive simultaneously
+      if (addressTxId) {
+        // Check for existing webhook response or transaction
+        const [existingWebhookResponse, existingTx] = await Promise.all([
+          prisma.webhookResponse.findFirst({
+            where: { txId: addressTxId },
+          }),
+          prisma.cryptoTransaction.findFirst({
+            where: {
+              OR: [
+                { 
+                  cryptoReceive: { 
+                    txHash: addressTxId 
+                  } 
+                },
+                { 
+                  cryptoSend: { 
+                    txHash: addressTxId 
+                  } 
+                },
+              ],
+            },
+          }),
+        ]);
+        
+        if (existingWebhookResponse || existingTx) {
+          tatumLogger.info('Address-based webhook already processed (duplicate txId)', {
+            txId: addressTxId,
+            address: webhookAddr,
+            counterAddress,
+            existingWebhookId: existingWebhookResponse?.id,
+            existingTxId: existingTx?.id,
+          });
+          return { processed: false, reason: 'duplicate_tx' };
+        }
+        
+        // Save WebhookResponse EARLY to "claim" this webhook and prevent other processes from handling it
+        // This must happen before we continue with processing to prevent race conditions
+        const timestamp = webhookData.timestamp || Date.now();
+        const transactionDateForClaim = new Date(timestamp);
+        if (isNaN(transactionDateForClaim.getTime())) {
+          transactionDateForClaim.setTime(Date.now());
+        }
+        
+        try {
+          await prisma.webhookResponse.create({
+            data: {
+              accountId: addressVirtualAccount.accountId,
+              subscriptionType: webhookData.subscriptionType || 'ADDRESS_EVENT',
+              amount: parseFloat(webhookData.amount || '0'),
+              reference: webhookData.reference || null,
+              currency: webhookData.currency || addressVirtualAccount.currency,
+              txId: addressTxId || '',
+              blockHeight: BigInt(webhookData.blockNumber || 0),
+              blockHash: webhookData.blockHash || null,
+              fromAddress: counterAddress || null,
+              toAddress: webhookAddr || null,
+              transactionDate: transactionDateForClaim,
+              index: webhookData.logIndex || null,
+            },
+          });
+        } catch (error: any) {
+          // If creation fails, it might be a duplicate - check again
+          const existingClaim = await prisma.webhookResponse.findFirst({
+            where: { txId: addressTxId || '' },
+          });
+          if (existingClaim) {
+            tatumLogger.info('Address-based webhook already claimed by another process', {
+              txId: addressTxId,
+              existingWebhookId: existingClaim.id,
+            });
+            return { processed: false, reason: 'duplicate_tx' };
+          }
+          // If it's not a duplicate, re-throw the error
+          throw error;
         }
       }
     }
@@ -200,24 +251,27 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
 
     tatumLogger.webhookProcessing(webhookData);
 
-    // Check for duplicate (by reference or txId)
-    const existingWebhook = await prisma.webhookResponse.findFirst({
-      where: {
-        OR: [
-          { reference },
-          { txId },
-        ],
-      },
-    });
-
-    if (existingWebhook) {
-      tatumLogger.warn(`Webhook already processed (reference: ${reference}, txId: ${txId})`, {
-        accountId,
-        reference,
-        txId,
-        existingWebhookId: existingWebhook.id,
+    // Check for duplicate (by reference or txId) - but only if we haven't already checked for address-based webhooks
+    // For address-based webhooks, we already checked above
+    if (!isAddressWebhook || webhookData.accountId) {
+      const existingWebhook = await prisma.webhookResponse.findFirst({
+        where: {
+          OR: [
+            { reference },
+            { txId },
+          ],
+        },
       });
-      return { processed: false, reason: 'duplicate' };
+
+      if (existingWebhook) {
+        tatumLogger.warn(`Webhook already processed (reference: ${reference}, txId: ${txId})`, {
+          accountId,
+          reference,
+          txId,
+          existingWebhookId: existingWebhook.id,
+        });
+        return { processed: false, reason: 'duplicate' };
+      }
     }
 
     // Check if from address is master wallet (ignore outbound transfers from master wallet)
@@ -263,23 +317,51 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       blockchain: virtualAccount.blockchain,
     });
 
-    // Log webhook to WebhookResponse table
-    const webhookResponse = await prisma.webhookResponse.create({
-      data: {
-        accountId,
-        subscriptionType: webhookData.subscriptionType,
-        amount: parseFloat(amount),
-        reference,
-        currency,
-        txId,
-        blockHeight: BigInt(blockHeight || 0),
-        blockHash,
-        fromAddress: from,
-        toAddress: to,
-        transactionDate: transactionDate,
-        index,
-      },
-    });
+    // Log webhook to WebhookResponse table (only if not already saved for address-based webhooks)
+    let webhookResponse;
+    if (isAddressWebhook && !webhookData.accountId) {
+      // For address-based webhooks, we already saved it above, just fetch it
+      webhookResponse = await prisma.webhookResponse.findFirst({
+        where: { txId },
+      });
+      if (!webhookResponse) {
+        // Fallback: create it if for some reason it doesn't exist
+        webhookResponse = await prisma.webhookResponse.create({
+          data: {
+            accountId,
+            subscriptionType: webhookData.subscriptionType,
+            amount: parseFloat(amount),
+            reference,
+            currency,
+            txId,
+            blockHeight: BigInt(blockHeight || 0),
+            blockHash,
+            fromAddress: from,
+            toAddress: to,
+            transactionDate: transactionDate,
+            index,
+          },
+        });
+      }
+    } else {
+      // For non-address webhooks, create it now
+      webhookResponse = await prisma.webhookResponse.create({
+        data: {
+          accountId,
+          subscriptionType: webhookData.subscriptionType,
+          amount: parseFloat(amount),
+          reference,
+          currency,
+          txId,
+          blockHeight: BigInt(blockHeight || 0),
+          blockHash,
+          fromAddress: from,
+          toAddress: to,
+          transactionDate: transactionDate,
+          index,
+        },
+      });
+    }
 
     tatumLogger.info('Webhook response logged', {
       webhookResponseId: webhookResponse.id,

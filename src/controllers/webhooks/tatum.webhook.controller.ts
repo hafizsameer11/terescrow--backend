@@ -59,7 +59,7 @@ export const tatumWebhookController = async (
       .then(async (result) => {
         if (rawWebhookId) {
           try {
-            const errorMessage = result.processed === false && 'reason' in result 
+            const errorMessage = result && result.processed === false && 'reason' in result 
               ? (result as { processed: false; reason: string }).reason || 'Not processed'
               : null;
 
