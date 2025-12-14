@@ -538,7 +538,7 @@ class CryptoTransactionService {
         amountNaira: transaction.cryptoReceive.amountNaira 
           ? `NGN${transaction.cryptoReceive.amountNaira.toString()}` 
           : null,
-        rate: transaction.cryptoReceive.rate ? `NGN${transaction.cryptoReceive.rate.toString()}/$` : null,
+        rate: transaction.cryptoReceive.rate ? `$${transaction.cryptoReceive.rate.toString()}` : null,
         txHash: transaction.cryptoReceive.txHash,
         confirmations: transaction.cryptoReceive.confirmations,
       };

@@ -184,14 +184,29 @@ class CryptoSwapService {
   async calculateSwapQuote(input: SwapCryptoInput, fromAddress?: string, masterWalletAddress?: string): Promise<SwapQuoteResult> {
     const { fromAmount, fromCurrency, fromBlockchain, toCurrency, toBlockchain } = input;
 
+    cryptoLogger.info('Calculating swap quote', {
+      userId: input.userId,
+      fromAmount,
+      fromCurrency,
+      fromBlockchain,
+      toCurrency,
+      toBlockchain,
+      fromAddress,
+      masterWalletAddress,
+    });
+
     // Only ETH ↔ USDT on Ethereum is currently supported for real swaps
     if (fromBlockchain.toLowerCase() !== 'ethereum' || toBlockchain.toLowerCase() !== 'ethereum') {
-      throw new Error(`Crypto swap for ${fromBlockchain} to ${toBlockchain} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+      const error = new Error(`Crypto swap for ${fromBlockchain} to ${toBlockchain} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+      cryptoLogger.error('Unsupported blockchain for swap', error, { fromBlockchain, toBlockchain });
+      throw error;
     }
 
     if ((fromCurrency.toUpperCase() !== 'ETH' && fromCurrency.toUpperCase() !== 'USDT') ||
         (toCurrency.toUpperCase() !== 'ETH' && toCurrency.toUpperCase() !== 'USDT')) {
-      throw new Error(`Crypto swap for ${fromCurrency} to ${toCurrency} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+      const error = new Error(`Crypto swap for ${fromCurrency} to ${toCurrency} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+      cryptoLogger.error('Unsupported currency pair for swap', error, { fromCurrency, toCurrency });
+      throw error;
     }
 
     // Step 1: Validate both currencies exist
@@ -236,6 +251,15 @@ class CryptoSwapService {
     const toAmountUsd = toAmountDecimal.mul(toPrice); // Should equal fromAmountUsd
 
     // Step 5: Calculate gas fee (with real estimation if addresses provided)
+    cryptoLogger.info('Calculating gas fee for swap', {
+      fromAmountUsd: fromAmountUsd.toString(),
+      fromCurrency,
+      fromBlockchain,
+      fromPrice: fromPrice.toString(),
+      hasFromAddress: !!fromAddress,
+      hasMasterWalletAddress: !!masterWalletAddress,
+    });
+
     const { gasFee, gasFeeUsd, gasFeeEth } = await this.calculateGasFee(
       fromAmountUsd, 
       fromCurrency, 
@@ -246,11 +270,19 @@ class CryptoSwapService {
       fromAmountDecimal
     );
 
+    cryptoLogger.gasEstimate({
+      gasFee: gasFee.toString(),
+      gasFeeUsd: gasFeeUsd.toString(),
+      gasFeeEth: gasFeeEth.toString(),
+      fromCurrency,
+      toCurrency,
+    });
+
     // Step 6: Calculate total (fromAmount + gasFee)
     const totalAmount = fromAmountDecimal.plus(gasFee);
     const totalAmountUsd = fromAmountUsd.plus(gasFeeUsd);
 
-    return {
+    const quoteResult = {
       fromAmount: fromAmountDecimal.toString(),
       fromAmountUsd: fromAmountUsd.toString(),
       toAmount: toAmountDecimal.toString(),
@@ -270,6 +302,21 @@ class CryptoSwapService {
       toCurrencyName: toWalletCurrency.name,
       toCurrencySymbol: toWalletCurrency.symbol || null,
     };
+
+    cryptoLogger.info('Swap quote calculated', {
+      fromAmount: quoteResult.fromAmount,
+      toAmount: quoteResult.toAmount,
+      fromAmountUsd: quoteResult.fromAmountUsd,
+      toAmountUsd: quoteResult.toAmountUsd,
+      gasFee: quoteResult.gasFee,
+      gasFeeUsd: quoteResult.gasFeeUsd,
+      totalAmount: quoteResult.totalAmount,
+      totalAmountUsd: quoteResult.totalAmountUsd,
+      rateFromToUsd: quoteResult.rateFromToUsd,
+      rateToToUsd: quoteResult.rateToToUsd,
+    });
+
+    return quoteResult;
   }
 
   /**
@@ -308,14 +355,27 @@ class CryptoSwapService {
    * Preview swap transaction
    */
   async previewSwapTransaction(input: SwapCryptoInput) {
+    cryptoLogger.info('Starting swap transaction preview', {
+      userId: input.userId,
+      fromAmount: input.fromAmount,
+      fromCurrency: input.fromCurrency,
+      fromBlockchain: input.fromBlockchain,
+      toCurrency: input.toCurrency,
+      toBlockchain: input.toBlockchain,
+    });
+
     // Only ETH ↔ USDT on Ethereum is currently supported for real swaps
     if (input.fromBlockchain.toLowerCase() !== 'ethereum' || input.toBlockchain.toLowerCase() !== 'ethereum') {
-      throw new Error(`Crypto swap for ${input.fromBlockchain} to ${input.toBlockchain} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+      const error = new Error(`Crypto swap for ${input.fromBlockchain} to ${input.toBlockchain} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+      cryptoLogger.error('Unsupported blockchain for swap preview', error, { fromBlockchain: input.fromBlockchain, toBlockchain: input.toBlockchain });
+      throw error;
     }
 
     if ((input.fromCurrency.toUpperCase() !== 'ETH' && input.fromCurrency.toUpperCase() !== 'USDT') ||
         (input.toCurrency.toUpperCase() !== 'ETH' && input.toCurrency.toUpperCase() !== 'USDT')) {
-      throw new Error(`Crypto swap for ${input.fromCurrency} to ${input.toCurrency} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+      const error = new Error(`Crypto swap for ${input.fromCurrency} to ${input.toCurrency} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+      cryptoLogger.error('Unsupported currency pair for swap preview', error, { fromCurrency: input.fromCurrency, toCurrency: input.toCurrency });
+      throw error;
     }
 
     // Get user's virtual accounts with deposit addresses
@@ -384,10 +444,19 @@ class CryptoSwapService {
     let hasSufficientEth = true;
     let userEthBalance = new Decimal('0');
     if (input.fromCurrency.toUpperCase() === 'USDT') {
+      cryptoLogger.info('Checking ETH balance for USDT swap (gas fee check)', {
+        userId: input.userId,
+        depositAddress: fromDepositAddress,
+      });
+
       const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
       try {
         const userEthBalanceStr = await ethereumBalanceService.getETHBalance(fromDepositAddress, false);
         userEthBalance = new Decimal(userEthBalanceStr);
+        
+        cryptoLogger.balanceCheck(fromDepositAddress, userEthBalance.toString(), 'ETH', {
+          operation: 'swap_preview_gas_check',
+        });
         
         // Extract gasFeeEth from quote (need to recalculate it)
         const { gasFeeEth } = await this.calculateGasFee(
@@ -406,8 +475,18 @@ class CryptoSwapService {
         );
         const minimumEthNeeded = gasFeeEth.plus(bufferAmount);
         hasSufficientEth = userEthBalance.gte(minimumEthNeeded);
+
+        cryptoLogger.info('ETH balance check for USDT swap', {
+          userEthBalance: userEthBalance.toString(),
+          gasFeeEth: gasFeeEth.toString(),
+          minimumEthNeeded: minimumEthNeeded.toString(),
+          hasSufficientEth,
+        });
       } catch (error: any) {
-        console.error('[CRYPTO SWAP PREVIEW] Error checking ETH balance:', error);
+        cryptoLogger.error('Error checking ETH balance for USDT swap', error, {
+          userId: input.userId,
+          depositAddress: fromDepositAddress,
+        });
         hasSufficientEth = false;
       }
     }
@@ -419,7 +498,7 @@ class CryptoSwapService {
       ? toBalanceBefore.plus(toAmountDecimal)
       : toBalanceBefore;
 
-    return {
+    const previewResult = {
       ...quote,
       fromBalanceBefore: fromBalanceBefore.toString(),
       toBalanceBefore: toBalanceBefore.toString(),
@@ -432,6 +511,21 @@ class CryptoSwapService {
       fromVirtualAccountId: fromVirtualAccount.id,
       toVirtualAccountId: toVirtualAccount.id,
     };
+
+    cryptoLogger.info('Swap preview completed', {
+      userId: input.userId,
+      fromAmount: previewResult.fromAmount,
+      toAmount: previewResult.toAmount,
+      fromBalanceBefore: previewResult.fromBalanceBefore,
+      toBalanceBefore: previewResult.toBalanceBefore,
+      fromBalanceAfter: previewResult.fromBalanceAfter,
+      toBalanceAfter: previewResult.toBalanceAfter,
+      hasSufficientBalance: previewResult.hasSufficientBalance,
+      hasSufficientEth: previewResult.hasSufficientEth,
+      canProceed: previewResult.canProceed,
+    });
+
+    return previewResult;
   }
 
   /**

@@ -43,6 +43,7 @@ export async function getAvailableCurrenciesForSwapController(
 
 /**
  * Calculate swap quote
+ * Note: This uses the same service method as previewSwapController to ensure consistency
  */
 export async function calculateSwapQuoteController(
   req: Request,
@@ -59,11 +60,21 @@ export async function calculateSwapQuoteController(
 
     const { fromAmount, fromCurrency, fromBlockchain, toCurrency, toBlockchain } = req.body;
 
+    console.log('[SWAP QUOTE] Request received:', {
+      userId,
+      fromAmount,
+      fromCurrency,
+      fromBlockchain,
+      toCurrency,
+      toBlockchain,
+    });
+
     if (!fromAmount || !fromCurrency || !fromBlockchain || !toCurrency || !toBlockchain) {
       return next(ApiError.badRequest('Missing required fields: fromAmount, fromCurrency, fromBlockchain, toCurrency, toBlockchain'));
     }
 
-    const quote = await cryptoSwapService.calculateSwapQuote({
+    // Use previewSwapTransaction to ensure same logic as preview route
+    const quote = await cryptoSwapService.previewSwapTransaction({
       userId,
       fromAmount: parseFloat(fromAmount),
       fromCurrency,
@@ -72,9 +83,19 @@ export async function calculateSwapQuoteController(
       toBlockchain,
     });
 
+    console.log('[SWAP QUOTE] Quote calculated successfully:', {
+      userId,
+      fromAmount: quote.fromAmount,
+      toAmount: quote.toAmount,
+      gasFee: quote.gasFee,
+      gasFeeUsd: quote.gasFeeUsd,
+      hasSufficientBalance: quote.hasSufficientBalance,
+      canProceed: quote.canProceed,
+    });
+
     return new ApiResponse(200, quote, 'Swap quote calculated successfully').send(res);
   } catch (error: any) {
-    console.error('Error in calculateSwapQuoteController:', error);
+    console.error('[SWAP QUOTE] Error:', error);
     if (error instanceof ApiError) {
       return next(error);
     }
@@ -84,6 +105,7 @@ export async function calculateSwapQuoteController(
 
 /**
  * Preview swap transaction
+ * Note: This uses the same service method as calculateSwapQuoteController to ensure consistency
  */
 export async function previewSwapController(
   req: Request,
@@ -100,10 +122,20 @@ export async function previewSwapController(
 
     const { fromAmount, fromCurrency, fromBlockchain, toCurrency, toBlockchain } = req.body;
 
+    console.log('[SWAP PREVIEW] Request received:', {
+      userId,
+      fromAmount,
+      fromCurrency,
+      fromBlockchain,
+      toCurrency,
+      toBlockchain,
+    });
+
     if (!fromAmount || !fromCurrency || !fromBlockchain || !toCurrency || !toBlockchain) {
       return next(ApiError.badRequest('Missing required fields: fromAmount, fromCurrency, fromBlockchain, toCurrency, toBlockchain'));
     }
 
+    // Use previewSwapTransaction (same as quote route)
     const preview = await cryptoSwapService.previewSwapTransaction({
       userId,
       fromAmount: parseFloat(fromAmount),
@@ -113,9 +145,24 @@ export async function previewSwapController(
       toBlockchain,
     });
 
+    console.log('[SWAP PREVIEW] Preview generated successfully:', {
+      userId,
+      fromAmount: preview.fromAmount,
+      toAmount: preview.toAmount,
+      gasFee: preview.gasFee,
+      gasFeeUsd: preview.gasFeeUsd,
+      fromBalanceBefore: preview.fromBalanceBefore,
+      toBalanceBefore: preview.toBalanceBefore,
+      fromBalanceAfter: preview.fromBalanceAfter,
+      toBalanceAfter: preview.toBalanceAfter,
+      hasSufficientBalance: preview.hasSufficientBalance,
+      hasSufficientEth: preview.hasSufficientEth,
+      canProceed: preview.canProceed,
+    });
+
     return new ApiResponse(200, preview, 'Swap transaction preview generated successfully').send(res);
   } catch (error: any) {
-    console.error('Error in previewSwapController:', error);
+    console.error('[SWAP PREVIEW] Error:', error);
     if (error instanceof ApiError) {
       return next(error);
     }
