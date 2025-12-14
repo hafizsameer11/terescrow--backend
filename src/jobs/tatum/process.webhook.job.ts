@@ -8,6 +8,8 @@ import { prisma } from '../../utils/prisma';
 import virtualAccountService from '../../services/tatum/virtual.account.service';
 import { TatumWebhookPayload } from '../../services/tatum/tatum.service';
 import tatumLogger from '../../utils/tatum.logger';
+import cryptoTransactionService from '../../services/crypto/crypto.transaction.service';
+import { Decimal } from '@prisma/client/runtime/library';
 
 /**
  * Process blockchain webhook from Tatum
@@ -428,6 +430,73 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       reference,
       txId,
     });
+
+    // Create CryptoReceive transaction record
+    try {
+      // Get wallet currency for price calculation
+      const walletCurrency = await prisma.walletCurrency.findFirst({
+        where: {
+          currency: currency.toUpperCase(),
+          blockchain: virtualAccount.blockchain.toLowerCase(),
+        },
+      });
+
+      // Calculate USD amount
+      const amountDecimal = new Decimal(amount);
+      const cryptoPrice = walletCurrency?.price ? new Decimal(walletCurrency.price.toString()) : new Decimal('1');
+      const amountUsd = amountDecimal.mul(cryptoPrice);
+
+      // Get USD to NGN rate for amountNaira (optional)
+      const cryptoRate = await prisma.cryptoRate.findFirst({
+        where: {
+          transactionType: 'RECEIVE',
+          isActive: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      const usdToNgnRate = cryptoRate?.rate ? new Decimal(cryptoRate.rate.toString()) : new Decimal('1400');
+      const amountNaira = amountUsd.mul(usdToNgnRate);
+
+      // Generate transaction ID
+      const transactionId = `RECEIVE-${Date.now()}-${virtualAccount.userId}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Create CryptoReceive transaction
+      const cryptoReceiveTx = await cryptoTransactionService.createReceiveTransaction({
+        userId: virtualAccount.userId,
+        virtualAccountId: virtualAccount.id,
+        transactionId,
+        fromAddress: from || '',
+        toAddress: to || '',
+        amount: amountDecimal.toString(),
+        amountUsd: amountUsd.toString(),
+        amountNaira: amountNaira.toString(),
+        rate: cryptoPrice.toString(),
+        txHash: txId || '',
+        blockNumber: blockHeight ? BigInt(blockHeight) : undefined,
+        confirmations: 0,
+        status: 'successful',
+      });
+
+      tatumLogger.info('CryptoReceive transaction created', {
+        cryptoTransactionId: cryptoReceiveTx.id,
+        transactionId: cryptoReceiveTx.transactionId,
+        userId: virtualAccount.userId,
+        virtualAccountId: virtualAccount.id,
+        currency,
+        amount: amountDecimal.toString(),
+        amountUsd: amountUsd.toString(),
+        txHash: txId,
+      });
+    } catch (error: any) {
+      // Log error but don't fail the webhook processing
+      tatumLogger.exception('Failed to create CryptoReceive transaction', error, {
+        accountId,
+        txId,
+        userId: virtualAccount.userId,
+        virtualAccountId: virtualAccount.id,
+      });
+      // Continue processing - the ReceiveTransaction was already created
+    }
 
     const result = {
       processed: true,
