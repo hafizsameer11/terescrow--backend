@@ -13,6 +13,8 @@ import { Decimal } from '@prisma/client/runtime/library';
 import cryptoRateService from './crypto.rate.service';
 import cryptoTransactionService from './crypto.transaction.service';
 import cryptoLogger from '../../utils/crypto.logger';
+import { sendPushNotification } from '../../utils/pushService';
+import { InAppNotificationType } from '@prisma/client';
 
 export interface SwapCryptoInput {
   userId: number;
@@ -851,6 +853,31 @@ class CryptoSwapService {
         toBalanceBefore: toBalanceBefore.toString(),
         toBalanceAfter: toBalanceAfter.toString(),
       });
+
+      // Send notifications
+      try {
+        await sendPushNotification({
+          userId,
+          title: 'Crypto Swap Successful',
+          body: `You successfully swapped ${quote.fromAmount} ${quote.fromCurrency} for ${quote.toAmount} ${quote.toCurrency}`,
+          sound: 'default',
+          priority: 'high',
+        });
+
+        await tx.inAppNotification.create({
+          data: {
+            userId,
+            title: 'Crypto Swap Successful',
+            description: `You successfully swapped ${quote.fromAmount} ${quote.fromCurrency} for ${quote.toAmount} ${quote.toCurrency}. Transaction ID: ${transactionId}`,
+            type: InAppNotificationType.customeer,
+          },
+        });
+
+        cryptoLogger.info('Swap transaction notification sent', { userId, transactionId });
+      } catch (notifError: any) {
+        cryptoLogger.exception('Send swap notification', notifError, { userId, transactionId });
+        // Don't fail the transaction if notification fails
+      }
 
       return {
         transactionId,

@@ -14,6 +14,8 @@ import { fiatWalletService } from '../fiat/fiat.wallet.service';
 import cryptoRateService from './crypto.rate.service';
 import cryptoTransactionService from './crypto.transaction.service';
 import cryptoLogger from '../../utils/crypto.logger';
+import { sendPushNotification } from '../../utils/pushService';
+import { InAppNotificationType } from '@prisma/client';
 
 export interface SellCryptoInput {
   userId: number;
@@ -716,6 +718,31 @@ class CryptoSellService {
       }
       console.log('  Final amount (NGN):', finalAmountNgnDecimal.toString());
       console.log('  Gas fee (NGN):', totalGasFeeNgn.toString());
+
+      // Send notifications
+      try {
+        await sendPushNotification({
+          userId,
+          title: 'Crypto Sale Successful',
+          body: `You successfully sold ${amountCryptoDecimal.toString()} ${currency.toUpperCase()} for NGN${finalAmountNgnDecimal.toString()}`,
+          sound: 'default',
+          priority: 'high',
+        });
+
+        await tx.inAppNotification.create({
+          data: {
+            userId,
+            title: 'Crypto Sale Successful',
+            description: `You successfully sold ${amountCryptoDecimal.toString()} ${currency.toUpperCase()} for NGN${finalAmountNgnDecimal.toString()}. Transaction ID: ${transactionId}`,
+            type: InAppNotificationType.customeer,
+          },
+        });
+
+        cryptoLogger.info('Sell transaction notification sent', { userId, transactionId });
+      } catch (notifError: any) {
+        cryptoLogger.exception('Send sell notification', notifError, { userId, transactionId });
+        // Don't fail the transaction if notification fails
+      }
 
       return {
         transactionId: cryptoTransaction.transactionId,

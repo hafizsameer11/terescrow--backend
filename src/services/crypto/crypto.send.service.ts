@@ -13,6 +13,8 @@ import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import cryptoTransactionService from './crypto.transaction.service';
 import cryptoLogger from '../../utils/crypto.logger';
+import { sendPushNotification } from '../../utils/pushService';
+import { InAppNotificationType } from '@prisma/client';
 
 export interface SendCryptoInput {
   userId: number;
@@ -397,6 +399,31 @@ class CryptoSendService {
       balanceBefore: balanceBefore.toString(),
       balanceAfter: balanceAfter.toString(),
     });
+
+    // Send notifications
+    try {
+      await sendPushNotification({
+        userId,
+        title: 'Crypto Transfer Successful',
+        body: `You successfully sent ${amountCryptoDecimal.toString()} ${currencyCode} to ${toAddress.slice(0, 6)}...${toAddress.slice(-4)}`,
+        sound: 'default',
+        priority: 'high',
+      });
+
+      await prisma.inAppNotification.create({
+        data: {
+          userId,
+          title: 'Crypto Transfer Successful',
+          description: `You successfully sent ${amountCryptoDecimal.toString()} ${currencyCode} to ${toAddress}. Transaction ID: ${transactionId}`,
+          type: InAppNotificationType.customeer,
+        },
+      });
+
+      cryptoLogger.info('Send transaction notification sent', { userId, transactionId });
+    } catch (notifError: any) {
+      cryptoLogger.exception('Send transfer notification', notifError, { userId, transactionId });
+      // Don't fail the transaction if notification fails
+    }
 
     return {
       transactionId,

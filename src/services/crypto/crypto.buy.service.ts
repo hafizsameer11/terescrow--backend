@@ -14,6 +14,8 @@ import { fiatWalletService } from '../fiat/fiat.wallet.service';
 import cryptoRateService from './crypto.rate.service';
 import cryptoTransactionService from './crypto.transaction.service';
 import cryptoLogger from '../../utils/crypto.logger';
+import { sendPushNotification } from '../../utils/pushService';
+import { InAppNotificationType } from '@prisma/client';
 
 export interface BuyCryptoInput {
   userId: number;
@@ -514,6 +516,31 @@ class CryptoBuyService {
         cryptoBalanceBefore: cryptoBalanceBefore.toString(),
         cryptoBalanceAfter: cryptoBalanceAfter.toString(),
       });
+
+      // Send notifications
+      try {
+        await sendPushNotification({
+          userId,
+          title: 'Crypto Purchase Successful',
+          body: `You successfully purchased ${amountCryptoDecimal.toString()} ${currency.toUpperCase()} for NGN${amountNgn.toString()}`,
+          sound: 'default',
+          priority: 'high',
+        });
+
+        await tx.inAppNotification.create({
+          data: {
+            userId,
+            title: 'Crypto Purchase Successful',
+            description: `You successfully purchased ${amountCryptoDecimal.toString()} ${currency.toUpperCase()} for NGN${amountNgn.toString()}. Transaction ID: ${transactionId}`,
+            type: InAppNotificationType.customeer,
+          },
+        });
+
+        cryptoLogger.info('Buy transaction notification sent', { userId, transactionId });
+      } catch (notifError: any) {
+        cryptoLogger.exception('Send buy notification', notifError, { userId, transactionId });
+        // Don't fail the transaction if notification fails
+      }
 
       return {
         transactionId: cryptoTransaction.transactionId,

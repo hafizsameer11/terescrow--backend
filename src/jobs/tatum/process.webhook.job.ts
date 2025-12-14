@@ -10,6 +10,8 @@ import { TatumWebhookPayload } from '../../services/tatum/tatum.service';
 import tatumLogger from '../../utils/tatum.logger';
 import cryptoTransactionService from '../../services/crypto/crypto.transaction.service';
 import { Decimal } from '@prisma/client/runtime/library';
+import { sendPushNotification } from '../../utils/pushService';
+import { InAppNotificationType } from '@prisma/client';
 
 /**
  * Process blockchain webhook from Tatum
@@ -547,6 +549,37 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         amountUsd: amountUsd.toString(),
         txHash: txId,
       });
+
+      // Send notifications for crypto receive
+      try {
+        await sendPushNotification({
+          userId: virtualAccount.userId,
+          title: 'Crypto Deposit Received',
+          body: `You received ${amountDecimal.toString()} ${currency.toUpperCase()} ($${amountUsd.toString()})`,
+          sound: 'default',
+          priority: 'high',
+        });
+
+        await prisma.inAppNotification.create({
+          data: {
+            userId: virtualAccount.userId,
+            title: 'Crypto Deposit Received',
+            description: `You received ${amountDecimal.toString()} ${currency.toUpperCase()} ($${amountUsd.toString()}). Transaction ID: ${transactionId}`,
+            type: InAppNotificationType.customeer,
+          },
+        });
+
+        tatumLogger.info('Receive transaction notification sent', {
+          userId: virtualAccount.userId,
+          transactionId,
+        });
+      } catch (notifError: any) {
+        tatumLogger.exception('Send receive notification', notifError, {
+          userId: virtualAccount.userId,
+          transactionId,
+        });
+        // Don't fail webhook processing if notification fails
+      }
     } catch (error: any) {
       // Log error but don't fail the webhook processing
       tatumLogger.exception('Failed to create CryptoReceive transaction', error, {

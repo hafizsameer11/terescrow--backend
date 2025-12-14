@@ -401,6 +401,7 @@ class CryptoTransactionService {
         cryptoSell: true,
         cryptoSend: true,
         cryptoReceive: true,
+        cryptoSwap: true,
         virtualAccount: {
           include: {
             walletCurrency: true,
