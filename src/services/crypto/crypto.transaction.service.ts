@@ -549,22 +549,33 @@ class CryptoTransactionService {
       const fromSymbol = transaction.virtualAccount?.walletCurrency?.symbol || null;
       // For swap, we might need to get the toCurrency symbol from a different virtual account
       // For now, we'll just use the base symbol
+      
+      // Primary amount shows what was received (toAmount) as the main transaction amount
+      const toAmountStr = `${transaction.cryptoSwap.toAmount.toString()}${transaction.cryptoSwap.toCurrency}`;
+      const fromAmountStr = `${transaction.cryptoSwap.fromAmount.toString()}${transaction.cryptoSwap.fromCurrency}`;
+      
       return {
         ...base,
+        // Primary amount field (what was received)
+        amount: toAmountStr,
+        amountUsd: `$${transaction.cryptoSwap.toAmountUsd.toString()}`,
+        // Swap-specific fields
         from: transaction.cryptoSwap.fromAddress || 'Your Crypto wallet',
         to: transaction.cryptoSwap.toAddress || 'Your Crypto wallet',
         fromCurrency: transaction.cryptoSwap.fromCurrency,
         fromBlockchain: transaction.cryptoSwap.fromBlockchain,
-        fromAmount: `${transaction.cryptoSwap.fromAmount.toString()}${transaction.cryptoSwap.fromCurrency}`,
+        fromAmount: fromAmountStr,
         fromAmountUsd: `$${transaction.cryptoSwap.fromAmountUsd.toString()}`,
         toCurrency: transaction.cryptoSwap.toCurrency,
         toBlockchain: transaction.cryptoSwap.toBlockchain,
-        toAmount: `${transaction.cryptoSwap.toAmount.toString()}${transaction.cryptoSwap.toCurrency}`,
+        toAmount: toAmountStr,
         toAmountUsd: `$${transaction.cryptoSwap.toAmountUsd.toString()}`,
         gasFee: `${transaction.cryptoSwap.gasFee.toString()}${transaction.cryptoSwap.fromCurrency}`,
         gasFeeUsd: `$${transaction.cryptoSwap.gasFeeUsd.toString()}`,
         totalAmount: `${transaction.cryptoSwap.totalAmount.toString()}${transaction.cryptoSwap.fromCurrency}`,
         totalAmountUsd: `$${transaction.cryptoSwap.totalAmountUsd.toString()}`,
+        rateFromToUsd: transaction.cryptoSwap.rateFromToUsd ? transaction.cryptoSwap.rateFromToUsd.toString() : null,
+        rateToToUsd: transaction.cryptoSwap.rateToToUsd ? transaction.cryptoSwap.rateToToUsd.toString() : null,
         txHash: transaction.cryptoSwap.txHash,
       };
     }
