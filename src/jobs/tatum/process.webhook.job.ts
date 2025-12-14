@@ -144,36 +144,37 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       // This must happen AFTER we've set up all the webhook data but BEFORE processing
       // This prevents race conditions where multiple webhooks arrive simultaneously
       if (addressTxId) {
-        // Check for existing webhook response or transaction
-        const [existingWebhookResponse, existingTx] = await Promise.all([
+        // Check for existing webhook response or RECEIVE transaction
+        // Note: We only check for CryptoReceive, not CryptoSend, because a receive webhook
+        // should only be blocked if we've already processed this receive transaction,
+        // not if there's a send transaction with the same txHash
+        const [existingWebhookResponse, existingReceiveTx] = await Promise.all([
           prisma.webhookResponse.findFirst({
             where: { txId: addressTxId },
           }),
           prisma.cryptoTransaction.findFirst({
             where: {
-              OR: [
-                { 
-                  cryptoReceive: { 
-                    txHash: addressTxId 
-                  } 
-                },
-                { 
-                  cryptoSend: { 
-                    txHash: addressTxId 
-                  } 
-                },
-              ],
+              transactionType: 'RECEIVE',
+              cryptoReceive: { 
+                txHash: addressTxId 
+              }
+            },
+            include: {
+              cryptoReceive: true,
             },
           }),
         ]);
         
-        if (existingWebhookResponse || existingTx) {
+        if (existingWebhookResponse || existingReceiveTx) {
           tatumLogger.info('Address-based webhook already processed (duplicate txId)', {
             txId: addressTxId,
             address: webhookAddr,
             counterAddress,
             existingWebhookId: existingWebhookResponse?.id,
-            existingTxId: existingTx?.id,
+            existingReceiveTxId: existingReceiveTx?.id,
+            transactionType: existingReceiveTx?.transactionType,
+            hasWebhookResponse: !!existingWebhookResponse,
+            hasReceiveTx: !!existingReceiveTx,
           });
           return { processed: false, reason: 'duplicate_tx' };
         }
