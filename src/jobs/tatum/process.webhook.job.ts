@@ -14,8 +14,10 @@ import tatumLogger from '../../utils/tatum.logger';
  */
 export async function processBlockchainWebhook(webhookData: TatumWebhookPayload | any) {
   try {
-    // Handle address-based webhooks (ADDRESS_EVENT subscription type)
-    const isAddressWebhook = webhookData.subscriptionType === 'ADDRESS_EVENT';
+    // Handle address-based webhooks (INCOMING_NATIVE_TX, INCOMING_FUNGIBLE_TX, or legacy ADDRESS_EVENT)
+    const isAddressWebhook = webhookData.subscriptionType === 'ADDRESS_EVENT' 
+      || webhookData.subscriptionType === 'INCOMING_NATIVE_TX'
+      || webhookData.subscriptionType === 'INCOMING_FUNGIBLE_TX';
     const webhookAddress = webhookData.address || webhookData.to || webhookData.counterAddress;
     
     // Check if webhook address matches any master wallet - IGNORE these
@@ -46,7 +48,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       }
     }
 
-    // Handle address-based webhooks (ADDRESS_EVENT)
+    // Handle address-based webhooks (INCOMING_NATIVE_TX, INCOMING_FUNGIBLE_TX, or legacy ADDRESS_EVENT)
     // These webhooks don't have accountId, but we can find the deposit address by matching the address
     if (isAddressWebhook && !webhookData.accountId) {
       const addressTxId = webhookData.txId || webhookData.txHash;
@@ -144,37 +146,30 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       // This must happen AFTER we've set up all the webhook data but BEFORE processing
       // This prevents race conditions where multiple webhooks arrive simultaneously
       if (addressTxId) {
-        // Check for existing webhook response or RECEIVE transaction
+        // Check for existing RECEIVE transaction (the real indicator that it's been processed)
         // Note: We only check for CryptoReceive, not CryptoSend, because a receive webhook
         // should only be blocked if we've already processed this receive transaction,
         // not if there's a send transaction with the same txHash
-        const [existingWebhookResponse, existingReceiveTx] = await Promise.all([
-          prisma.webhookResponse.findFirst({
-            where: { txId: addressTxId },
-          }),
-          prisma.cryptoTransaction.findFirst({
-            where: {
-              transactionType: 'RECEIVE',
-              cryptoReceive: { 
-                txHash: addressTxId 
-              }
-            },
-            include: {
-              cryptoReceive: true,
-            },
-          }),
-        ]);
+        // We don't check WebhookResponse because it might exist from a failed previous attempt
+        const existingReceiveTx = await prisma.cryptoTransaction.findFirst({
+          where: {
+            transactionType: 'RECEIVE',
+            cryptoReceive: { 
+              txHash: addressTxId 
+            }
+          },
+          include: {
+            cryptoReceive: true,
+          },
+        });
         
-        if (existingWebhookResponse || existingReceiveTx) {
-          tatumLogger.info('Address-based webhook already processed (duplicate txId)', {
+        if (existingReceiveTx) {
+          tatumLogger.info('Address-based webhook already processed (receive transaction exists)', {
             txId: addressTxId,
             address: webhookAddr,
             counterAddress,
-            existingWebhookId: existingWebhookResponse?.id,
-            existingReceiveTxId: existingReceiveTx?.id,
-            transactionType: existingReceiveTx?.transactionType,
-            hasWebhookResponse: !!existingWebhookResponse,
-            hasReceiveTx: !!existingReceiveTx,
+            existingReceiveTxId: existingReceiveTx.id,
+            transactionType: existingReceiveTx.transactionType,
           });
           return { processed: false, reason: 'duplicate_tx' };
         }
@@ -187,6 +182,8 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
           transactionDateForClaim.setTime(Date.now());
         }
         
+        // Try to save WebhookResponse (ignore if it already exists - we'll continue processing)
+        // We only care if the actual receive transaction exists (checked above)
         try {
           await prisma.webhookResponse.create({
             data: {
@@ -205,19 +202,13 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
             },
           });
         } catch (error: any) {
-          // If creation fails, it might be a duplicate - check again
-          const existingClaim = await prisma.webhookResponse.findFirst({
-            where: { txId: addressTxId || '' },
+          // If it already exists, that's fine - we'll continue processing
+          // The important check is whether the receive transaction exists (done above)
+          tatumLogger.info('WebhookResponse might already exist, continuing anyway', {
+            txId: addressTxId,
+            error: error.message,
           });
-          if (existingClaim) {
-            tatumLogger.info('Address-based webhook already claimed by another process', {
-              txId: addressTxId,
-              existingWebhookId: existingClaim.id,
-            });
-            return { processed: false, reason: 'duplicate_tx' };
-          }
-          // If it's not a duplicate, re-throw the error
-          throw error;
+          // Continue processing - don't block
         }
       }
     }
@@ -252,24 +243,25 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
 
     tatumLogger.webhookProcessing(webhookData);
 
-    // Check for duplicate (by reference or txId) - but only if we haven't already checked for address-based webhooks
-    // For address-based webhooks, we already checked above
+    // Check for duplicate RECEIVE transaction - only block if the actual transaction exists
+    // For address-based webhooks, we already checked above, so skip this check
     if (!isAddressWebhook || webhookData.accountId) {
-      const existingWebhook = await prisma.webhookResponse.findFirst({
+      const existingReceiveTx = await prisma.cryptoTransaction.findFirst({
         where: {
+          transactionType: 'RECEIVE',
           OR: [
-            { reference },
-            { txId },
+            { cryptoReceive: { txHash: txId } },
+            ...(reference ? [{ cryptoReceive: { txHash: reference } }] : []),
           ],
         },
       });
 
-      if (existingWebhook) {
-        tatumLogger.warn(`Webhook already processed (reference: ${reference}, txId: ${txId})`, {
+      if (existingReceiveTx) {
+        tatumLogger.warn(`Receive transaction already exists (txId: ${txId}, reference: ${reference})`, {
           accountId,
           reference,
           txId,
-          existingWebhookId: existingWebhook.id,
+          existingTxId: existingReceiveTx.id,
         });
         return { processed: false, reason: 'duplicate' };
       }

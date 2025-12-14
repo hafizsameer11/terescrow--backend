@@ -248,21 +248,56 @@ class DepositAddressService {
 
       console.log(`Generated new address ${address} with index ${addressIndex} for virtual account ${virtualAccountId}`);
 
-      // Register webhook for this address (V4 API)
+      // Register webhooks for this address (V4 API)
       // Use base blockchain for webhook registration
+      // For blockchains that support fungible tokens, register both native and fungible subscriptions
       try {
         const webhookUrl = process.env.TATUM_WEBHOOK_URL || `${process.env.BASE_URL}/api/v2/webhooks/tatum`;
-        await tatumService.registerAddressWebhookV4(
-          address,
-          baseBlockchain, // Use base blockchain for webhook
-          webhookUrl,
-          {
-            type: 'ADDRESS_EVENT',
+        
+        // Check if this blockchain supports fungible tokens
+        const hasFungibleTokens = await prisma.walletCurrency.findFirst({
+          where: {
+            blockchain: baseBlockchain.toLowerCase(),
+            isToken: true,
+            contractAddress: { not: null },
+          },
+        });
+
+        // Always register native token subscription
+        try {
+          await tatumService.registerAddressWebhookV4(
+            address,
+            baseBlockchain,
+            webhookUrl,
+            {
+              type: 'INCOMING_NATIVE_TX',
+            }
+          );
+          console.log(`INCOMING_NATIVE_TX webhook registered for address ${address} on ${baseBlockchain}`);
+        } catch (error: any) {
+          console.error(`Failed to register INCOMING_NATIVE_TX webhook for address ${address}:`, error.message);
+          // Continue - don't fail if one subscription fails
+        }
+
+        // Register fungible token subscription if blockchain supports tokens
+        if (hasFungibleTokens) {
+          try {
+            await tatumService.registerAddressWebhookV4(
+              address,
+              baseBlockchain,
+              webhookUrl,
+              {
+                type: 'INCOMING_FUNGIBLE_TX',
+              }
+            );
+            console.log(`INCOMING_FUNGIBLE_TX webhook registered for address ${address} on ${baseBlockchain}`);
+          } catch (error: any) {
+            console.error(`Failed to register INCOMING_FUNGIBLE_TX webhook for address ${address}:`, error.message);
+            // Continue - don't fail if one subscription fails
           }
-        );
-        console.log(`Webhook registered for address ${address} on ${baseBlockchain}`);
+        }
       } catch (error: any) {
-        console.error(`Failed to register webhook for address ${address}:`, error.message);
+        console.error(`Failed to register webhooks for address ${address}:`, error.message);
         // Don't fail the whole process if webhook registration fails
       }
 

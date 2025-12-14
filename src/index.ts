@@ -74,6 +74,7 @@ import adminAuthRouter from './routes/admin/auth.router';
 import adminChatRouter from './routes/admin/chat.router';
 import operationsRouter from './routes/admin/operations.router';
 import adminAgentRouter from './routes/admin.agent.router';
+import webhookMigrationRouter from './routes/admin/webhook.migration.router';
 
 // Agent Routes
 import agentChatRouter from './routes/agent/chat.router';
@@ -225,6 +226,7 @@ app.use('/api/admin/giftcards', giftCardAdminRouter);
 app.use('/api/admin', adminAuthRouter);
 app.use('/api/admin', adminChatRouter);
 app.use('/api/admin/operations', operationsRouter);
+app.use('/api/admin/webhooks', webhookMigrationRouter);
 app.use('/api', adminAgentRouter);
 
 // Agent Routes
