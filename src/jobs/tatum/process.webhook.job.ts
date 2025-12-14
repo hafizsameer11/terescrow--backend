@@ -105,44 +105,88 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       // Process as receive transaction
       const addressVirtualAccount = depositAddressRecord.virtualAccount;
       const amountStr = webhookData.amount || '0';
-      const asset = webhookData.asset; // Contract address for tokens, 'ETH' for native
-      const isToken = asset && asset !== 'ETH' && webhookData.type === 'token';
+      
+      // Determine if this is a token transfer
+      // For INCOMING_FUNGIBLE_TX, check contractAddress field
+      // For ADDRESS_EVENT, check asset field and type
+      const contractAddress = webhookData.contractAddress || webhookData.asset;
+      const isFungibleToken = webhookData.subscriptionType === 'INCOMING_FUNGIBLE_TX' && contractAddress;
+      const isToken = isFungibleToken || (contractAddress && contractAddress !== 'ETH' && webhookData.type === 'token');
       
       tatumLogger.info('Processing address-based webhook as receive transaction', {
         address: webhookAddr,
         counterAddress,
         amount: amountStr,
-        asset,
+        contractAddress,
+        subscriptionType: webhookData.subscriptionType,
         isToken,
+        isFungibleToken,
         txId: addressTxId,
         virtualAccountId: addressVirtualAccount.id,
         userId: addressVirtualAccount.userId,
         currency: addressVirtualAccount.currency,
       });
       
-      // Process as receive - continue with normal flow using virtualAccount
-      // We'll set accountId to virtualAccount.accountId for compatibility
-      webhookData.accountId = addressVirtualAccount.accountId;
-      webhookData.currency = addressVirtualAccount.currency;
-      // Set from and to addresses for address-based webhooks
-      webhookData.from = counterAddress; // Sender
-      webhookData.to = webhookAddr; // Receiver (our deposit address)
-      // For tokens, we need to match the asset (contract address) with walletCurrency
-      if (isToken) {
+      // Determine the correct currency based on contract address
+      let detectedCurrency = addressVirtualAccount.currency;
+      let targetVirtualAccount = addressVirtualAccount;
+      
+      // For token transfers, find the correct currency and virtual account
+      if (isToken && contractAddress) {
         const walletCurrencies = await prisma.walletCurrency.findMany({
           where: {
-            blockchain: addressVirtualAccount.blockchain,
+            blockchain: addressVirtualAccount.blockchain.toLowerCase(),
             contractAddress: { not: null },
           },
         });
+        
         // Case-insensitive contract address matching
         const walletCurrency = walletCurrencies.find(
-          wc => wc.contractAddress?.toLowerCase() === asset.toLowerCase()
+          wc => wc.contractAddress?.toLowerCase() === contractAddress.toLowerCase()
         );
+        
         if (walletCurrency) {
-          webhookData.currency = walletCurrency.currency;
+          detectedCurrency = walletCurrency.currency;
+          
+          // Find the correct virtual account for this currency
+          const correctVirtualAccount = await prisma.virtualAccount.findFirst({
+            where: {
+              userId: addressVirtualAccount.userId,
+              currency: walletCurrency.currency,
+              blockchain: addressVirtualAccount.blockchain.toLowerCase(),
+            },
+            include: {
+              walletCurrency: true,
+            },
+          });
+          
+          if (correctVirtualAccount) {
+            targetVirtualAccount = correctVirtualAccount;
+            tatumLogger.info('Found correct virtual account for token', {
+              originalCurrency: addressVirtualAccount.currency,
+              detectedCurrency: walletCurrency.currency,
+              originalVirtualAccountId: addressVirtualAccount.id,
+              targetVirtualAccountId: correctVirtualAccount.id,
+              contractAddress,
+            });
+          } else {
+            tatumLogger.warn('Virtual account not found for detected currency', {
+              userId: addressVirtualAccount.userId,
+              currency: walletCurrency.currency,
+              blockchain: addressVirtualAccount.blockchain,
+              contractAddress,
+            });
+          }
         }
       }
+      
+      // Process as receive - continue with normal flow using the correct virtualAccount
+      // We'll set accountId to targetVirtualAccount.accountId for compatibility
+      webhookData.accountId = targetVirtualAccount.accountId;
+      webhookData.currency = detectedCurrency;
+      // Set from and to addresses for address-based webhooks
+      webhookData.from = counterAddress; // Sender
+      webhookData.to = webhookAddr; // Receiver (our deposit address)
       
       // IMPORTANT: Check for duplicates and save WebhookResponse EARLY to "claim" this webhook
       // This must happen AFTER we've set up all the webhook data but BEFORE processing
@@ -367,16 +411,32 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       currency,
     });
 
-    // Update virtual account balance from Tatum
-    tatumLogger.info('Updating virtual account balance from Tatum', {
+    // Update virtual account balance - credit the received amount
+    tatumLogger.info('Updating virtual account balance', {
       accountId,
       virtualAccountId: virtualAccount.id,
+      currency: virtualAccount.currency,
+      amount,
     });
 
-    const updatedBalance = await virtualAccountService.updateBalanceFromTatum(accountId);
+    const currentBalance = new Decimal(virtualAccount.accountBalance || '0');
+    const receivedAmount = new Decimal(amount);
+    const newBalance = currentBalance.plus(receivedAmount);
+
+    const updatedVirtualAccount = await prisma.virtualAccount.update({
+      where: { id: virtualAccount.id },
+      data: {
+        accountBalance: newBalance.toString(),
+        availableBalance: newBalance.toString(),
+      },
+    });
     
-    tatumLogger.balanceUpdate(accountId, updatedBalance, {
+    tatumLogger.balanceUpdate(accountId, updatedVirtualAccount, {
       virtualAccountId: virtualAccount.id,
+      currency: virtualAccount.currency,
+      balanceBefore: currentBalance.toString(),
+      amountReceived: receivedAmount.toString(),
+      balanceAfter: newBalance.toString(),
       reference,
       txId,
     });
