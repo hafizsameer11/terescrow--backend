@@ -199,34 +199,44 @@ class CryptoSwapService {
       masterWalletAddress,
     });
 
-    // Only ETH ↔ USDT on Ethereum is currently supported for real swaps
-    if (fromBlockchain.toLowerCase() !== 'ethereum' || toBlockchain.toLowerCase() !== 'ethereum') {
-      const error = new Error(`Crypto swap for ${fromBlockchain} to ${toBlockchain} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
-      cryptoLogger.error('Unsupported blockchain for swap', error, { fromBlockchain, toBlockchain });
-      throw error;
-    }
+    // Validate that both currency/blockchain combinations exist in wallet_currencies
+    // Handle cases where currency might be stored as "USDT_TRON", "USDT_ETH", etc. instead of just "USDT"
 
-    if ((fromCurrency.toUpperCase() !== 'ETH' && fromCurrency.toUpperCase() !== 'USDT') ||
-        (toCurrency.toUpperCase() !== 'ETH' && toCurrency.toUpperCase() !== 'USDT')) {
-      const error = new Error(`Crypto swap for ${fromCurrency} to ${toCurrency} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
-      cryptoLogger.error('Unsupported currency pair for swap', error, { fromCurrency, toCurrency });
-      throw error;
-    }
+    // Helper function to find wallet currency with flexible matching logic
+    const findWalletCurrency = async (currency: string, blockchain: string) => {
+      const currencyUpper = currency.toUpperCase();
+      const blockchainLower = blockchain.toLowerCase();
+      
+      // First try exact match
+      let walletCurrency = await prisma.walletCurrency.findFirst({
+        where: {
+          currency: currencyUpper,
+          blockchain: blockchainLower,
+        },
+      });
+
+      // If not found, try to find currency that contains the base currency (e.g., "USDT" → "USDT_TRON", "USDT_ETH", etc.)
+      // This works for any currency, not just USDT
+      if (!walletCurrency) {
+        const allCurrencies = await prisma.walletCurrency.findMany({
+          where: {
+            blockchain: blockchainLower,
+            currency: {
+              contains: currencyUpper, // Currency contains the requested currency (e.g., "USDT" matches "USDT_TRON")
+            },
+          },
+        });
+        
+        // Prefer exact match, then any match on the blockchain
+        walletCurrency = allCurrencies.find(c => c.currency === currencyUpper) || allCurrencies[0];
+      }
+
+      return walletCurrency;
+    };
 
     // Step 1: Validate both currencies exist
-    const fromWalletCurrency = await prisma.walletCurrency.findFirst({
-      where: {
-        currency: fromCurrency.toUpperCase(),
-        blockchain: fromBlockchain.toLowerCase(),
-      },
-    });
-
-    const toWalletCurrency = await prisma.walletCurrency.findFirst({
-      where: {
-        currency: toCurrency.toUpperCase(),
-        blockchain: toBlockchain.toLowerCase(),
-      },
-    });
+    const fromWalletCurrency = await findWalletCurrency(fromCurrency, fromBlockchain);
+    const toWalletCurrency = await findWalletCurrency(toCurrency, toBlockchain);
 
     if (!fromWalletCurrency) {
       throw new Error(`Currency ${fromCurrency} on ${fromBlockchain} is not supported`);
@@ -368,25 +378,54 @@ class CryptoSwapService {
       toBlockchain: input.toBlockchain,
     });
 
-    // Only ETH ↔ USDT on Ethereum is currently supported for real swaps
-    if (input.fromBlockchain.toLowerCase() !== 'ethereum' || input.toBlockchain.toLowerCase() !== 'ethereum') {
-      const error = new Error(`Crypto swap for ${input.fromBlockchain} to ${input.toBlockchain} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
-      cryptoLogger.error('Unsupported blockchain for swap preview', error, { fromBlockchain: input.fromBlockchain, toBlockchain: input.toBlockchain });
-      throw error;
+    // Validate that both currency/blockchain combinations exist in wallet_currencies
+    // Handle cases where currency might be stored as "USDT_TRON", "USDT_ETH", etc. instead of just "USDT"
+
+    // Helper function to find wallet currency with flexible matching logic
+    const findWalletCurrency = async (currency: string, blockchain: string) => {
+      const currencyUpper = currency.toUpperCase();
+      const blockchainLower = blockchain.toLowerCase();
+      
+      // First try exact match
+      let walletCurrency = await prisma.walletCurrency.findFirst({
+        where: {
+          currency: currencyUpper,
+          blockchain: blockchainLower,
+        },
+      });
+
+      // If not found, try to find currency that contains the base currency
+      if (!walletCurrency) {
+        const allCurrencies = await prisma.walletCurrency.findMany({
+          where: {
+            blockchain: blockchainLower,
+            currency: {
+              contains: currencyUpper,
+            },
+          },
+        });
+        
+        walletCurrency = allCurrencies.find(c => c.currency === currencyUpper) || allCurrencies[0];
+      }
+
+      return walletCurrency;
+    };
+
+    const fromWalletCurrency = await findWalletCurrency(input.fromCurrency, input.fromBlockchain);
+    const toWalletCurrency = await findWalletCurrency(input.toCurrency, input.toBlockchain);
+
+    if (!fromWalletCurrency) {
+      throw new Error(`Currency ${input.fromCurrency} on ${input.fromBlockchain} is not supported`);
+    }
+    if (!toWalletCurrency) {
+      throw new Error(`Currency ${input.toCurrency} on ${input.toBlockchain} is not supported`);
     }
 
-    if ((input.fromCurrency.toUpperCase() !== 'ETH' && input.fromCurrency.toUpperCase() !== 'USDT') ||
-        (input.toCurrency.toUpperCase() !== 'ETH' && input.toCurrency.toUpperCase() !== 'USDT')) {
-      const error = new Error(`Crypto swap for ${input.fromCurrency} to ${input.toCurrency} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
-      cryptoLogger.error('Unsupported currency pair for swap preview', error, { fromCurrency: input.fromCurrency, toCurrency: input.toCurrency });
-      throw error;
-    }
-
-    // Get user's virtual accounts with deposit addresses
+    // Get user's virtual accounts with deposit addresses using the matched currency values
     const fromVirtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId: input.userId,
-        currency: input.fromCurrency.toUpperCase(),
+        currency: fromWalletCurrency.currency, // Use the actual currency from wallet_currencies
         blockchain: input.fromBlockchain.toLowerCase(),
       },
       include: {
@@ -401,7 +440,7 @@ class CryptoSwapService {
     const toVirtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId: input.userId,
-        currency: input.toCurrency.toUpperCase(),
+        currency: toWalletCurrency.currency, // Use the actual currency from wallet_currencies
         blockchain: input.toBlockchain.toLowerCase(),
       },
       include: {
@@ -536,15 +575,11 @@ class CryptoSwapService {
   /**
    * Execute swap transaction
    * 
-   * Real Blockchain Implementation for ETH ↔ USDT:
-   * 1. Validate currencies (only ETH ↔ USDT on Ethereum)
+   * Execute swap transaction (internal ledger operations)
+   * 1. Validate currencies exist in wallet_currencies
    * 2. Check user has sufficient balance
-   * 3. Check user has ETH for gas (for USDT → ETH swaps)
-   * 4. Execute blockchain transfers:
-   *    - ETH → USDT: User sends ETH to master, master sends USDT to user
-   *    - USDT → ETH: User sends USDT to master, master sends ETH to user
-   * 5. Update balances atomically
-   * 6. Create transaction record with txHash
+   * 3. Update balances atomically
+   * 4. Create transaction record
    */
   async swapCrypto(input: SwapCryptoInput): Promise<SwapCryptoResult> {
     const { userId, fromAmount, fromCurrency, fromBlockchain, toCurrency, toBlockchain } = input;
@@ -557,21 +592,52 @@ class CryptoSwapService {
     console.log('To:', toCurrency, toBlockchain);
     console.log('========================================\n');
 
-    // Only ETH ↔ USDT on Ethereum is currently supported
-    if (fromBlockchain.toLowerCase() !== 'ethereum' || toBlockchain.toLowerCase() !== 'ethereum') {
-      throw new Error(`Crypto swap for ${fromBlockchain} to ${toBlockchain} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
+    // Validate that both currency/blockchain combinations exist in wallet_currencies
+    // First find the wallet currencies to get the actual currency values
+    const findWalletCurrency = async (currency: string, blockchain: string) => {
+      const currencyUpper = currency.toUpperCase();
+      const blockchainLower = blockchain.toLowerCase();
+      
+      // First try exact match
+      let walletCurrency = await prisma.walletCurrency.findFirst({
+        where: {
+          currency: currencyUpper,
+          blockchain: blockchainLower,
+        },
+      });
+
+      // If not found, try to find currency that contains the base currency
+      if (!walletCurrency) {
+        const allCurrencies = await prisma.walletCurrency.findMany({
+          where: {
+            blockchain: blockchainLower,
+            currency: {
+              contains: currencyUpper,
+            },
+          },
+        });
+        
+        walletCurrency = allCurrencies.find(c => c.currency === currencyUpper) || allCurrencies[0];
+      }
+
+      return walletCurrency;
+    };
+
+    const fromWalletCurrency = await findWalletCurrency(fromCurrency, fromBlockchain);
+    const toWalletCurrency = await findWalletCurrency(toCurrency, toBlockchain);
+
+    if (!fromWalletCurrency) {
+      throw new Error(`Currency ${fromCurrency} on ${fromBlockchain} is not supported`);
+    }
+    if (!toWalletCurrency) {
+      throw new Error(`Currency ${toCurrency} on ${toBlockchain} is not supported`);
     }
 
-    if ((fromCurrency.toUpperCase() !== 'ETH' && fromCurrency.toUpperCase() !== 'USDT') ||
-        (toCurrency.toUpperCase() !== 'ETH' && toCurrency.toUpperCase() !== 'USDT')) {
-      throw new Error(`Crypto swap for ${fromCurrency} to ${toCurrency} is not active yet. Only ETH ↔ USDT on Ethereum is currently supported.`);
-    }
-
-    // Get virtual accounts with deposit addresses
+    // Get virtual accounts with deposit addresses using the matched currency values
     const fromVirtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
-        currency: fromCurrency.toUpperCase(),
+        currency: fromWalletCurrency.currency, // Use the actual currency from wallet_currencies
         blockchain: fromBlockchain.toLowerCase(),
       },
       include: {
@@ -585,7 +651,7 @@ class CryptoSwapService {
     const toVirtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
-        currency: toCurrency.toUpperCase(),
+        currency: toWalletCurrency.currency, // Use the actual currency from wallet_currencies
         blockchain: toBlockchain.toLowerCase(),
       },
       include: {

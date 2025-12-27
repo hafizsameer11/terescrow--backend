@@ -90,26 +90,37 @@ class CryptoBuyService {
   async buyCrypto(input: BuyCryptoInput): Promise<BuyCryptoResult> {
     const { userId, amount, currency, blockchain } = input;
 
-    // Only Ethereum blockchain is currently supported for real blockchain transactions
-    if (blockchain.toLowerCase() !== 'ethereum') {
-      throw new Error(`Crypto buy for ${blockchain} blockchain is not active yet. Only Ethereum (ETH and USDT) is currently supported.`);
-    }
-
-    // Only ETH and USDT are currently supported
-    if (currency.toUpperCase() !== 'ETH' && currency.toUpperCase() !== 'USDT') {
-      throw new Error(`Crypto buy for ${currency} on ${blockchain} is not active yet. Only ETH and USDT on Ethereum are currently supported.`);
-    }
-
     // Pre-transaction: Get wallet currency and rates (outside transaction to avoid timeout)
-    const walletCurrency = await prisma.walletCurrency.findFirst({
+    // Handle cases where currency might be stored as "USDT_TRON", "USDT_ETH", etc. instead of just "USDT"
+    const currencyUpper = currency.toUpperCase();
+    const blockchainLower = blockchain.toLowerCase();
+    
+    // First try exact match
+    let walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
-        currency: currency.toUpperCase(),
-        blockchain: blockchain.toLowerCase(),
+        currency: currencyUpper,
+        blockchain: blockchainLower,
       },
     });
 
+    // If not found, try to find currency that contains the base currency (e.g., "USDT" → "USDT_TRON", "USDT_ETH", etc.)
+    // This works for any currency, not just USDT
     if (!walletCurrency) {
-      throw new Error(`Currency ${currency} on ${blockchain} is not supported`);
+      const allCurrencies = await prisma.walletCurrency.findMany({
+        where: {
+          blockchain: blockchainLower,
+          currency: {
+            contains: currencyUpper, // Currency contains the requested currency (e.g., "USDT" matches "USDT_TRON")
+          },
+        },
+      });
+      
+      // Prefer exact match, then any match on the blockchain
+      walletCurrency = allCurrencies.find(c => c.currency === currencyUpper) || allCurrencies[0];
+    }
+
+    if (!walletCurrency) {
+      throw new Error(`Currency ${currency} on ${blockchain} is not supported. Please check available currencies and blockchains.`);
     }
 
     if (!walletCurrency.price) {
@@ -145,10 +156,11 @@ class CryptoBuyService {
     }
 
     // Get virtual account with deposit address (outside transaction)
+    // Use the matched walletCurrency's currency value (might be "USDT_TRON" instead of "USDT")
     const virtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
-        currency: currency.toUpperCase(),
+        currency: walletCurrency.currency, // Use the actual currency from wallet_currencies
         blockchain: blockchain.toLowerCase(),
       },
       include: {
@@ -456,7 +468,7 @@ class CryptoBuyService {
     } */
 
     // Now execute the transaction with increased timeout
-    // Only reaches here if blockchain transfer succeeded (for Ethereum) or if not Ethereum
+    // Transaction completed successfully (internal ledger operation)
     return await prisma.$transaction(async (tx) => {
       // Step 9: Debit fiat wallet (NGN)
       // Create fiat transaction first
@@ -613,23 +625,33 @@ class CryptoBuyService {
    * Returns estimated NGN cost for a given crypto amount
    */
   async calculateBuyQuote(amountCrypto: number, currency: string, blockchain: string) {
-    // Only Ethereum blockchain is currently supported for real blockchain transactions
-    if (blockchain.toLowerCase() !== 'ethereum') {
-      throw new Error(`Crypto buy for ${blockchain} blockchain is not active yet. Only Ethereum (ETH and USDT) is currently supported.`);
-    }
-
-    // Only ETH and USDT are currently supported
-    if (currency.toUpperCase() !== 'ETH' && currency.toUpperCase() !== 'USDT') {
-      throw new Error(`Crypto buy for ${currency} on ${blockchain} is not active yet. Only ETH and USDT on Ethereum are currently supported.`);
-    }
-
-    // Get wallet currency
-    const walletCurrency = await prisma.walletCurrency.findFirst({
+    // Get wallet currency - allow any currency/blockchain combination that exists
+    // Handle cases where currency might be stored as "USDT_TRON", "USDT_ETH", etc. instead of just "USDT"
+    const currencyUpper = currency.toUpperCase();
+    const blockchainLower = blockchain.toLowerCase();
+    
+    // First try exact match
+    let walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
-        currency: currency.toUpperCase(),
-        blockchain: blockchain.toLowerCase(),
+        currency: currencyUpper,
+        blockchain: blockchainLower,
       },
     });
+
+    // If not found, try to find currency that contains the base currency (e.g., "USDT" → "USDT_TRON", "USDT_ETH", etc.)
+    if (!walletCurrency) {
+      const allCurrencies = await prisma.walletCurrency.findMany({
+        where: {
+          blockchain: blockchainLower,
+          currency: {
+            contains: currencyUpper, // Currency contains the requested currency
+          },
+        },
+      });
+      
+      // Prefer exact match, then any match on the blockchain
+      walletCurrency = allCurrencies.find(c => c.currency === currencyUpper) || allCurrencies[0];
+    }
 
     if (!walletCurrency || !walletCurrency.price) {
       throw new Error(`Currency ${currency} on ${blockchain} is not supported or price not set`);
@@ -680,23 +702,33 @@ class CryptoBuyService {
     console.log('Blockchain:', blockchain);
     console.log('========================================\n');
 
-    // Only Ethereum blockchain is currently supported for real blockchain transactions
-    if (blockchain.toLowerCase() !== 'ethereum') {
-      throw new Error(`Crypto buy for ${blockchain} blockchain is not active yet. Only Ethereum (ETH and USDT) is currently supported.`);
-    }
-
-    // Only ETH and USDT are currently supported
-    if (currency.toUpperCase() !== 'ETH' && currency.toUpperCase() !== 'USDT') {
-      throw new Error(`Crypto buy for ${currency} on ${blockchain} is not active yet. Only ETH and USDT on Ethereum are currently supported.`);
-    }
-
-    // Get wallet currency
-    const walletCurrency = await prisma.walletCurrency.findFirst({
+    // Get wallet currency - allow any currency/blockchain combination that exists
+    // Handle cases where currency might be stored as "USDT_TRON", "USDT_ETH", etc. instead of just "USDT"
+    const currencyUpper = currency.toUpperCase();
+    const blockchainLower = blockchain.toLowerCase();
+    
+    // First try exact match
+    let walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
-        currency: currency.toUpperCase(),
-        blockchain: blockchain.toLowerCase(),
+        currency: currencyUpper,
+        blockchain: blockchainLower,
       },
     });
+
+    // If not found, try to find currency that contains the base currency (e.g., "USDT" → "USDT_TRON", "USDT_ETH", etc.)
+    if (!walletCurrency) {
+      const allCurrencies = await prisma.walletCurrency.findMany({
+        where: {
+          blockchain: blockchainLower,
+          currency: {
+            contains: currencyUpper, // Currency contains the requested currency
+          },
+        },
+      });
+      
+      // Prefer exact match, then any match on the blockchain
+      walletCurrency = allCurrencies.find(c => c.currency === currencyUpper) || allCurrencies[0];
+    }
 
     if (!walletCurrency || !walletCurrency.price) {
       throw new Error(`Currency ${currency} on ${blockchain} is not supported or price not set`);
@@ -707,10 +739,11 @@ class CryptoBuyService {
     const fiatBalance = new Decimal(fiatWallet.balance);
 
     // Get user's virtual account for this crypto
+    // Use the matched walletCurrency's currency value (might be "USDT_TRON" instead of "USDT")
     const virtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
-        currency: currency.toUpperCase(),
+        currency: walletCurrency.currency, // Use the actual currency from wallet_currencies
         blockchain: blockchain.toLowerCase(),
       },
       include: {

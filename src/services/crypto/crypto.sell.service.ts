@@ -99,23 +99,34 @@ class CryptoSellService {
     console.log('Blockchain:', blockchain);
     console.log('========================================\n');
 
-    // Only Ethereum blockchain with USDT ERC-20 is currently supported
-    if (blockchain.toLowerCase() !== 'ethereum') {
-      throw new Error(`Crypto sell for ${blockchain} blockchain is not active yet. Only Ethereum (USDT ERC-20) is currently supported.`);
-    }
-
-    // Only USDT is currently supported
-    if (currency.toUpperCase() !== 'USDT') {
-      throw new Error(`Crypto sell for ${currency} on ${blockchain} is not active yet. Only USDT ERC-20 on Ethereum is currently supported.`);
-    }
-
     // Pre-transaction: Get wallet currency and rates (outside transaction to avoid timeout)
-    const walletCurrency = await prisma.walletCurrency.findFirst({
+    // Handle cases where currency might be stored as "USDT_TRON", "USDT_ETH", etc. instead of just "USDT"
+    const currencyUpper = currency.toUpperCase();
+    const blockchainLower = blockchain.toLowerCase();
+    
+    // First try exact match
+    let walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
-        currency: currency.toUpperCase(),
-        blockchain: blockchain.toLowerCase(),
+        currency: currencyUpper,
+        blockchain: blockchainLower,
       },
     });
+
+    // If not found, try to find currency that contains the base currency (e.g., "USDT" → "USDT_TRON", "USDT_ETH", etc.)
+    // This works for any currency, not just USDT
+    if (!walletCurrency) {
+      const allCurrencies = await prisma.walletCurrency.findMany({
+        where: {
+          blockchain: blockchainLower,
+          currency: {
+            contains: currencyUpper, // Currency contains the requested currency (e.g., "USDT" matches "USDT_TRON")
+          },
+        },
+      });
+      
+      // Prefer exact match, then any match on the blockchain
+      walletCurrency = allCurrencies.find(c => c.currency === currencyUpper) || allCurrencies[0];
+    }
 
     if (!walletCurrency) {
       throw new Error(`Currency ${currency} on ${blockchain} is not supported`);
@@ -126,11 +137,12 @@ class CryptoSellService {
     }
 
     // Get user's virtual account with deposit address (outside transaction)
+    // Use the matched walletCurrency's currency value (might be "USDT_TRON" instead of "USDT")
     const virtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
-        currency: currency.toUpperCase(),
-        blockchain: blockchain.toLowerCase(),
+        currency: walletCurrency.currency, // Use the actual currency from wallet_currencies
+        blockchain: blockchainLower,
       },
       include: {
         depositAddresses: {
@@ -800,17 +812,7 @@ class CryptoSellService {
     console.log('Blockchain:', blockchain);
     console.log('========================================\n');
 
-    // Only Ethereum blockchain with USDT ERC-20 is currently supported
-    if (blockchain.toLowerCase() !== 'ethereum') {
-      throw new Error(`Crypto sell for ${blockchain} blockchain is not active yet. Only Ethereum (USDT ERC-20) is currently supported.`);
-    }
-
-    // Only USDT is currently supported
-    if (currency.toUpperCase() !== 'USDT') {
-      throw new Error(`Crypto sell for ${currency} on ${blockchain} is not active yet. Only USDT ERC-20 on Ethereum is currently supported.`);
-    }
-
-    // Get wallet currency
+    // Get wallet currency - allow any currency/blockchain combination that exists
     const walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
         currency: currency.toUpperCase(),
@@ -876,17 +878,7 @@ class CryptoSellService {
     console.log('Blockchain:', blockchain);
     console.log('========================================\n');
 
-    // Only Ethereum blockchain with USDT ERC-20 is currently supported
-    if (blockchain.toLowerCase() !== 'ethereum') {
-      throw new Error(`Crypto sell for ${blockchain} blockchain is not active yet. Only Ethereum (USDT ERC-20) is currently supported.`);
-    }
-
-    // Only USDT is currently supported
-    if (currency.toUpperCase() !== 'USDT') {
-      throw new Error(`Crypto sell for ${currency} on ${blockchain} is not active yet. Only USDT ERC-20 on Ethereum is currently supported.`);
-    }
-
-    // Get wallet currency
+    // Get wallet currency - allow any currency/blockchain combination that exists
     const walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
         currency: currency.toUpperCase(),
