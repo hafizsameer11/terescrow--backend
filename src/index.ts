@@ -41,6 +41,7 @@ import kycRouter from './routes/cutomer/kyc.router';
 import billPaymentRouter from './routes/cutomer/billpayment.router';
 import vtpassBillPaymentRouter from './routes/cutomer/billpayment.vtpass.router';
 import reloadlyBillPaymentRouter from './routes/cutomer/billpayment.reloadly.router';
+import reloadlyUtilityBillPaymentRouter from './routes/cutomer/billpayment.reloadly.utilities.router';
 import supportChatRouter from './routes/cutomer/support.chat.router';
 import bankAccountRouter from './routes/cutomer/bank.account.router';
 import referralRouter from './routes/cutomer/referral.router';
@@ -199,6 +200,7 @@ app.use('/api/v2/payment/merchant', palmpayMerchantOrderRouter);
 app.use('/api/v2/wallets', fiatWalletRouter);
 app.use('/api/v2/kyc', kycRouter);
 // Register specific provider routes first (more specific) before general bill-payments routes
+app.use('/api/v2/bill-payments/reloadly/utilities', reloadlyUtilityBillPaymentRouter);
 app.use('/api/v2/bill-payments/reloadly', reloadlyBillPaymentRouter);
 app.use('/api/v2/bill-payments/vtpass', vtpassBillPaymentRouter);
 app.use('/api/v2/bill-payments', billPaymentRouter);

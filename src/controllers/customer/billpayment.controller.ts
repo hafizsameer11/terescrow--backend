@@ -6,6 +6,7 @@ import { prisma } from '../../utils/prisma';
 import { palmpayBillPaymentService } from '../../services/palmpay/palmpay.billpayment.service';
 import { vtpassBillPaymentService } from '../../services/vtpass/vtpass.billpayment.service';
 import { reloadlyAirtimeService } from '../../services/reloadly/reloadly.airtime.service';
+import { reloadlyUtilitiesService } from '../../services/reloadly/reloadly.utilities.service';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { palmpayConfig } from '../../services/palmpay/palmpay.config';
 import { Decimal } from '@prisma/client/runtime/library';
@@ -27,8 +28,8 @@ export const queryBillersController = async (
       return next(ApiError.badRequest('sceneCode is required and must be a string'));
     }
 
-    if (provider !== 'palmpay' && provider !== 'vtpass') {
-      return next(ApiError.badRequest('provider must be either "palmpay" or "vtpass"'));
+    if (provider !== 'palmpay' && provider !== 'vtpass' && provider !== 'reloadly') {
+      return next(ApiError.badRequest('provider must be either "palmpay", "vtpass", or "reloadly"'));
     }
 
     let billers;
@@ -43,7 +44,22 @@ export const queryBillersController = async (
         operatorId: b.operatorId,
       }));
       actualProvider = 'reloadly';
-    } else if (provider === 'vtpass') {
+    } 
+    // For electricity with Reloadly
+    else if (sceneCode === 'electricity' && provider === 'reloadly') {
+      const reloadlyBillers = await reloadlyUtilitiesService.getNigeriaElectricityBillers();
+      billers = reloadlyBillers.map(b => ({
+        billerId: b.id.toString(), // Use Reloadly biller ID as string
+        billerName: b.name,
+        serviceType: b.serviceType,
+        type: b.type,
+        minAmount: b.minLocalTransactionAmount,
+        maxAmount: b.maxLocalTransactionAmount,
+        currency: b.localTransactionCurrencyCode,
+      }));
+      actualProvider = 'reloadly';
+    } 
+    else if (provider === 'vtpass') {
       billers = await vtpassBillPaymentService.queryBillers(sceneCode as any);
     } else {
       billers = await palmpayBillPaymentService.queryBillers(sceneCode as any);
@@ -81,8 +97,8 @@ export const queryItemsController = async (
       return next(ApiError.badRequest('billerId is required'));
     }
 
-    if (provider !== 'palmpay' && provider !== 'vtpass') {
-      return next(ApiError.badRequest('provider must be either "palmpay" or "vtpass"'));
+    if (provider !== 'palmpay' && provider !== 'vtpass' && provider !== 'reloadly') {
+      return next(ApiError.badRequest('provider must be either "palmpay", "vtpass", or "reloadly"'));
     }
 
     let items: any[] = [];
@@ -92,7 +108,13 @@ export const queryItemsController = async (
     if (sceneCode === 'airtime') {
       items = []; // Reloadly airtime uses user-specified amounts
       actualProvider = 'reloadly';
-    } else if (provider === 'vtpass') {
+    } 
+    // For electricity with Reloadly (returns empty items - user-specified amounts)
+    else if (sceneCode === 'electricity' && provider === 'reloadly') {
+      items = []; // Reloadly utilities uses user-specified amounts
+      actualProvider = 'reloadly';
+    } 
+    else if (provider === 'vtpass') {
       items = await vtpassBillPaymentService.queryItems(sceneCode as any, billerId);
     } else {
       items = await palmpayBillPaymentService.queryItems(sceneCode as any, billerId);
@@ -332,6 +354,7 @@ export const createBillOrderController = async (
     let serviceID: string | undefined;
     let billerName: string | undefined;
     let operatorId: number | undefined;
+    let reloadlyBillerId: number | undefined;
     
     if (actualProvider === 'reloadly' && sceneCode === 'airtime') {
       // Get Reloadly operator info
@@ -341,6 +364,17 @@ export const createBillOrderController = async (
       }
       operatorId = operator.operatorId;
       billerName = operator.name;
+    } else if (actualProvider === 'reloadly' && sceneCode === 'electricity') {
+      // Get Reloadly utility biller info
+      reloadlyBillerId = parseInt(billerId, 10);
+      if (isNaN(reloadlyBillerId)) {
+        return next(ApiError.badRequest(`Invalid billerId: ${billerId}. Reloadly electricity billerId must be a number`));
+      }
+      const biller = await reloadlyUtilitiesService.getBillerById(reloadlyBillerId);
+      if (!biller) {
+        return next(ApiError.badRequest(`Invalid billerId: ${billerId} for Reloadly electricity`));
+      }
+      billerName = biller.name;
     } else if (actualProvider === 'vtpass') {
       const billers = await vtpassBillPaymentService.queryBillers(sceneCode as any);
       const biller = billers.find(b => b.billerId === billerId);
@@ -448,6 +482,71 @@ export const createBillOrderController = async (
               status: 'completed',
               completedAt: new Date(),
               billReference: reloadlyResponse.operatorTransactionId || orderNo,
+            },
+          });
+        }
+      } else if (actualProvider === 'reloadly' && sceneCode === 'electricity') {
+        if (!reloadlyBillerId) {
+          throw new Error('Reloadly biller ID not found');
+        }
+
+        // Create Reloadly utility payment
+        const reloadlyResponse = await reloadlyUtilitiesService.payBill({
+          billerId: reloadlyBillerId,
+          subscriberAccountNumber: rechargeAccount,
+          amount: amountNum,
+          referenceId: transaction.id,
+          useLocalAmount: true, // Use NGN
+        });
+
+        // Map Reloadly status to our order status format
+        const statusMap: Record<string, number> = {
+          'SUCCESSFUL': 2,
+          'PROCESSING': 1,
+          'FAILED': 3,
+          'REFUNDED': 3,
+        };
+        orderStatus = statusMap[reloadlyResponse.status] || 1;
+        orderNo = reloadlyResponse.id.toString();
+        requestId = reloadlyResponse.referenceId;
+        providerResponse = reloadlyResponse;
+
+        // Update transaction and bill payment
+        await prisma.fiatTransaction.update({
+          where: { id: transaction.id },
+          data: {
+            palmpayOrderId: requestId,
+            palmpayOrderNo: orderNo,
+            palmpayStatus: reloadlyResponse.status,
+          },
+        });
+
+        await prisma.billPayment.update({
+          where: { id: billPayment.id },
+          data: {
+            palmpayOrderId: requestId,
+            palmpayOrderNo: orderNo,
+            palmpayStatus: reloadlyResponse.status,
+            providerResponse: JSON.stringify(reloadlyResponse),
+          },
+        });
+
+        // If order status is SUCCESSFUL, mark transaction as completed
+        if (reloadlyResponse.status === 'SUCCESSFUL') {
+          await prisma.fiatTransaction.update({
+            where: { id: transaction.id },
+            data: {
+              status: 'completed',
+              completedAt: new Date(),
+            },
+          });
+
+          await prisma.billPayment.update({
+            where: { id: billPayment.id },
+            data: {
+              status: 'completed',
+              completedAt: new Date(),
+              billReference: reloadlyResponse.referenceId || orderNo,
             },
           });
         }
