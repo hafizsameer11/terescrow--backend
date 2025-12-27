@@ -191,6 +191,67 @@ export async function getReceiveAddressController(req: Request, res: Response) {
 }
 
 /**
+ * Get USDT supporting blockchains
+ * GET /api/v2/crypto/usdt/blockchains
+ */
+export const getUsdtBlockchainsController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    // Query wallet_currencies for all USDT entries
+    const usdtCurrencies = await prisma.walletCurrency.findMany({
+      where: {
+        OR: [
+          { currency: 'USDT' },
+          { currency: { startsWith: 'USDT_' } },
+        ],
+      },
+      select: {
+        id: true,
+        blockchain: true,
+        currency: true,
+        name: true,
+        blockchainName: true,
+        tokenType: true,
+        contractAddress: true,
+        decimals: true,
+        symbol: true,
+      },
+      orderBy: [
+        { blockchain: 'asc' },
+        { currency: 'asc' },
+      ],
+    });
+
+    // Format response
+    const blockchains = usdtCurrencies.map((currency) => ({
+      blockchain: currency.blockchain.toLowerCase(),
+      blockchainName: currency.blockchainName || currency.blockchain.toUpperCase(),
+      currency: currency.currency,
+      displayName: currency.name,
+      tokenType: currency.tokenType,
+      contractAddress: currency.contractAddress,
+      decimals: currency.decimals,
+      symbol: currency.symbol,
+      // User-friendly display names
+      displayLabel: currency.blockchainName || currency.blockchain.toUpperCase(),
+    }));
+
+    return res.status(200).json(
+      new ApiResponse(200, {
+        currency: 'USDT',
+        blockchains,
+        total: blockchains.length,
+      }, 'USDT supporting blockchains retrieved successfully')
+    );
+  } catch (error: any) {
+    next(ApiError.internal(error.message || 'Failed to get USDT blockchains'));
+  }
+};
+
+/**
  * Get total crypto balance for user
  * Returns total balance in USD and Naira from all virtual accounts
  */
