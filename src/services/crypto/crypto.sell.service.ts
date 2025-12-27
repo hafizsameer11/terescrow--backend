@@ -174,8 +174,9 @@ class CryptoSellService {
     // Convert USD to NGN
     const amountNgn = amountUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
 
-    // Calculate gas fees BEFORE blockchain transfers
-    let totalGasFeeNgn = new Decimal('0');
+    // BLOCKCHAIN CODE COMMENTED OUT - Simulated transaction only
+    // Calculate gas fees BEFORE blockchain transfers - SIMULATED VALUES
+    let totalGasFeeNgn = new Decimal('10'); // Simulated minimum gas fee in NGN
     let ethTransferTxHash: string | null = null;
     let tokenTransferTxHash: string | null = null;
     let needsEthTransfer = false;
@@ -187,8 +188,29 @@ class CryptoSellService {
     // Get user's fiat wallet (needed for retry job enqueue)
     const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
 
-    // Step 1: Check ETH balance and calculate gas fees
+    // Generate simulated transaction hash
     if (blockchain.toLowerCase() === 'ethereum' && currency.toUpperCase() === 'USDT') {
+      const crypto = require('crypto');
+      tokenTransferTxHash = '0x' + crypto.randomBytes(32).toString('hex');
+      
+      // Get master wallet address for database record
+      const masterWallet = await prisma.masterWallet.findUnique({
+        where: { blockchain: 'ethereum' },
+      });
+      masterWalletAddress = masterWallet?.address || null;
+
+      cryptoLogger.info('Simulated sell transaction', {
+        userId,
+        currency: currency.toUpperCase(),
+        amount: amountCryptoDecimal.toString(),
+        simulatedTxHash: tokenTransferTxHash,
+        note: 'Blockchain calls commented out - using simulated transaction hash',
+      });
+    }
+
+    // COMMENTED OUT: Real blockchain ETH balance checks and gas fee calculations
+    // Step 1: Check ETH balance and calculate gas fees
+    /* if (blockchain.toLowerCase() === 'ethereum' && currency.toUpperCase() === 'USDT') {
       try {
         console.log('[CRYPTO SELL] Checking ETH balance and calculating gas fees');
 
@@ -601,7 +623,7 @@ class CryptoSellService {
 
         throw error;
       }
-    }
+    } */
 
     // Calculate final amount after gas fees
     const finalAmountNgn = amountNgn.minus(totalGasFeeNgn);
@@ -911,13 +933,13 @@ class CryptoSellService {
     const quote = await this.calculateSellQuote(amountCrypto, currency, blockchain);
     const amountNgnDecimal = new Decimal(quote.amountNgn);
 
-    // Initialize gas fee variables
+    // Initialize gas fee variables - SIMULATED
     let totalGasFeeEth = new Decimal('0');
     let totalGasFeeUsd = new Decimal('0');
-    let totalGasFeeNgn = new Decimal('0');
+    let totalGasFeeNgn = new Decimal('10'); // Simulated minimum gas fee in NGN
     let needsEthTransfer = false;
     let ethTransferGasFeeNgn = new Decimal('0');
-    let tokenTransferGasFeeNgn = new Decimal('0');
+    let tokenTransferGasFeeNgn = new Decimal('10'); // Simulated
     let ethNeededForGas = new Decimal('0');
     let ethNeededNgn = new Decimal('0');
     let userEthBalance = new Decimal('0');
@@ -930,8 +952,10 @@ class CryptoSellService {
     let ethGasPriceWei = '0';
     let ethToSendPreview: Decimal = new Decimal('0');
 
+    // BLOCKCHAIN CODE COMMENTED OUT - Simulated gas fees only
     // For USDT ERC-20: Check ETH balance FIRST, then calculate gas fees
-    if (blockchain.toLowerCase() === 'ethereum' && currency.toUpperCase() === 'USDT') {
+    // COMMENTED OUT: Real blockchain gas fee calculation
+    /* if (blockchain.toLowerCase() === 'ethereum' && currency.toUpperCase() === 'USDT') {
       try {
         console.log('[CRYPTO SELL PREVIEW] Starting gas fee calculations for Ethereum USDT sell');
         console.log('User deposit address:', depositAddress);
@@ -1145,7 +1169,7 @@ class CryptoSellService {
         console.error('[CRYPTO SELL PREVIEW] Stack:', error.stack);
         // Don't fail the preview, but log the error
       }
-    }
+    } */
 
     // Calculate final amount after deducting gas fees
     const finalAmountNgn = amountNgnDecimal.minus(totalGasFeeNgn);

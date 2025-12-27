@@ -169,8 +169,9 @@ class CryptoBuyService {
     const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
     const cryptoBalanceAfter = cryptoBalanceBefore.plus(amountCryptoDecimal);
 
+    // BLOCKCHAIN CODE COMMENTED OUT - Simulated transaction only
     // Check Master Wallet Balance before processing (for Ethereum and USDT only)
-    if (blockchain.toLowerCase() === 'ethereum' && (currency.toUpperCase() === 'ETH' || currency.toUpperCase() === 'USDT')) {
+    /* if (blockchain.toLowerCase() === 'ethereum' && (currency.toUpperCase() === 'ETH' || currency.toUpperCase() === 'USDT')) {
       try {
         console.log('Checking master wallet balance for Ethereum and USDT');
         // Get master wallet for Ethereum
@@ -223,10 +224,11 @@ class CryptoBuyService {
         // Re-throw the error to prevent transaction processing
         throw error;
       }
-    }
+    } */
 
-    // Step 8: Execute blockchain transfer FIRST (for Ethereum only)
+    // Step 8: Execute blockchain transfer FIRST (for Ethereum only) - COMMENTED OUT
     // This must succeed before we debit fiat wallet and credit virtual account
+    // SIMULATED TRANSACTION: Generate fake txHash and gas fee values
     let txHash: string | null = null;
     let gasFeeEth: Decimal = new Decimal('0');
     let gasFeeUsd: Decimal = new Decimal('0');
@@ -235,7 +237,43 @@ class CryptoBuyService {
     let gasPriceGwei: string | null = null;
     let masterWalletAddress: string | null = null;
 
+    // Generate simulated txHash for database
     if (blockchain.toLowerCase() === 'ethereum' && (currency.toUpperCase() === 'ETH' || currency.toUpperCase() === 'USDT')) {
+      // Generate simulated transaction hash
+      const crypto = require('crypto');
+      const simulatedHash = '0x' + crypto.randomBytes(32).toString('hex');
+      txHash = simulatedHash;
+      
+      // Set simulated gas fee values
+      gasFeeEth = new Decimal('0.001'); // Simulated 0.001 ETH gas fee
+      const ethWalletCurrency = await prisma.walletCurrency.findFirst({
+        where: { currency: 'ETH', blockchain: 'ethereum' },
+      });
+      const ethPrice = ethWalletCurrency?.price ? new Decimal(ethWalletCurrency.price.toString()) : new Decimal('2500');
+      gasFeeUsd = gasFeeEth.mul(ethPrice);
+      gasFeeNgn = gasFeeUsd.mul(new Decimal(usdToNgnRate.rate.toString()));
+      
+      // Simulated gas parameters
+      gasLimit = currency.toUpperCase() === 'ETH' ? '21000' : '65000';
+      gasPriceGwei = '30';
+      
+      // Get master wallet address for database record
+      const masterWallet = await prisma.masterWallet.findUnique({
+        where: { blockchain: 'ethereum' },
+      });
+      masterWalletAddress = masterWallet?.address || null;
+
+      cryptoLogger.info('Simulated blockchain transaction', {
+        userId,
+        currency: currency.toUpperCase(),
+        amount: amountCryptoDecimal.toString(),
+        simulatedTxHash: txHash,
+        note: 'Blockchain calls commented out - using simulated transaction hash',
+      });
+    }
+
+    // COMMENTED OUT: Real blockchain transfer code
+    /* if (blockchain.toLowerCase() === 'ethereum' && (currency.toUpperCase() === 'ETH' || currency.toUpperCase() === 'USDT')) {
       // Import services
       const { ethereumTransactionService } = await import('../ethereum/ethereum.transaction.service');
       const { ethereumGasService } = await import('../ethereum/ethereum.gas.service');
@@ -415,7 +453,7 @@ class CryptoBuyService {
         // Throw error to abort the entire transaction
         throw new Error(`Failed to execute blockchain transfer: ${error.message || 'Unknown error'}`);
       }
-    }
+    } */
 
     // Now execute the transaction with increased timeout
     // Only reaches here if blockchain transfer succeeded (for Ethereum) or if not Ethereum
@@ -697,7 +735,7 @@ class CryptoBuyService {
     const amountCryptoDecimal = new Decimal(amountCrypto);
     const amountNgnDecimal = new Decimal(quote.amountNgn);
 
-    // Initialize gas fee variables (for Ethereum only)
+    // Initialize gas fee variables (for Ethereum only) - SIMULATED
     let gasFeeEth = new Decimal('0');
     let gasFeeUsd = new Decimal('0');
     let gasFeeNgn = new Decimal('0');
@@ -706,8 +744,32 @@ class CryptoBuyService {
     let hasSufficientMasterBalance = true;
     let gasEstimate: any = null;
 
+    // BLOCKCHAIN CODE COMMENTED OUT - Simulated gas fees only
     // For Ethereum blockchain: Check master wallet balance and calculate gas fees
     if (blockchain.toLowerCase() === 'ethereum' && (currency.toUpperCase() === 'ETH' || currency.toUpperCase() === 'USDT')) {
+      // Simulated gas fee values
+      gasFeeEth = new Decimal('0.001'); // Simulated 0.001 ETH
+      const ethWalletCurrency = await prisma.walletCurrency.findFirst({
+        where: { currency: 'ETH', blockchain: 'ethereum' },
+      });
+      const ethPrice = ethWalletCurrency?.price ? new Decimal(ethWalletCurrency.price.toString()) : new Decimal('2500');
+      gasFeeUsd = gasFeeEth.mul(ethPrice);
+      const quoteUsdToNgnRate = parseFloat(quote.rateNgnToUsd);
+      if (quoteUsdToNgnRate > 0) {
+        gasFeeNgn = gasFeeUsd.mul(new Decimal(quoteUsdToNgnRate.toString()));
+      }
+      totalAmountNgn = amountNgnDecimal.plus(gasFeeNgn);
+      
+      gasEstimate = {
+        gasLimit: currency.toUpperCase() === 'ETH' ? '21000' : '65000',
+        gasPrice: { wei: '30000000000', gwei: '30' },
+      };
+      
+      hasSufficientMasterBalance = true;
+    }
+
+    // COMMENTED OUT: Real blockchain gas fee calculation
+    /* if (blockchain.toLowerCase() === 'ethereum' && (currency.toUpperCase() === 'ETH' || currency.toUpperCase() === 'USDT')) {
       console.log('[CRYPTO BUY PREVIEW] Entering Ethereum gas fee calculation block');
       try {
         // Import services
@@ -880,7 +942,7 @@ class CryptoBuyService {
         console.error('[CRYPTO BUY PREVIEW] Stack:', error.stack);
         // Don't fail the preview, just log the error
       }
-    }
+    } */
 
     // Calculate balances after transaction
     const fiatBalanceAfter = fiatBalance.minus(totalAmountNgn);

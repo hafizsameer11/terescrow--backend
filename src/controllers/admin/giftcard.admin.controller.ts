@@ -12,7 +12,7 @@ import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { giftCardProductSyncService } from '../../services/giftcard/giftcard.product.sync.service';
-import { reloadlyAuthService } from '../../services/reloadly/reloadly.auth.service';
+import { reloadlyAuth } from '../../services/reloadly/reloadly.auth.service';
 
 /**
  * Sync products from Reloadly
@@ -160,7 +160,8 @@ export const getReloadlyTokenStatusController = async (
   next: NextFunction
 ) => {
   try {
-    const tokenInfo = await reloadlyAuthService.getTokenInfo();
+    const token = await reloadlyAuth.getAccessToken();
+    const tokenInfo = { token, hasToken: !!token };
 
     return new ApiResponse(200, tokenInfo, 'Token status retrieved successfully').send(res);
   } catch (error) {
@@ -180,12 +181,12 @@ export const refreshReloadlyTokenController = async (
   next: NextFunction
 ) => {
   try {
-    const token = await reloadlyAuthService.refreshToken();
-    const tokenInfo = await reloadlyAuthService.getTokenInfo();
+    reloadlyAuth.clearToken(); // Clear cached token to force refresh
+    const token = await reloadlyAuth.getAccessToken();
 
     return new ApiResponse(200, {
       message: 'Token refreshed successfully',
-      expiresAt: tokenInfo.expiresAt,
+      token,
     }, 'Token refreshed successfully').send(res);
   } catch (error) {
     if (error instanceof ApiError) {

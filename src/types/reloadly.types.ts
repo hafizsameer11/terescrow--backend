@@ -1,32 +1,151 @@
 /**
- * Reloadly API Types and Interfaces
- * 
- * This file contains all TypeScript types and interfaces for Reloadly API integration.
- * All types are based on Reloadly's API documentation and Postman collection.
+ * Reloadly API Types
+ * Type definitions for Reloadly Airtime and Gift Card API integration
  */
 
-// ============================================
-// Authentication Types
-// ============================================
-
-export interface ReloadlyAuthRequest {
-  client_id: string;
-  client_secret: string;
-  grant_type: 'client_credentials';
-  audience: string; // 'https://giftcards.reloadly.com' or 'https://giftcards-sandbox.reloadly.com'
+// Country
+export interface ReloadlyCountry {
+  isoName: string;
+  name: string;
+  continent?: string;
+  currencyCode: string;
+  currencyName: string;
+  currencySymbol: string;
+  flag: string;
+  callingCodes: string[];
 }
 
-export interface ReloadlyAuthResponse {
-  access_token: string;
-  token_type: 'Bearer';
-  expires_in: number;
-  scope?: string;
+// Operator
+export interface ReloadlyOperator {
+  id: number;
+  operatorId: number;
+  name: string;
+  bundle: boolean;
+  data: boolean;
+  comboProduct: boolean;
+  pin: boolean;
+  supportsLocalAmounts: boolean;
+  denominationType: 'RANGE' | 'FIXED';
+  senderCurrencyCode: string;
+  senderCurrencySymbol: string;
+  destinationCurrencyCode: string;
+  destinationCurrencySymbol: string;
+  commission: number;
+  internationalDiscount: number;
+  localDiscount: number;
+  mostPopularAmount: number | null;
+  minAmount: number;
+  maxAmount: number;
+  localMinAmount: number | null;
+  localMaxAmount: number | null;
+  country: {
+    isoName: string;
+    name: string;
+  };
+  fx?: {
+    rate: number;
+    currencyCode: string;
+  };
+  logoUrls: string[];
+  fixedAmounts?: number[];
+  fixedAmountsDescriptions?: string[];
+  localFixedAmounts?: number[];
+  localFixedAmountsDescriptions?: string[];
+  suggestedAmounts?: number[];
+  suggestedAmountsMap?: Record<string, number>;
+  promotions?: any[];
+  fees?: {
+    international: number;
+    internationalPercentage: number;
+    local: number;
+    localPercentage: number;
+  };
 }
 
-// ============================================
-// Product Types
-// ============================================
+// Operators Response
+export interface ReloadlyOperatorsResponse {
+  content: ReloadlyOperator[];
+}
 
+// Top-up Request
+export interface ReloadlyTopupRequest {
+  operatorId: string | number;
+  amount: string; // Amount as string (e.g., "5.00")
+  recipientPhone: {
+    countryCode: string;
+    number: string;
+  };
+  senderPhone?: {
+    countryCode: string;
+    number: string;
+  };
+  customIdentifier?: string;
+  recipientEmail?: string;
+  useLocalAmount?: boolean;
+}
+
+// Top-up Response
+export interface ReloadlyTopupResponse {
+  transactionId: number;
+  status: 'SUCCESSFUL' | 'PENDING' | 'FAILED' | 'REFUNDED';
+  operatorTransactionId: string | null;
+  customIdentifier: string | null;
+  recipientPhone: number;
+  recipientEmail: string | null;
+  senderPhone: number | null;
+  countryCode: string;
+  operatorId: number;
+  operatorName: string;
+  discount: number;
+  discountCurrencyCode: string;
+  requestedAmount: number;
+  requestedAmountCurrencyCode: string;
+  deliveredAmount: number;
+  deliveredAmountCurrencyCode: string;
+  transactionDate: string;
+  fee?: number;
+  pinDetail?: {
+    serial: number;
+    info1: string;
+    info2: string;
+    info3: string;
+    value: string | null;
+    code: number;
+    ivr: string;
+    validity: string;
+  };
+  balanceInfo?: {
+    oldBalance: number;
+    newBalance: number;
+    currencyCode: string;
+    currencyName: string;
+    updatedAt: string;
+  };
+}
+
+// Top-up Status Response
+export interface ReloadlyTopupStatusResponse {
+  code: string | null;
+  message: string | null;
+  status: 'SUCCESSFUL' | 'PENDING' | 'FAILED' | 'REFUNDED';
+  transaction: ReloadlyTopupResponse;
+}
+
+// Account Balance Response
+export interface ReloadlyBalanceResponse {
+  balance: number;
+  currencyCode: string;
+  currencyName: string;
+  updatedAt: string;
+}
+
+// Countries Response
+export interface ReloadlyCountriesResponse {
+  content: ReloadlyCountry[];
+  totalElements?: number;
+}
+
+// Gift Card Product
 export interface ReloadlyProduct {
   productId: number;
   productName: string;
@@ -35,9 +154,6 @@ export interface ReloadlyProduct {
   currencyCode: string;
   minValue?: number;
   maxValue?: number;
-  denominationType?: 'FIXED' | 'RANGE';
-  minRecipientDenomination?: number;
-  maxRecipientDenomination?: number;
   fixedRecipientDenominations?: number[];
   fixedSenderDenominations?: number[];
   logoUrl?: string;
@@ -46,16 +162,19 @@ export interface ReloadlyProduct {
   productType?: string;
   redeemInstruction?: string;
   description?: string;
+  [key: string]: any; // Allow additional fields from Reloadly API
 }
 
+// Products Response
 export interface ReloadlyProductsResponse {
   content: ReloadlyProduct[];
-  totalElements: number;
-  totalPages: number;
+  totalElements?: number;
+  totalPages?: number;
   page?: number;
   size?: number;
 }
 
+// Product Query Parameters
 export interface ReloadlyProductQueryParams {
   countryCode?: string;
   productName?: string;
@@ -65,72 +184,60 @@ export interface ReloadlyProductQueryParams {
   size?: number;
 }
 
-// ============================================
-// Country Types
-// ============================================
-
-export interface ReloadlyCountry {
-  isoName: string;
-  name: string;
-  currencyCode: string;
-  currencyName: string;
-  flag?: string;
+// Error Response
+export interface ReloadlyError {
+  error?: string;
+  message?: string;
+  status?: number;
+  statusText?: string;
+  [key: string]: any;
 }
 
-export interface ReloadlyCountriesResponse {
-  content: ReloadlyCountry[];
-  totalElements?: number;
-  totalPages?: number;
-}
-
-// ============================================
-// Order Types (Official Reloadly API Structure)
-// ============================================
-
+// Gift Card Order Request
 export interface ReloadlyOrderRequest {
-  productId: number; // required
-  quantity: number; // required
-  unitPrice: number; // required - must be from fixedRecipientDenominations or within min/max range
-  senderName: string; // required
-  customIdentifier?: string; // optional
-  preOrder?: boolean; // optional, default false
-  recipientEmail?: string; // optional
+  productId: number;
+  quantity: number;
+  unitPrice: number;
+  senderName: string;
+  customIdentifier?: string;
+  preOrder?: boolean;
+  recipientEmail?: string;
   recipientPhoneDetails?: {
-    // optional object
-    countryCode?: string;
-    phoneNumber?: string;
+    countryCode: string;
+    phoneNumber: string;
   };
-  productAdditionalRequirements?: Record<string, any>; // optional object
+  productAdditionalRequirements?: any;
+  countryCode?: string; // Optional, some products require it
 }
 
+// Gift Card Order Response
 export interface ReloadlyOrderResponse {
   transactionId: number;
+  orderId?: number;
+  status: 'SUCCESSFUL' | 'PENDING' | 'PROCESSING' | 'REFUNDED' | 'FAILED';
   amount: number;
-  discount: number;
+  discount?: number;
   currencyCode: string;
   fee: number;
+  totalFee?: number;
   recipientEmail?: string;
-  customIdentifier: string;
-  status: 'SUCCESSFUL' | 'PENDING' | 'PROCESSING' | 'REFUNDED' | 'FAILED';
+  customIdentifier?: string;
   product: {
     productId: number;
     productName: string;
-    countryCode: string;
+    countryCode?: string;
     quantity: number;
     unitPrice: number;
-    totalPrice: number;
-    currencyCode: string;
-    brand: {
+    totalPrice?: number;
+    currencyCode?: string;
+    brand?: {
       brandId: number;
       brandName: string;
     };
   };
-  smsFee?: number;
-  totalFee: number;
-  receipientPhone?: number;
-  transactionCreatedTime: string;
-  preOrdered: boolean;
-  balanceInfo: {
+  transactionCreatedTime?: string;
+  preOrdered?: boolean;
+  balanceInfo?: {
     oldBalance: number;
     newBalance: number;
     cost: number;
@@ -140,138 +247,36 @@ export interface ReloadlyOrderResponse {
   };
 }
 
-export interface ReloadlyCardCode {
-  redemptionCode: string;
-  pin?: string | null;
-  serialNumber?: string | null;
-  expiryDate?: string;
-}
-
+// Gift Card Codes Response
 export interface ReloadlyCardCodesResponse {
-  content: ReloadlyCardCode[];
+  content: Array<{
+    redemptionCode: string;
+    pin?: string;
+    expiryDate?: string;
+    serialNumber?: string;
+  }>;
+  totalElements?: number;
 }
 
-// ============================================
-// Transaction/Report Types
-// ============================================
-
+// Gift Card Transaction
 export interface ReloadlyTransaction {
   transactionId: number;
-  orderId: number;
-  status: string;
-  productId: number;
-  productName: string;
-  countryCode: string;
-  quantity: number;
-  unitPrice: number;
-  totalPrice: number;
+  orderId?: number;
+  status: 'SUCCESSFUL' | 'PENDING' | 'PROCESSING' | 'REFUNDED' | 'FAILED';
+  amount: number;
+  discount?: number;
   currencyCode: string;
-  redemptionCode?: string;
-  pin?: string | null;
-  serialNumber?: string | null;
-  expiryDate?: string;
-  redemptionInstructions?: string;
-}
-
-export interface ReloadlyTransactionsResponse {
-  content: ReloadlyTransaction[];
-  totalElements: number;
-  totalPages: number;
-}
-
-export interface ReloadlyTransactionQueryParams {
-  startDate?: string;
-  endDate?: string;
-  page?: number;
-  size?: number;
-}
-
-// ============================================
-// Discount Types
-// ============================================
-
-export interface ReloadlyDiscount {
-  discountId: number;
-  productId?: number;
-  discountPercentage?: number;
-  discountAmount?: number;
-  validFrom?: string;
-  validTo?: string;
-}
-
-export interface ReloadlyDiscountsResponse {
-  content: ReloadlyDiscount[];
-  totalElements?: number;
-  totalPages?: number;
-}
-
-// ============================================
-// Account Types
-// ============================================
-
-export interface ReloadlyAccountBalance {
-  balance: number;
-  currencyCode: string;
-}
-
-// ============================================
-// Redeem Instructions Types
-// ============================================
-
-export interface ReloadlyRedeemInstruction {
-  brandId?: number;
-  instructions: string;
-}
-
-export interface ReloadlyRedeemInstructionsResponse {
-  content: ReloadlyRedeemInstruction[];
-}
-
-// ============================================
-// Our Internal Types
-// ============================================
-
-export interface GiftCardPurchaseRequest {
-  productId: number;
-  countryCode: string;
-  cardType: string;
-  faceValue: number;
-  quantity: number;
-  currencyCode: string;
-  paymentMethod: 'wallet' | 'card' | 'bank_transfer';
+  fee: number;
   recipientEmail?: string;
-  recipientPhone?: string;
-  senderName?: string;
+  customIdentifier?: string;
+  product?: {
+    productId: number;
+    productName: string;
+    countryCode?: string;
+    quantity: number;
+    unitPrice: number;
+    currencyCode?: string;
+  };
+  transactionCreatedTime?: string;
+  [key: string]: any;
 }
-
-export interface GiftCardPurchaseValidationRequest {
-  productId: number;
-  countryCode: string;
-  cardType: string;
-  faceValue: number;
-  quantity: number;
-  currencyCode: string;
-}
-
-export interface GiftCardPurchaseValidationResponse {
-  valid: boolean;
-  faceValue: number;
-  fees: number;
-  totalAmount: number;
-  currencyCode: string;
-  errors?: string[];
-}
-
-// ============================================
-// Error Types
-// ============================================
-
-export interface ReloadlyError {
-  error: string;
-  error_description?: string;
-  message?: string;
-  timestamp?: string;
-  path?: string;
-  status?: number;
-}
-

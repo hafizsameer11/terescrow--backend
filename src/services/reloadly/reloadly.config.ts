@@ -1,13 +1,7 @@
 /**
  * Reloadly Configuration Service
- * 
- * Manages Reloadly API configuration and environment settings.
- * Handles both sandbox and production environments.
+ * Manages Reloadly API configuration and base URLs
  */
-
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 export interface ReloadlyConfig {
   clientId: string;
@@ -15,7 +9,7 @@ export interface ReloadlyConfig {
   environment: 'sandbox' | 'production';
   baseUrl: string;
   authUrl: string;
-  audience: string;
+  audience: string; // Product audience URL
 }
 
 class ReloadlyConfigService {
@@ -24,75 +18,59 @@ class ReloadlyConfigService {
   constructor() {
     const environment = (process.env.RELOADLY_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production';
     
+    const clientId = process.env.RELOADLY_CLIENT_ID || '';
+    const clientSecret = process.env.RELOADLY_CLIENT_SECRET || '';
+    
     this.config = {
-      clientId: process.env.RELOADLY_CLIENT_ID || '',
-      clientSecret: process.env.RELOADLY_CLIENT_SECRET || '',
+      clientId,
+      clientSecret,
       environment,
-      baseUrl: environment === 'production' 
-        ? process.env.RELOADLY_BASE_URL || 'https://giftcards.reloadly.com'
-        : process.env.RELOADLY_SANDBOX_URL || 'https://giftcards-sandbox.reloadly.com',
+      baseUrl: environment === 'production'
+        ? process.env.RELOADLY_BASE_URL || 'https://topups.reloadly.com'
+        : process.env.RELOADLY_SANDBOX_URL || 'https://topups-sandbox.reloadly.com',
       authUrl: process.env.RELOADLY_AUTH_URL || 'https://auth.reloadly.com',
-      audience: environment === 'production'
-        ? 'https://giftcards.reloadly.com'
-        : 'https://giftcards-sandbox.reloadly.com',
+      audience: process.env.RELOADLY_AUDIENCE || (environment === 'production' 
+        ? 'https://topups.reloadly.com'
+        : 'https://topups-sandbox.reloadly.com'),
     };
   }
 
-  /**
-   * Validate config only when actually needed (lazy validation)
-   */
-  private validateConfig(): void {
-    if (!this.config.clientId) {
-      throw new Error('RELOADLY_CLIENT_ID is required in environment variables. Please add it to your .env file.');
-    }
-    if (!this.config.clientSecret) {
-      throw new Error('RELOADLY_CLIENT_SECRET is required in environment variables. Please add it to your .env file.');
-    }
-  }
-
   getConfig(): ReloadlyConfig {
-    this.validateConfig(); // Validate only when accessed
-    return { ...this.config };
+    return this.config;
   }
 
   getBaseUrl(): string {
-    this.validateConfig(); // Validate only when accessed
     return this.config.baseUrl;
   }
 
   getAuthUrl(): string {
-    this.validateConfig(); // Validate only when accessed
     return this.config.authUrl;
   }
 
-  getAudience(): string {
-    this.validateConfig(); // Validate only when accessed
-    return this.config.audience;
-  }
-
   getClientId(): string {
-    this.validateConfig(); // Validate only when accessed
     return this.config.clientId;
   }
 
   getClientSecret(): string {
-    this.validateConfig(); // Validate only when accessed
     return this.config.clientSecret;
+  }
+
+  getAudience(): string {
+    return this.config.audience;
   }
 
   getEnvironment(): 'sandbox' | 'production' {
     return this.config.environment;
   }
 
-  isProduction(): boolean {
-    return this.config.environment === 'production';
-  }
-
-  isSandbox(): boolean {
-    return this.config.environment === 'sandbox';
+  validateConfig(): void {
+    if (!this.config.clientId) {
+      throw new Error('RELOADLY_CLIENT_ID is required');
+    }
+    if (!this.config.clientSecret) {
+      throw new Error('RELOADLY_CLIENT_SECRET is required');
+    }
   }
 }
 
-// Export singleton instance
 export const reloadlyConfig = new ReloadlyConfigService();
-

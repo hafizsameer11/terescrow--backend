@@ -8,7 +8,7 @@
  */
 
 import { reloadlyConfig } from './reloadly.config';
-import { reloadlyAuthService } from './reloadly.auth.service';
+import { reloadlyAuth } from './reloadly.auth.service';
 import {
   ReloadlyOrderRequest,
   ReloadlyOrderResponse,
@@ -30,7 +30,7 @@ class ReloadlyOrdersService {
    */
   async createOrder(orderData: ReloadlyOrderRequest): Promise<ReloadlyOrderResponse> {
     try {
-      const token = await reloadlyAuthService.getAccessToken();
+      const token = await reloadlyAuth.getAccessToken();
 
       const response = await fetch(`${this.getBaseUrl()}/orders`, {
         method: 'POST',
@@ -63,7 +63,7 @@ class ReloadlyOrdersService {
    */
   async getCardCodes(transactionId: number): Promise<ReloadlyCardCodesResponse> {
     try {
-      const token = await reloadlyAuthService.getAccessToken();
+      const token = await reloadlyAuth.getAccessToken();
 
       const response = await fetch(`${this.getBaseUrl()}/orders/transactions/${transactionId}/cards`, {
         method: 'GET',
@@ -93,7 +93,7 @@ class ReloadlyOrdersService {
    */
   async getTransactionById(transactionId: number): Promise<ReloadlyTransaction> {
     try {
-      const token = await reloadlyAuthService.getAccessToken();
+      const token = await reloadlyAuth.getAccessToken();
 
       const response = await fetch(`${this.getBaseUrl()}/reports/transactions/${transactionId}`, {
         method: 'GET',

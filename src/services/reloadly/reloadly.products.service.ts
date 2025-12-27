@@ -9,7 +9,7 @@
  */
 
 import { reloadlyConfig } from './reloadly.config';
-import { reloadlyAuthService } from './reloadly.auth.service';
+import { reloadlyAuth } from './reloadly.auth.service';
 import {
   ReloadlyProduct,
   ReloadlyProductsResponse,
@@ -27,7 +27,7 @@ class ReloadlyProductsService {
    */
   async getProducts(params?: ReloadlyProductQueryParams): Promise<ReloadlyProductsResponse> {
     try {
-      const token = await reloadlyAuthService.getAccessToken();
+      const token = await reloadlyAuth.getAccessToken();
       console.log('token reloadly products', token);
       const queryParams = new URLSearchParams();
       if (params?.countryCode) queryParams.append('countryCode', params.countryCode);
@@ -68,7 +68,7 @@ class ReloadlyProductsService {
    */
   async getProductById(productId: number): Promise<ReloadlyProduct> {
     try {
-      const token = await reloadlyAuthService.getAccessToken();
+      const token = await reloadlyAuth.getAccessToken();
 
       const response = await fetch(`${this.getBaseUrl()}/products/${productId}`, {
         method: 'GET',
@@ -98,7 +98,7 @@ class ReloadlyProductsService {
    */
   async getProductsByCountry(countryCode: string, params?: { page?: number; size?: number }): Promise<ReloadlyProductsResponse> {
     try {
-      const token = await reloadlyAuthService.getAccessToken();
+      const token = await reloadlyAuth.getAccessToken();
       
       const queryParams = new URLSearchParams();
       if (params?.page) queryParams.append('page', String(params.page));

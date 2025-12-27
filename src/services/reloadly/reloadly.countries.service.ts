@@ -8,7 +8,7 @@
  */
 
 import { reloadlyConfig } from './reloadly.config';
-import { reloadlyAuthService } from './reloadly.auth.service';
+import { reloadlyAuth } from './reloadly.auth.service';
 import {
   ReloadlyCountry,
   ReloadlyCountriesResponse,
@@ -25,7 +25,7 @@ class ReloadlyCountriesService {
    */
   async getCountries(): Promise<ReloadlyCountriesResponse> {
     try {
-      const token = await reloadlyAuthService.getAccessToken();
+      const token = await reloadlyAuth.getAccessToken();
       console.log('token', token);
       const response = await fetch(`${this.getBaseUrl()}/countries`, {
         method: 'GET',
@@ -103,7 +103,7 @@ class ReloadlyCountriesService {
    */
   async getCountryByIso(isoCode: string): Promise<ReloadlyCountry> {
     try {
-      const token = await reloadlyAuthService.getAccessToken();
+      const token = await reloadlyAuth.getAccessToken();
 
       const response = await fetch(`${this.getBaseUrl()}/countries/${isoCode}`, {
         method: 'GET',
@@ -134,7 +134,7 @@ class ReloadlyCountriesService {
    */
   async getCategories(): Promise<Array<{ id: number; name: string }>> {
     try {
-      const token = await reloadlyAuthService.getAccessToken();
+      const token = await reloadlyAuth.getAccessToken();
       const response = await fetch(`${this.getBaseUrl()}/product-categories`, {
         method: 'GET',
         headers: {

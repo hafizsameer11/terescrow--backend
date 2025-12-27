@@ -68,9 +68,10 @@ export interface SwapQuoteResult {
 
 class CryptoSwapService {
   /**
-   * Calculate gas fee estimate for real blockchain swaps
+   * Calculate gas fee estimate for real blockchain swaps - COMMENTED OUT
    * For ETH ↔ USDT on Ethereum: calculates actual gas fees for both transfers
    * For other swaps: uses fixed percentage as fallback
+   * BLOCKCHAIN CODE COMMENTED OUT - Using fallback calculation only
    */
   private async calculateGasFee(
     fromAmountUsd: Decimal,
@@ -81,8 +82,9 @@ class CryptoSwapService {
     toAddress?: string,
     fromAmount?: Decimal
   ): Promise<{ gasFee: Decimal; gasFeeUsd: Decimal; gasFeeEth: Decimal }> {
+    // BLOCKCHAIN CODE COMMENTED OUT - Using fallback calculation only
     // For real blockchain swaps (ETH ↔ USDT on Ethereum), calculate actual gas fees
-    if (fromBlockchain.toLowerCase() === 'ethereum' && 
+    /* if (fromBlockchain.toLowerCase() === 'ethereum' && 
         (fromCurrency.toUpperCase() === 'ETH' || fromCurrency.toUpperCase() === 'USDT') &&
         fromAddress && toAddress && fromAmount) {
       try {
@@ -159,7 +161,7 @@ class CryptoSwapService {
         console.error('[CRYPTO SWAP] Error calculating real gas fee, using fallback:', error);
         // Fall through to fallback calculation
       }
-    }
+    } */
     
     // Fallback: Use fixed percentage (0.5% of the swap amount) or minimum fee
     const gasFeePercentage = new Decimal('0.005'); // 0.5%
@@ -442,10 +444,11 @@ class CryptoSwapService {
     // Check if user has sufficient balance (including gas fee)
     const hasSufficientBalance = fromBalanceBefore.gte(totalAmountDecimal);
 
-    // For USDT → ETH swaps: Check if user has enough ETH for gas
+    // BLOCKCHAIN CODE COMMENTED OUT - Simulated values only
+    // For USDT → ETH swaps: Check if user has enough ETH for gas - COMMENTED OUT
     let hasSufficientEth = true;
     let userEthBalance = new Decimal('0');
-    if (input.fromCurrency.toUpperCase() === 'USDT') {
+    /* if (input.fromCurrency.toUpperCase() === 'USDT') {
       cryptoLogger.info('Checking ETH balance for USDT swap (gas fee check)', {
         userId: input.userId,
         depositAddress: fromDepositAddress,
@@ -491,7 +494,7 @@ class CryptoSwapService {
         });
         hasSufficientEth = false;
       }
-    }
+    } */
 
     const fromBalanceAfter = hasSufficientBalance
       ? fromBalanceBefore.minus(totalAmountDecimal)
@@ -637,8 +640,9 @@ class CryptoSwapService {
       throw new Error(`Insufficient ${fromCurrency} balance. Required: ${totalAmountDecimal.toString()}, Available: ${fromBalanceBefore.toString()}`);
     }
 
-    // For USDT → ETH swaps: Check if user has enough ETH for gas
-    if (fromCurrency.toUpperCase() === 'USDT') {
+    // BLOCKCHAIN CODE COMMENTED OUT - Simulated transaction only
+    // For USDT → ETH swaps: Check if user has enough ETH for gas - COMMENTED OUT
+    /* if (fromCurrency.toUpperCase() === 'USDT') {
       const { ethereumBalanceService } = await import('../ethereum/ethereum.balance.service');
       const userEthBalanceStr = await ethereumBalanceService.getETHBalance(fromDepositAddress, false);
       const userEthBalance = new Decimal(userEthBalanceStr);
@@ -662,10 +666,26 @@ class CryptoSwapService {
       if (userEthBalance.lessThan(minimumEthNeeded)) {
         throw new Error(`Insufficient ETH for gas fees. You need at least ${minimumEthNeeded.toString()} ETH to swap USDT, but you only have ${userEthBalance.toString()} ETH. Please buy some ETH first.`);
       }
-    }
+    } */
 
-    // Decrypt private keys
+    // Generate simulated transaction hashes
     const crypto = require('crypto');
+    const userToMasterTxHash = '0x' + crypto.randomBytes(32).toString('hex');
+    const masterToUserTxHash = '0x' + crypto.randomBytes(32).toString('hex');
+
+    cryptoLogger.info('Simulated swap transaction', {
+      userId,
+      fromCurrency: fromCurrency.toUpperCase(),
+      toCurrency: toCurrency.toUpperCase(),
+      fromAmount: fromAmountDecimal.toString(),
+      simulatedUserToMasterTxHash: userToMasterTxHash,
+      simulatedMasterToUserTxHash: masterToUserTxHash,
+      note: 'Blockchain calls commented out - using simulated transaction hashes',
+    });
+
+    // COMMENTED OUT: Real blockchain transfer code
+    // Decrypt private keys (commented out)
+    /*
     function decryptPrivateKey(encryptedKey: string): string {
       const algorithm = 'aes-256-cbc';
       const key = Buffer.from(process.env.ENCRYPTION_KEY || 'default-key-32-characters-long!!', 'utf8');
@@ -679,7 +699,7 @@ class CryptoSwapService {
       return decrypted;
     }
 
-    let userPrivateKey = decryptPrivateKey(fromDepositAddressRecord.privateKey);
+    /* let userPrivateKey = decryptPrivateKey(fromDepositAddressRecord.privateKey);
     userPrivateKey = userPrivateKey.trim();
     if (userPrivateKey.startsWith('0x')) {
       userPrivateKey = userPrivateKey.substring(2).trim();
@@ -781,7 +801,7 @@ class CryptoSwapService {
         note: 'Blockchain swap failed - virtual accounts not updated.',
       });
       throw new Error(`Failed to execute swap: ${error.message || 'Unknown error'}`);
-    }
+    } */
 
     const toBalanceBefore = new Decimal(toVirtualAccount.availableBalance || '0');
     const fromBalanceAfter = fromBalanceBefore.minus(totalAmountDecimal);
@@ -838,7 +858,7 @@ class CryptoSwapService {
               gasFeeUsd: new Decimal(quote.gasFeeUsd),
               totalAmount: new Decimal(quote.totalAmount),
               totalAmountUsd: new Decimal(quote.totalAmountUsd),
-              txHash: userToMasterTxHash || null, // Store user→master transaction hash (first transaction)
+              txHash: userToMasterTxHash, // Store simulated user→master transaction hash (first transaction)
             },
           },
         },

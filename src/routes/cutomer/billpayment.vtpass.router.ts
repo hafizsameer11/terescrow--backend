@@ -1,31 +1,31 @@
 import { Router } from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
 import {
-  queryBillersController,
-  queryItemsController,
-  verifyAccountController,
-  createBillOrderController,
-  queryOrderStatusController,
-  getBillPaymentHistoryController,
-} from '../../controllers/customer/billpayment.controller';
+  queryVtpassBillersController,
+  queryVtpassItemsController,
+  verifyVtpassAccountController,
+  createVtpassBillOrderController,
+  queryVtpassOrderStatusController,
+  getVtpassBillPaymentHistoryController,
+} from '../../controllers/customer/billpayment.vtpass.controller';
 
-const billPaymentRouter = Router();
+const vtpassBillPaymentRouter = Router();
 
 /**
  * @swagger
  * tags:
- *   name: V2 - Bill Payments
- *   description: Bill payment endpoints (Airtime, Data, Cable, Electricity, Education, Betting) using PalmPay or VTpass
+ *   name: V2 - Bill Payments - VTpass
+ *   description: VTpass bill payment endpoints (Airtime, Data, Cable, Electricity, Education)
  */
 
 /**
  * @swagger
- * /api/v2/bill-payments/billers:
+ * /api/v2/bill-payments/vtpass/billers:
  *   get:
- *     summary: Query billers (operators) for a scene code
- *     tags: [V2 - Bill Payments]
+ *     summary: Query VTpass billers (operators) for a scene code
+ *     tags: [V2 - Bill Payments - VTpass]
  *     description: |
- *       **V2 API** - Get list of available operators (MTN, GLO, Airtel, etc.) for airtime, data, cable, electricity, education, or betting.
+ *       **V2 API** - Get list of available VTpass operators for airtime, data, cable, electricity, or education.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -34,29 +34,12 @@ const billPaymentRouter = Router();
  *         required: true
  *         schema:
  *           type: string
- *           enum: [airtime, data, cable, electricity, education, betting]
+ *           enum: [airtime, data, cable, electricity, education]
  *         description: |
- *           Business scenario code. Examples: airtime, data, cable, electricity, education, betting.
- *       - in: query
- *         name: provider
- *         required: false
- *         schema:
- *           type: string
- *           enum: [palmpay, vtpass]
- *           default: palmpay
- *         description: |
- *           Payment provider. "palmpay" for PalmPay (supports airtime, data, betting).
- *           "vtpass" for VTpass (supports airtime, data, cable, electricity, education).
- *         examples:
- *           airtime:
- *             value: airtime
- *           data:
- *             value: data
- *           betting:
- *             value: betting
+ *           Business scenario code. Supported values: airtime, data, cable, electricity, education.
  *     responses:
  *       200:
- *         description: Billers retrieved successfully
+ *         description: VTpass billers retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -64,6 +47,9 @@ const billPaymentRouter = Router();
  *               properties:
  *                 sceneCode:
  *                   type: string
+ *                 provider:
+ *                   type: string
+ *                   example: "vtpass"
  *                 billers:
  *                   type: array
  *                   items:
@@ -75,30 +61,21 @@ const billPaymentRouter = Router();
  *                       billerName:
  *                         type: string
  *                         example: "MTN"
- *                       billerIcon:
+ *                       serviceID:
  *                         type: string
- *                         example: "https://xxx/MTN.png"
- *                       minAmount:
- *                         type: number
- *                         example: 100
- *                       maxAmount:
- *                         type: number
- *                         example: 100000
- *                       status:
- *                         type: integer
- *                         example: 1
+ *                         example: "mtn"
  */
-billPaymentRouter.get('/billers', authenticateUser, queryBillersController);
+vtpassBillPaymentRouter.get('/billers', authenticateUser, queryVtpassBillersController);
 
 /**
  * @swagger
- * /api/v2/bill-payments/items:
+ * /api/v2/bill-payments/vtpass/items:
  *   get:
- *     summary: Query items (packages) for a biller
- *     tags: [V2 - Bill Payments]
+ *     summary: Query VTpass items (packages/plans) for a biller
+ *     tags: [V2 - Bill Payments - VTpass]
  *     description: |
- *       **V2 API** - Get list of available packages/plans for a specific operator.
- *       Example: Get data plans for MTN.
+ *       **V2 API** - Get list of available packages/plans for a specific VTpass operator.
+ *       Example: Get data plans for MTN, cable bouquets for DSTV, etc.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -107,26 +84,17 @@ billPaymentRouter.get('/billers', authenticateUser, queryBillersController);
  *         required: true
  *         schema:
  *           type: string
- *           enum: [airtime, data, cable, electricity, education, betting]
- *         description: |
- *           Business scenario code. Examples: airtime, data, cable, electricity, education, betting.
+ *           enum: [airtime, data, cable, electricity, education]
+ *         description: Business scenario code
  *       - in: query
  *         name: billerId
  *         required: true
  *         schema:
  *           type: string
- *         description: Operator ID (e.g., "MTN", "GLO", "DSTV", "IKEDC")
- *       - in: query
- *         name: provider
- *         required: false
- *         schema:
- *           type: string
- *           enum: [palmpay, vtpass]
- *           default: palmpay
- *         description: Payment provider (palmpay or vtpass)
+ *         description: Operator ID (e.g., "MTN", "GLO", "DSTV", "IKEDC", "JAMB")
  *     responses:
  *       200:
- *         description: Items retrieved successfully
+ *         description: VTpass items retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -134,6 +102,9 @@ billPaymentRouter.get('/billers', authenticateUser, queryBillersController);
  *               properties:
  *                 sceneCode:
  *                   type: string
+ *                 provider:
+ *                   type: string
+ *                   example: "vtpass"
  *                 billerId:
  *                   type: string
  *                 items:
@@ -145,32 +116,29 @@ billPaymentRouter.get('/billers', authenticateUser, queryBillersController);
  *                         type: string
  *                       itemId:
  *                         type: string
+ *                         description: Variation code (for data/cable/electricity/education). Empty for airtime.
  *                       itemName:
  *                         type: string
+ *                         description: Plan/bouquet name
  *                       amount:
  *                         type: number
- *                       minAmount:
- *                         type: number
- *                       maxAmount:
- *                         type: number
- *                       isFixAmount:
- *                         type: integer
- *                         description: "0 = Non-fixed, 1 = Fixed"
- *                       status:
- *                         type: integer
+ *                         description: Price in NGN (0 for user-specified amounts like airtime/electricity)
+ *                       serviceID:
+ *                         type: string
  */
-billPaymentRouter.get('/items', authenticateUser, queryItemsController);
+vtpassBillPaymentRouter.get('/items', authenticateUser, queryVtpassItemsController);
 
 /**
  * @swagger
- * /api/v2/bill-payments/verify-account:
+ * /api/v2/bill-payments/vtpass/verify-account:
  *   post:
- *     summary: Verify recharge account (phone number, meter number, etc.)
- *     tags: [V2 - Bill Payments]
+ *     summary: Verify VTpass recharge account (phone/meter/smartcard/profile)
+ *     tags: [V2 - Bill Payments - VTpass]
  *     description: |
- *       **V2 API** - Verify recipient account and get operator information.
- *       For betting (PalmPay), billerId and itemId are required.
- *       For electricity (VTpass), itemId (meterType: prepaid/postpaid) is required.
+ *       **V2 API** - Verify recipient account and get operator/customer information.
+ *       - For electricity, itemId (meterType: "prepaid" or "postpaid") is required.
+ *       - For cable, verifies smartcard number.
+ *       - For education JAMB, verifies profile ID.
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -182,29 +150,26 @@ billPaymentRouter.get('/items', authenticateUser, queryItemsController);
  *             required:
  *               - sceneCode
  *               - rechargeAccount
+ *               - billerId
  *             properties:
  *               sceneCode:
  *                 type: string
- *                 enum: [airtime, data, cable, electricity, education, betting]
+ *                 enum: [airtime, data, cable, electricity, education]
  *                 description: Business scenario code
  *                 example: "airtime"
- *               provider:
- *                 type: string
- *                 enum: [palmpay, vtpass]
- *                 default: palmpay
- *                 description: Payment provider
  *               rechargeAccount:
  *                 type: string
  *                 maxLength: 50
  *                 example: "08154462953"
- *                 description: Phone number, meter number, smartcard number, or account number
+ *                 description: Phone number, meter number, smartcard number, or profile ID
  *               billerId:
  *                 type: string
- *                 description: Required for betting (PalmPay) and verification
  *                 example: "MTN"
+ *                 description: Operator ID (required for verification)
  *               itemId:
  *                 type: string
- *                 description: Required for betting (PalmPay). For electricity (VTpass), must be "prepaid" or "postpaid"
+ *                 description: Required for electricity (must be "prepaid" or "postpaid"). Optional for JAMB verification.
+ *                 example: "prepaid"
  *     responses:
  *       200:
  *         description: Account verification result
@@ -217,28 +182,32 @@ billPaymentRouter.get('/items', authenticateUser, queryItemsController);
  *                   type: boolean
  *                 biller:
  *                   type: string
- *                   example: "GLO"
+ *                   example: "MTN"
+ *                 result:
+ *                   type: object
+ *                   description: Additional verification details (customer name, meter type, etc.)
  */
-billPaymentRouter.post('/verify-account', authenticateUser, verifyAccountController);
+vtpassBillPaymentRouter.post('/verify-account', authenticateUser, verifyVtpassAccountController);
 
 /**
  * @swagger
- * /api/v2/bill-payments/create-order:
+ * /api/v2/bill-payments/vtpass/create-order:
  *   post:
- *     summary: Create bill payment order
- *     tags: [V2 - Bill Payments]
+ *     summary: Create VTpass bill payment order
+ *     tags: [V2 - Bill Payments - VTpass]
  *     description: |
- *       **V2 API** - Create a bill payment order (Airtime, Data, Cable, Electricity, Education, or Betting).
+ *       **V2 API** - Create a VTpass bill payment order (Airtime, Data, Cable, Electricity, or Education).
  *       
- *       **IMPORTANT**: This endpoint debits the user's wallet balance BEFORE creating the provider order.
- *       If the provider order creation fails, the wallet is automatically refunded.
+ *       **IMPORTANT**: This endpoint debits the user's wallet balance BEFORE creating the VTpass order.
+ *       If the VTpass order creation fails, the wallet is automatically refunded.
  *       
  *       **PIN Required**: User must provide their 4-digit PIN for authorization.
  *       
  *       **VTpass Requirements**: 
- *       - `phone` field is required for VTpass
- *       - For VTpass airtime, `itemId` is optional
- *       - For VTpass electricity, `itemId` must be "prepaid" or "postpaid"
+ *       - `phone` field is required for all VTpass services
+ *       - For airtime, `itemId` is optional
+ *       - For electricity, `itemId` must be "prepaid" or "postpaid"
+ *       - For data/cable/education, `itemId` (variation_code) is required
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -252,38 +221,34 @@ billPaymentRouter.post('/verify-account', authenticateUser, verifyAccountControl
  *               - billerId
  *               - rechargeAccount
  *               - amount
+ *               - phone
  *               - pin
  *             properties:
  *               sceneCode:
  *                 type: string
- *                 enum: [airtime, data, cable, electricity, education, betting]
+ *                 enum: [airtime, data, cable, electricity, education]
  *                 description: Business scenario code
  *                 example: "airtime"
- *               provider:
- *                 type: string
- *                 enum: [palmpay, vtpass]
- *                 default: palmpay
- *                 description: Payment provider
  *               billerId:
  *                 type: string
  *                 example: "MTN"
  *               itemId:
  *                 type: string
- *                 example: "5267001812"
- *                 description: Required for PalmPay. For VTpass airtime, optional. For VTpass electricity, must be "prepaid" or "postpaid"
+ *                 example: "mtn-1gb"
+ *                 description: Variation code (optional for airtime, required for others). For electricity, must be "prepaid" or "postpaid"
  *               rechargeAccount:
  *                 type: string
  *                 maxLength: 50
  *                 example: "08154462953"
- *                 description: Phone number, meter number, smartcard number, or account number
+ *                 description: Phone number, meter number, smartcard number, or profile ID
  *               phone:
  *                 type: string
  *                 example: "08011111111"
- *                 description: Required for VTpass. Customer phone number.
+ *                 description: Customer phone number (required for VTpass)
  *               amount:
  *                 type: number
  *                 example: 1000.00
- *                 description: Amount in currency (e.g., 1000.00 NGN)
+ *                 description: Amount in NGN
  *               pin:
  *                 type: string
  *                 pattern: '^\d{4}$'
@@ -303,18 +268,15 @@ billPaymentRouter.post('/verify-account', authenticateUser, verifyAccountControl
  *                   type: string
  *                 orderNo:
  *                   type: string
- *                   description: Provider platform order number (PalmPay orderNo or VTpass transactionId)
- *                 outOrderNo:
- *                   type: string
- *                   description: Merchant order number (PalmPay) or request ID (VTpass)
+ *                   description: VTpass transaction ID
  *                 requestId:
  *                   type: string
- *                   description: VTpass request ID (only for VTpass)
- *                 provider:
- *                   type: string
- *                   description: Payment provider used (palmpay or vtpass)
+ *                   description: VTpass request ID
  *                 sceneCode:
  *                   type: string
+ *                 provider:
+ *                   type: string
+ *                   example: "vtpass"
  *                 billerId:
  *                   type: string
  *                 itemId:
@@ -325,25 +287,31 @@ billPaymentRouter.post('/verify-account', authenticateUser, verifyAccountControl
  *                   type: number
  *                 currency:
  *                   type: string
+ *                 orderStatus:
+ *                   type: integer
+ *                   description: "1 = pending, 2 = success, 3 = failed"
  *                 status:
+ *                   type: string
+ *                   enum: [pending, completed]
+ *                 message:
  *                   type: string
  *       400:
  *         description: Validation error, insufficient balance, or invalid PIN
  *       401:
  *         description: Invalid PIN
  */
-billPaymentRouter.post('/create-order', authenticateUser, createBillOrderController);
+vtpassBillPaymentRouter.post('/create-order', authenticateUser, createVtpassBillOrderController);
 
 /**
  * @swagger
- * /api/v2/bill-payments/order-status:
+ * /api/v2/bill-payments/vtpass/order-status:
  *   get:
- *     summary: Query bill payment order status
- *     tags: [V2 - Bill Payments]
+ *     summary: Query VTpass bill payment order status
+ *     tags: [V2 - Bill Payments - VTpass]
  *     description: |
- *       **V2 API** - Query the status of a bill payment order from the database.
+ *       **V2 API** - Query the status of a VTpass bill payment order from the database.
  *       Returns the current status stored in our database.
- *       Can query by billPaymentId OR by sceneCode + orderNo/outOrderNo.
+ *       Can query by billPaymentId OR by sceneCode + requestId/orderNo.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -356,26 +324,18 @@ billPaymentRouter.post('/create-order', authenticateUser, createBillOrderControl
  *         name: sceneCode
  *         schema:
  *           type: string
- *         description: |
- *           Business scenario code. Examples: airtime, data, betting.
- *           Any scene code value is accepted. Required if billPaymentId not provided.
- *         examples:
- *           airtime:
- *             value: airtime
- *           data:
- *             value: data
- *           betting:
- *             value: betting
+ *           enum: [airtime, data, cable, electricity, education]
+ *         description: Business scenario code (required if billPaymentId not provided)
  *       - in: query
- *         name: outOrderNo
+ *         name: requestId
  *         schema:
  *           type: string
- *         description: Merchant order number (required if billPaymentId not provided)
+ *         description: VTpass request ID (required if billPaymentId not provided)
  *       - in: query
  *         name: orderNo
  *         schema:
  *           type: string
- *         description: PalmPay platform order number (required if billPaymentId not provided)
+ *         description: VTpass transaction ID (required if billPaymentId not provided)
  *     responses:
  *       200:
  *         description: Order status retrieved successfully
@@ -387,16 +347,19 @@ billPaymentRouter.post('/create-order', authenticateUser, createBillOrderControl
  *                 orderStatus:
  *                   type: object
  *                   properties:
- *                     outOrderNo:
+ *                     requestId:
  *                       type: string
+ *                       description: VTpass request ID
  *                     orderNo:
  *                       type: string
+ *                       description: VTpass transaction ID
  *                     billerId:
  *                       type: string
  *                     itemId:
  *                       type: string
  *                     orderStatus:
  *                       type: integer
+ *                       description: "1 = pending, 2 = success, 3 = failed"
  *                     amount:
  *                       type: number
  *                     sceneCode:
@@ -405,28 +368,26 @@ billPaymentRouter.post('/create-order', authenticateUser, createBillOrderControl
  *                       type: string
  *                     completedTime:
  *                       type: number
- *                       description: Timestamp in milliseconds, or null if not completed
+ *                       nullable: true
  *                     errorMsg:
  *                       type: string
  *                       nullable: true
  *                 billPayment:
  *                   type: object
- *                   nullable: true
  *                   description: Full bill payment details from database
  */
-billPaymentRouter.get('/order-status', authenticateUser, queryOrderStatusController);
+vtpassBillPaymentRouter.get('/order-status', authenticateUser, queryVtpassOrderStatusController);
 
 /**
  * @swagger
- * /api/v2/bill-payments/history:
+ * /api/v2/bill-payments/vtpass/history:
  *   get:
- *     summary: Get bill payment history
- *     tags: [V2 - Bill Payments]
+ *     summary: Get VTpass bill payment history
+ *     tags: [V2 - Bill Payments - VTpass]
  *     description: |
- *       **V2 API** - Get user's bill payment transaction history with pagination and optional filters.
+ *       **V2 API** - Get user's VTpass bill payment transaction history with pagination and optional filters.
  *       
- *       If no filters are provided, returns all bill payments for the user.
- *       All query parameters are optional - use them to filter the results.
+ *       Returns only VTpass payments. All query parameters are optional.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -445,38 +406,30 @@ billPaymentRouter.get('/order-status', authenticateUser, queryOrderStatusControl
  *         required: false
  *         schema:
  *           type: string
- *         description: |
- *           (Optional) Business scenario code. Examples: airtime, data, cable, electricity, education, betting.
- *           If not provided, returns all scene codes.
- *       - in: query
- *         name: provider
- *         required: false
- *         schema:
- *           type: string
- *           enum: [palmpay, vtpass]
- *         description: (Optional) Filter by payment provider. If not provided, returns all providers.
+ *           enum: [airtime, data, cable, electricity, education]
+ *         description: Filter by scene code
  *       - in: query
  *         name: billerId
  *         required: false
  *         schema:
  *           type: string
- *         description: (Optional) Filter by biller ID (e.g., MTN, AIRTEL, GLO, DSTV, IKEDC). If not provided, returns all billers.
+ *         description: Filter by biller ID (e.g., MTN, DSTV, IKEDC)
  *       - in: query
  *         name: status
  *         required: false
  *         schema:
  *           type: string
  *           enum: [pending, processing, completed, failed, cancelled]
- *         description: (Optional) Filter by transaction status. If not provided, returns all statuses.
+ *         description: Filter by transaction status
  *     responses:
  *       200:
- *         description: Bill payment history retrieved successfully
+ *         description: VTpass bill payment history retrieved successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 transactions:
+ *                 billPayments:
  *                   type: array
  *                   items:
  *                     type: object
@@ -492,6 +445,7 @@ billPaymentRouter.get('/order-status', authenticateUser, queryOrderStatusControl
  *                     totalPages:
  *                       type: integer
  */
-billPaymentRouter.get('/history', authenticateUser, getBillPaymentHistoryController);
+vtpassBillPaymentRouter.get('/history', authenticateUser, getVtpassBillPaymentHistoryController);
 
-export default billPaymentRouter;
+export default vtpassBillPaymentRouter;
+

@@ -666,6 +666,7 @@ model BillPayment {
   userId           Int
   walletId         String
   transactionId    String          @unique
+  provider         String          @default("palmpay") @db.VarChar(20) // "palmpay" or "vtpass"
   sceneCode        String          @db.VarChar(20)
   billType         String          @db.VarChar(50)
   billerId         String          @db.VarChar(100)
@@ -676,9 +677,9 @@ model BillPayment {
   amount           Decimal         @db.Decimal(15, 2)
   currency         String          @default("NGN") @db.VarChar(10)
   status           String          @default("pending")
-  palmpayOrderId   String?         @unique
-  palmpayOrderNo   String?         @unique
-  palmpayStatus    String?
+  palmpayOrderId   String?         @unique // Also used for VTpass request_id
+  palmpayOrderNo   String?         @unique // Also used for VTpass transactionId
+  palmpayStatus    String?         // Also used for VTpass status (delivered, pending, failed)
   billReference    String?         @db.VarChar(200)
   providerResponse String?         @db.LongText
   errorMessage     String?         @db.Text
@@ -702,6 +703,7 @@ model BillPayment {
   @@index([sceneCode])
   @@index([billType])
   @@index([billerId])
+  @@index([provider])
   @@index([createdAt])
   @@map("BillPayment")
 }

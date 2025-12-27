@@ -260,7 +260,7 @@ export const getProductCountriesController = async (
       const countries = await reloadlyCountriesService.getCountries();
       
       return new ApiResponse(200, {
-        countries: countries.content.map((country) => ({
+        countries: countries.content.map((country: any) => ({
           code: country.isoName,
           name: country.name,
           currency: country.currencyCode,

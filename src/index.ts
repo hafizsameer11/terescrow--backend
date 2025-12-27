@@ -39,6 +39,8 @@ import palmpayMerchantOrderRouter from './routes/cutomer/palmpay.merchant.order.
 import fiatWalletRouter from './routes/cutomer/fiat.wallet.router';
 import kycRouter from './routes/cutomer/kyc.router';
 import billPaymentRouter from './routes/cutomer/billpayment.router';
+import vtpassBillPaymentRouter from './routes/cutomer/billpayment.vtpass.router';
+import reloadlyBillPaymentRouter from './routes/cutomer/billpayment.reloadly.router';
 import supportChatRouter from './routes/cutomer/support.chat.router';
 import bankAccountRouter from './routes/cutomer/bank.account.router';
 import referralRouter from './routes/cutomer/referral.router';
@@ -53,6 +55,11 @@ import palmpayWebhookRouter from './routes/webhooks/palmpay.webhook.router';
 // Testing Routes
 // ============================================
 import gasEstimationRouter from './routes/testing/gas.estimation.router';
+import vtpassTestRouter from './routes/test/vtpass.test.router';
+import vtpassDataTestRouter from './routes/test/vtpass.data.test.router';
+import vtpassCableTestRouter from './routes/test/vtpass.cable.test.router';
+import vtpassElectricityTestRouter from './routes/test/vtpass.electricity.test.router';
+import vtpassEducationTestRouter from './routes/test/vtpass.education.test.router';
 
 // ============================================
 // V2 API Routes - Admin (Crypto)
@@ -191,6 +198,9 @@ app.use('/api/v2/payments/palmpay', palmpayPayoutRouter);
 app.use('/api/v2/payment/merchant', palmpayMerchantOrderRouter);
 app.use('/api/v2/wallets', fiatWalletRouter);
 app.use('/api/v2/kyc', kycRouter);
+// Register specific provider routes first (more specific) before general bill-payments routes
+app.use('/api/v2/bill-payments/reloadly', reloadlyBillPaymentRouter);
+app.use('/api/v2/bill-payments/vtpass', vtpassBillPaymentRouter);
 app.use('/api/v2/bill-payments', billPaymentRouter);
 app.use('/api/v2/support', supportChatRouter);
 app.use('/api/v2/bank-accounts', bankAccountRouter);
@@ -206,6 +216,11 @@ app.use('/api/v2/webhooks', palmpayWebhookRouter);
 // Testing Routes
 // ============================================
 app.use('/api/testing/gas', gasEstimationRouter);
+app.use('/api/v2/test/vtpass', vtpassTestRouter);
+app.use('/api/v2/test/vtpass/data', vtpassDataTestRouter);
+app.use('/api/v2/test/vtpass/cable', vtpassCableTestRouter);
+app.use('/api/v2/test/vtpass/electricity', vtpassElectricityTestRouter);
+app.use('/api/v2/test/vtpass/education', vtpassEducationTestRouter);
 
 // ============================================
 // V2 API Routes - Admin (Crypto)
@@ -442,8 +457,8 @@ httpServer.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
 
-app.get('/.well-known/pki-validation/47895BDD2089A962BA5A725A31134A7C.txt', (req, res) => {
-  const filePath = path.join(__dirname, '../uploads/47895BDD2089A962BA5A725A31134A7C.txt');
+app.get('/.well-known/pki-validation/E9D0BCFADE508ECB66F1A9236CF3AB96.txt', (req, res) => {
+  const filePath = path.join(__dirname, '../uploads/E9D0BCFADE508ECB66F1A9236CF3AB96.txt');
   res.sendFile(filePath, (err) => {
     if (err) {
       console.error('File not found:', err);
