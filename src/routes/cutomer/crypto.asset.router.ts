@@ -17,7 +17,8 @@ import {
   getAssetDetailController,
   getDepositAddressController,
   getReceiveAddressController,
-  getCryptoBalanceController
+  getCryptoBalanceController,
+  getUsdtBlockchainsController
 } from '../../controllers/customer/crypto.asset.controller';
 
 const cryptoAssetRouter = express.Router();
@@ -547,6 +548,129 @@ cryptoAssetRouter.get(
   '/receive/:accountId',
   authenticateUser,
   getReceiveAddressController
+);
+
+/**
+ * @swagger
+ * /api/v2/crypto/usdt/blockchains:
+ *   get:
+ *     summary: Get USDT supporting blockchains/networks
+ *     tags: [V2 - Crypto - Assets]
+ *     x-order: -1
+ *     description: |
+ *       **V2 API** - Get list of all blockchains/networks that support USDT.
+ *       
+ *       This endpoint is designed for frontend flows where:
+ *       1. User sees "USDT" as a single option
+ *       2. After selecting USDT, user can choose from available networks (Ethereum, Tron, BSC, etc.)
+ *       
+ *       Returns all USDT variants from the wallet_currencies table, including:
+ *       - USDT on Ethereum (ERC-20)
+ *       - USDT on Tron (TRC-20)
+ *       - USDT on BSC (BEP-20)
+ *       - Any other USDT variants configured in the system
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: USDT blockchains retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 currency:
+ *                   type: string
+ *                   example: "USDT"
+ *                 total:
+ *                   type: integer
+ *                   example: 3
+ *                   description: Number of supported blockchains
+ *                 blockchains:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       blockchain:
+ *                         type: string
+ *                         example: "ethereum"
+ *                         description: Blockchain identifier (lowercase)
+ *                       blockchainName:
+ *                         type: string
+ *                         example: "ERC-20"
+ *                         description: Display name for the blockchain/network
+ *                       currency:
+ *                         type: string
+ *                         example: "USDT"
+ *                         description: Currency code (may be "USDT" or "USDT_TRON", "USDT_BSC", etc.)
+ *                       displayName:
+ *                         type: string
+ *                         example: "USDT ETH"
+ *                         description: User-friendly display name
+ *                       tokenType:
+ *                         type: string
+ *                         example: "ERC-20"
+ *                         description: Token standard (ERC-20, TRC-20, BEP-20, etc.)
+ *                       contractAddress:
+ *                         type: string
+ *                         nullable: true
+ *                         example: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+ *                         description: Contract address for token (null for native tokens)
+ *                       decimals:
+ *                         type: integer
+ *                         example: 18
+ *                       symbol:
+ *                         type: string
+ *                         nullable: true
+ *                         example: "wallet_symbols/TUSDT.png"
+ *                         description: Currency icon/symbol path
+ *                       displayLabel:
+ *                         type: string
+ *                         example: "ERC-20"
+ *                         description: User-friendly label for display
+ *             examples:
+ *               example1:
+ *                 summary: USDT blockchains response
+ *                 value:
+ *                   currency: "USDT"
+ *                   total: 3
+ *                   blockchains:
+ *                     - blockchain: "ethereum"
+ *                       blockchainName: "ERC-20"
+ *                       currency: "USDT"
+ *                       displayName: "USDT ETH"
+ *                       tokenType: "ERC-20"
+ *                       contractAddress: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+ *                       decimals: 18
+ *                       symbol: "wallet_symbols/TUSDT.png"
+ *                       displayLabel: "ERC-20"
+ *                     - blockchain: "tron"
+ *                       blockchainName: "TRC-20"
+ *                       currency: "USDT_TRON"
+ *                       displayName: "USDT TRON"
+ *                       tokenType: "Token"
+ *                       contractAddress: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+ *                       decimals: 18
+ *                       symbol: "wallet_symbols/TUSDT.png"
+ *                       displayLabel: "TRC-20"
+ *                     - blockchain: "bsc"
+ *                       blockchainName: "BEP-20"
+ *                       currency: "USDT_BSC"
+ *                       displayName: "USDT BSC"
+ *                       tokenType: "BEP-20"
+ *                       contractAddress: "0x55d398326f99059fF775485246999027B3197955"
+ *                       decimals: 18
+ *                       symbol: "wallet_symbols/TUSDT.png"
+ *                       displayLabel: "BEP-20"
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+cryptoAssetRouter.get(
+  '/usdt/blockchains',
+  authenticateUser,
+  getUsdtBlockchainsController
 );
 
 export default cryptoAssetRouter;

@@ -4,8 +4,11 @@
  * Handles user crypto asset endpoints
  */
 
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import cryptoAssetService from '../../services/crypto/crypto.asset.service';
+import { prisma } from '../../utils/prisma';
+import ApiError from '../../utils/ApiError';
+import ApiResponse from '../../utils/ApiResponse';
 
 /**
  * Get user's crypto assets (all virtual accounts with balances)
