@@ -38,6 +38,7 @@ class ReloadlyAuthService {
     reloadlyConfig.validateConfig();
 
     const authUrl = `${reloadlyConfig.getAuthUrl()}/oauth/token`;
+    console.log('authUrl', authUrl);
     const payload = {
       client_id: reloadlyConfig.getClientId(),
       client_secret: reloadlyConfig.getClientSecret(),
