@@ -251,13 +251,91 @@ const generateWalletForBlockchain = async (
     // Generate wallet
     const wallet = await userWalletService.getOrCreateUserWallet(userIdNum, blockchain);
 
+    // Normalize blockchain names for query (case-insensitive matching)
+    const normalizedBlockchain = blockchain.toLowerCase();
+    const normalizedAliases = blockchainAliases.map(a => a.toLowerCase());
+    const allBlockchainNames = [normalizedBlockchain, ...normalizedAliases];
+    
     // Get virtual accounts for this blockchain
-    const virtualAccounts = await prisma.virtualAccount.findMany({
+    let virtualAccounts = await prisma.virtualAccount.findMany({
       where: {
         userId: userIdNum,
-        blockchain: { in: [blockchain, ...blockchainAliases] },
+        blockchain: { in: allBlockchainNames },
       },
     });
+
+    // If no virtual accounts exist for this blockchain, create them first
+    if (virtualAccounts.length === 0) {
+      console.log(`No virtual accounts found for ${blockchain}, creating them...`);
+      const virtualAccountService = (await import('../../services/tatum/virtual.account.service')).default;
+      
+      // Normalize blockchain names for query (case-insensitive matching)
+      const normalizedBlockchain = blockchain.toLowerCase();
+      const normalizedAliases = blockchainAliases.map(a => a.toLowerCase());
+      const allBlockchainNames = [normalizedBlockchain, ...normalizedAliases];
+      
+      // Get all wallet currencies for this blockchain (case-insensitive)
+      // We need to check both exact match and case variations
+      const walletCurrencies = await prisma.walletCurrency.findMany({
+        where: {
+          OR: [
+            // Exact match (case-insensitive)
+            { blockchain: { in: allBlockchainNames } },
+            // Also check if blockchain field contains any of our names (for variations like "Polygon" vs "polygon")
+            ...allBlockchainNames.map(name => ({
+              blockchain: { contains: name, mode: 'insensitive' },
+            })),
+          ],
+        },
+      });
+
+      // Create virtual accounts for each currency on this blockchain
+      for (const walletCurrency of walletCurrencies) {
+        try {
+          // Check if virtual account already exists (double-check)
+          const existing = await prisma.virtualAccount.findFirst({
+            where: {
+              userId: userIdNum,
+              currency: walletCurrency.currency,
+              blockchain: walletCurrency.blockchain,
+            },
+          });
+
+          if (existing) {
+            virtualAccounts.push(existing);
+            continue;
+          }
+
+          // Create virtual account
+          const { randomUUID } = await import('crypto');
+          const accountId = randomUUID();
+          const accountCode = `user_${userIdNum}_${walletCurrency.currency}`;
+
+          const virtualAccount = await prisma.virtualAccount.create({
+            data: {
+              userId: userIdNum,
+              blockchain: walletCurrency.blockchain,
+              currency: walletCurrency.currency,
+              customerId: String(userIdNum),
+              accountId: accountId,
+              accountCode: accountCode,
+              active: true,
+              frozen: false,
+              accountBalance: '0',
+              availableBalance: '0',
+              accountingCurrency: 'USD',
+              currencyId: walletCurrency.id,
+            },
+          });
+
+          virtualAccounts.push(virtualAccount);
+          console.log(`Created virtual account for ${walletCurrency.currency} on ${blockchain}`);
+        } catch (error: any) {
+          console.error(`Error creating virtual account for ${walletCurrency.currency}:`, error.message);
+          // Continue with other currencies
+        }
+      }
+    }
 
     // Generate deposit addresses for virtual accounts
     const depositAddressService = (await import('../../services/tatum/deposit.address.service')).default;
