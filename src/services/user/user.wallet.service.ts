@@ -49,6 +49,16 @@ class UserWalletService {
       // Normalize blockchain name
       const normalizedBlockchain = blockchain.toLowerCase();
 
+      // First, verify user exists
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+
+      if (!user) {
+        throw new Error(`User with ID ${userId} does not exist`);
+      }
+
       // Check if user wallet already exists
       let userWallet = await prisma.userWallet.findUnique({
         where: {
