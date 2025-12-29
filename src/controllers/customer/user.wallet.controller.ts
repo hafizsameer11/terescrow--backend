@@ -274,18 +274,18 @@ const generateWalletForBlockchain = async (
       const normalizedAliases = blockchainAliases.map(a => a.toLowerCase());
       const allBlockchainNames = [normalizedBlockchain, ...normalizedAliases];
       
-      // Get all wallet currencies for this blockchain (case-insensitive)
-      // We need to check both exact match and case variations
+      // Get all wallet currencies for this blockchain
+      // Note: We query with normalized lowercase names, but also check for common case variations
+      // Since Prisma doesn't support case-insensitive contains, we'll query with exact matches
+      // and common variations (first letter uppercase, etc.)
+      const blockchainVariations = [
+        ...allBlockchainNames,
+        ...allBlockchainNames.map(name => name.charAt(0).toUpperCase() + name.slice(1)), // Capitalize first letter
+      ];
+      
       const walletCurrencies = await prisma.walletCurrency.findMany({
         where: {
-          OR: [
-            // Exact match (case-insensitive)
-            { blockchain: { in: allBlockchainNames } },
-            // Also check if blockchain field contains any of our names (for variations like "Polygon" vs "polygon")
-            ...allBlockchainNames.map(name => ({
-              blockchain: { contains: name, mode: 'insensitive' },
-            })),
-          ],
+          blockchain: { in: blockchainVariations },
         },
       });
 
