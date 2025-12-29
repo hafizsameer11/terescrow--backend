@@ -20,10 +20,9 @@ import {
 class ReloadlyProductsService {
   private getBaseUrl() {
     // Gift cards use a different base URL than topups/airtime
-    const environment = reloadlyConfig.getEnvironment();
-    return environment === 'production'
-      ? 'https://giftcards.reloadly.com'
-      : 'https://giftcards-sandbox.reloadly.com';
+    // const environment = reloadlyConfig.getEnvironment();
+    return 'https://giftcards.reloadly.com'
+      // : 'https://giftcards-sandbox.reloadly.com';
   }
 
   /**
