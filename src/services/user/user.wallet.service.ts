@@ -103,11 +103,29 @@ class UserWalletService {
         throw new Error(`Failed to generate wallet: missing address for ${normalizedBlockchain}`);
       }
 
-      // Encrypt mnemonic/secret before storing
-      // XRP uses 'secret' instead of 'mnemonic'
-      const mnemonicOrSecret = walletData.mnemonic || walletData.secret || walletData.privateKey;
-      if (!mnemonicOrSecret) {
-        throw new Error(`Failed to generate wallet: missing mnemonic/secret for ${normalizedBlockchain}`);
+      // Encrypt mnemonic/secret/privateKey before storing
+      // For Solana: Store privateKey directly (Tatum returns both mnemonic and privateKey, but privateKey is what we need)
+      // For XRP: Store secret (which is the private key)
+      // For other blockchains: Store mnemonic (can derive private key from it)
+      let mnemonicOrSecret: string;
+      if (normalizedBlockchain === 'solana' || normalizedBlockchain === 'sol') {
+        // Solana: Use privateKey directly (Tatum returns it, and we can't derive it from mnemonic via API)
+        mnemonicOrSecret = walletData.privateKey || walletData.mnemonic || '';
+        if (!mnemonicOrSecret) {
+          throw new Error(`Failed to generate wallet: missing privateKey/mnemonic for ${normalizedBlockchain}`);
+        }
+      } else if (normalizedBlockchain === 'xrp' || normalizedBlockchain === 'ripple') {
+        // XRP: Use secret (which is the private key)
+        mnemonicOrSecret = walletData.secret || walletData.privateKey || '';
+        if (!mnemonicOrSecret) {
+          throw new Error(`Failed to generate wallet: missing secret/privateKey for ${normalizedBlockchain}`);
+        }
+      } else {
+        // Other blockchains: Use mnemonic (can derive private key from it)
+        mnemonicOrSecret = walletData.mnemonic || '';
+        if (!mnemonicOrSecret) {
+          throw new Error(`Failed to generate wallet: missing mnemonic for ${normalizedBlockchain}`);
+        }
       }
       const encryptedMnemonic = encryptPrivateKey(mnemonicOrSecret);
 

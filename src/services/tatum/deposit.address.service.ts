@@ -221,13 +221,19 @@ class DepositAddressService {
           address = userWallet.xpub;
           console.log(`Using existing ${baseBlockchain} address ${address} from user wallet`);
           
-          // For Solana, we need to get the private key from the mnemonic
-          // For XRP, the secret IS the private key
+          // For Solana/XRP, the mnemonic field stores the private key/secret directly
+          // Solana: We store privateKey in mnemonic field (since Tatum returns it and we can't derive it from mnemonic via API)
+          // XRP: We store secret in mnemonic field (secret IS the private key)
           if (baseBlockchain === 'xrp' || baseBlockchain === 'ripple') {
-            // XRP: secret is the private key
-            privateKey = mnemonic; // mnemonic field stores the secret for XRP
+            // XRP: secret is the private key (stored in mnemonic field)
+            privateKey = mnemonic;
+          } else if (baseBlockchain === 'solana' || baseBlockchain === 'sol') {
+            // Solana: privateKey is stored in mnemonic field (we store it during wallet creation)
+            // This is because Tatum returns privateKey directly and we can't derive it from mnemonic via API
+            privateKey = mnemonic;
+            console.log(`Solana: Using stored private key from mnemonic field`);
           } else {
-            // Solana: generate private key from mnemonic
+            // Other non-xpub blockchains: try to generate private key from mnemonic
             try {
               privateKey = await tatumService.generatePrivateKey(baseBlockchain, mnemonic, 0);
             } catch (error: any) {
