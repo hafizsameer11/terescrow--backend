@@ -18,12 +18,13 @@ import {
 class ReloadlyCountriesService {
   private getBaseUrl() {
     // Gift cards use a different base URL than topups/airtime
-    //  const environment = reloadlyConfig.getEnvironment();
+     const environment = reloadlyConfig.getEnvironment();
+     console.log('environment', environment);
     // return environment === 'production'
     return 'https://giftcards.reloadly.com'
       // : 'https://giftcards-sandbox.reloadly.com';
   }
-  
+
 
   /**
    * Get all countries
