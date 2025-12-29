@@ -1239,40 +1239,156 @@ class CryptoSellService {
   }
 
   /**
-   * Get all available currencies for selling (user must have balance > 0)
+   * Get all available currencies for selling
+   * Shows all currencies from wallet_currencies table
+   * For USDT variants, combines them into a single "USDT" entry with total balance
    */
   async getAvailableCurrenciesForSell(userId: number) {
+    // Get all wallet currencies (all supported currencies)
+    const allWalletCurrencies = await prisma.walletCurrency.findMany({
+      where: {
+        price: { not: null },
+      },
+      orderBy: [
+        { isToken: 'asc' }, // Native coins first
+        { currency: 'asc' },
+      ],
+    });
+
+    // Get user's virtual accounts with balances
     const virtualAccounts = await prisma.virtualAccount.findMany({
       where: {
         userId,
-        availableBalance: { gt: '0' },
       },
       include: {
-        walletCurrency: {
-          where: {
-            price: { not: null },
-          },
-        },
+        walletCurrency: true,
       },
     });
 
-    // Filter out accounts without wallet currency or price
-    const availableCurrencies = virtualAccounts
-      .filter((va) => va.walletCurrency && va.walletCurrency.price)
-      .map((va) => ({
-        id: va.walletCurrency!.id,
-        currency: va.currency,
-        blockchain: va.blockchain,
-        name: va.walletCurrency!.name,
-        symbol: va.walletCurrency!.symbol,
-        price: va.walletCurrency!.price?.toString() || '0',
-        nairaPrice: va.walletCurrency!.nairaPrice?.toString() || '0',
-        isToken: va.walletCurrency!.isToken,
-        tokenType: va.walletCurrency!.tokenType,
-        blockchainName: va.walletCurrency!.blockchainName,
-        availableBalance: va.availableBalance,
-        virtualAccountId: va.id,
-        displayName: `${va.currency}${va.walletCurrency!.isToken ? ` (${va.walletCurrency!.blockchainName || va.blockchain})` : ''}`,
+    // Create a map of currency+blockchain to balance
+    const balanceMap = new Map<string, Decimal>();
+    virtualAccounts.forEach((va) => {
+      const key = `${va.currency}_${va.blockchain}`;
+      balanceMap.set(key, new Decimal(va.availableBalance));
+    });
+
+    // Group currencies: combine USDT variants, keep others separate
+    const currencyMap = new Map<string, {
+      id: number;
+      currency: string;
+      blockchain: string;
+      name: string;
+      symbol: string | null;
+      price: Decimal;
+      nairaPrice: Decimal | null;
+      isToken: boolean;
+      tokenType: string | null;
+      blockchainName: string | null;
+      availableBalance: Decimal;
+      virtualAccountIds: number[];
+      displayName: string;
+      availableBlockchains?: Array<{ blockchain: string; balance: string; virtualAccountId: number | null }>; // For USDT
+    }>();
+
+    for (const walletCurrency of allWalletCurrencies) {
+      const currencyUpper = walletCurrency.currency.toUpperCase();
+      const isUsdtVariant = currencyUpper === 'USDT' || currencyUpper.startsWith('USDT_');
+      
+      if (isUsdtVariant) {
+        // Combine all USDT variants into single "USDT" entry
+        const key = 'USDT';
+        const balanceKey = `${walletCurrency.currency}_${walletCurrency.blockchain}`;
+        const balance = balanceMap.get(balanceKey) || new Decimal(0);
+        const va = virtualAccounts.find(v => 
+          v.currency === walletCurrency.currency && 
+          v.blockchain === walletCurrency.blockchain
+        );
+        
+        if (currencyMap.has(key)) {
+          // Add to existing USDT entry
+          const existing = currencyMap.get(key)!;
+          existing.availableBalance = existing.availableBalance.plus(balance);
+          // Add virtual account ID if balance > 0
+          if (balance.gt(0) && va && !existing.virtualAccountIds.includes(va.id)) {
+            existing.virtualAccountIds.push(va.id);
+          }
+          // Add blockchain info
+          if (!existing.availableBlockchains) {
+            existing.availableBlockchains = [];
+          }
+          existing.availableBlockchains.push({
+            blockchain: walletCurrency.blockchain,
+            balance: balance.toString(),
+            virtualAccountId: va?.id || null,
+          });
+        } else {
+          // Create new USDT entry
+          currencyMap.set(key, {
+            id: walletCurrency.id,
+            currency: 'USDT',
+            blockchain: walletCurrency.blockchain, // Use first blockchain found
+            name: 'USDT',
+            symbol: walletCurrency.symbol,
+            price: walletCurrency.price || new Decimal(0),
+            nairaPrice: walletCurrency.nairaPrice,
+            isToken: true,
+            tokenType: walletCurrency.tokenType,
+            blockchainName: 'Multi-Chain', // Indicate it's multi-chain
+            availableBalance: balance,
+            virtualAccountIds: balance.gt(0) && va ? [va.id] : [],
+            displayName: 'USDT',
+            availableBlockchains: [{
+              blockchain: walletCurrency.blockchain,
+              balance: balance.toString(),
+              virtualAccountId: va?.id || null,
+            }],
+          });
+        }
+      } else {
+        // Other currencies: show individually
+        const key = `${walletCurrency.currency}_${walletCurrency.blockchain}`;
+        const balance = balanceMap.get(key) || new Decimal(0);
+        const va = virtualAccounts.find(v => 
+          v.currency === walletCurrency.currency && 
+          v.blockchain === walletCurrency.blockchain
+        );
+        
+        currencyMap.set(key, {
+          id: walletCurrency.id,
+          currency: walletCurrency.currency,
+          blockchain: walletCurrency.blockchain,
+          name: walletCurrency.name,
+          symbol: walletCurrency.symbol,
+          price: walletCurrency.price || new Decimal(0),
+          nairaPrice: walletCurrency.nairaPrice,
+          isToken: walletCurrency.isToken,
+          tokenType: walletCurrency.tokenType,
+          blockchainName: walletCurrency.blockchainName,
+          availableBalance: balance,
+          virtualAccountIds: balance.gt(0) && va ? [va.id] : [],
+          displayName: `${walletCurrency.currency}${walletCurrency.isToken ? ` (${walletCurrency.blockchainName || walletCurrency.blockchain})` : ''}`,
+        });
+      }
+    }
+
+    // Convert to array and format
+    const availableCurrencies = Array.from(currencyMap.values())
+      .map((item) => ({
+        id: item.id,
+        currency: item.currency,
+        blockchain: item.blockchain,
+        name: item.name,
+        symbol: item.symbol,
+        price: item.price.toString(),
+        nairaPrice: item.nairaPrice?.toString() || '0',
+        isToken: item.isToken,
+        tokenType: item.tokenType,
+        blockchainName: item.blockchainName,
+        availableBalance: item.availableBalance.toString(),
+        virtualAccountId: item.virtualAccountIds.length > 0 ? item.virtualAccountIds[0] : null, // Return first VA ID for USDT
+        virtualAccountIds: item.virtualAccountIds, // Include all VA IDs for USDT
+        displayName: item.displayName,
+        availableBlockchains: item.availableBlockchains, // For USDT: list of available blockchains with balances
       }))
       .sort((a, b) => {
         // Sort by balance (descending), then by currency name
