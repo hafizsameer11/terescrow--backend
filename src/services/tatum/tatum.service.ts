@@ -9,10 +9,11 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../../utils/prisma';
 
 export interface TatumWalletResponse {
-  mnemonic: string;
-  xpub: string;
+  mnemonic?: string;
+  xpub?: string;
   address: string;
-  privateKey: string;
+  privateKey?: string;
+  secret?: string; // XRP uses 'secret' instead of 'mnemonic' and 'privateKey'
 }
 
 export interface TatumVirtualAccountRequest {
@@ -169,7 +170,21 @@ class TatumService {
    */
   async createWallet(blockchain: string): Promise<TatumWalletResponse> {
     try {
-      const endpoint = `/${blockchain.toLowerCase()}/wallet`;
+      const normalizedBlockchain = blockchain.toLowerCase();
+      
+      // XRP uses a different endpoint: /v3/xrp/account (not /v3/xrp/wallet)
+      if (normalizedBlockchain === 'xrp' || normalizedBlockchain === 'ripple') {
+        const endpoint = `/xrp/account`;
+        const response = await this.axiosInstance.get<{ address: string; secret: string }>(endpoint);
+        return {
+          address: response.data.address,
+          secret: response.data.secret,
+          privateKey: response.data.secret, // Use secret as privateKey for consistency
+        };
+      }
+      
+      // Other blockchains use /wallet endpoint
+      const endpoint = `/${normalizedBlockchain}/wallet`;
       const response = await this.axiosInstance.get<TatumWalletResponse>(endpoint);
       return response.data;
     } catch (error: any) {

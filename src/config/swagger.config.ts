@@ -17,6 +17,7 @@ const swaggerDefinition: SwaggerDefinition = {
     { name: 'V2 - Bank Accounts', description: 'Bank account management endpoints' },
     { name: 'V2 - Referrals', description: 'Referral code and statistics endpoints' },
     // V2 API Routes - Crypto (Grouped by Flow)
+    { name: 'V2 - Crypto - Wallet Generation', description: 'Wallet generation endpoints for specific blockchains' },
     { name: 'V2 - Crypto - Buy', description: 'Buy cryptocurrency flow: currencies → quote → preview → buy' },
     { name: 'V2 - Crypto - Sell', description: 'Sell cryptocurrency flow: currencies → quote → preview → sell' },
     { name: 'V2 - Crypto - Send', description: 'Send cryptocurrency to external addresses: preview → send' },

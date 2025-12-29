@@ -268,6 +268,7 @@ const customTagsSorter = (a: string, b: string) => {
     if (tag.startsWith('Testing')) return -10; // Testing routes at the very top
     if (tag === 'V2 - Bank Accounts') return -2;
     if (tag === 'V2 - Referrals') return -1;
+    if (tag === 'V2 - Crypto - Wallet Generation') return -0.8; // Wallet Generation at the top of crypto sections
     if (tag === 'V2 - PalmPay Merchant Order') return -0.5;
     // V2 Crypto flows in specific order
     if (tag === 'V2 - Crypto - Buy') return 0;

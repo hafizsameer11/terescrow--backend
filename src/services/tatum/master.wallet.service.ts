@@ -62,29 +62,40 @@ class MasterWalletService {
       // Generate wallet using Tatum API
       const walletData = await tatumService.createWallet(blockchain);
 
-      // Generate address from xpub (index 0 for master wallet)
+      // Check if blockchain doesn't use xpub (Solana, XRP)
+      const isNoXpub = blockchain.toLowerCase() === 'solana' || blockchain.toLowerCase() === 'sol' ||
+                       blockchain.toLowerCase() === 'xrp' || blockchain.toLowerCase() === 'ripple';
+
+      // Generate address from xpub (index 0 for master wallet) or use direct address
       let address: string | null = null;
       let privateKey: string | null = null;
 
-      try {
-        if (walletData.xpub) {
-          address = await tatumService.generateAddress(blockchain, walletData.xpub, 0);
-        }
-      } catch (error: any) {
-        console.warn(`Could not generate address for ${blockchain}:`, error.message);
-        // Some blockchains (like Solana) might return address directly
+      if (isNoXpub) {
+        // Solana/XRP: address is returned directly
         address = walletData.address || null;
-      }
-
-      // Generate private key from mnemonic (index 0 for master wallet)
-      try {
-        if (walletData.mnemonic) {
-          privateKey = await tatumService.generatePrivateKey(blockchain, walletData.mnemonic, 0);
+        // XRP uses 'secret', Solana uses 'privateKey'
+        privateKey = walletData.privateKey || walletData.secret || null;
+      } else {
+        // Other blockchains: generate from xpub
+        try {
+          if (walletData.xpub) {
+            address = await tatumService.generateAddress(blockchain, walletData.xpub, 0);
+          }
+        } catch (error: any) {
+          console.warn(`Could not generate address for ${blockchain}:`, error.message);
+          address = walletData.address || null;
         }
-      } catch (error: any) {
-        console.warn(`Could not generate private key for ${blockchain}:`, error.message);
-        // Some blockchains might return private key directly
-        privateKey = walletData.privateKey || null;
+
+        // Generate private key from mnemonic (index 0 for master wallet)
+        try {
+          if (walletData.mnemonic) {
+            privateKey = await tatumService.generatePrivateKey(blockchain, walletData.mnemonic, 0);
+          }
+        } catch (error: any) {
+          console.warn(`Could not generate private key for ${blockchain}:`, error.message);
+          // Some blockchains might return private key directly
+          privateKey = walletData.privateKey || null;
+        }
       }
 
       // Encrypt sensitive data before storing
@@ -150,16 +161,35 @@ class MasterWalletService {
 
   /**
    * Create master wallets for all supported blockchains
+   * Gets blockchains from wallet_currencies table to ensure we only create wallets for currencies that exist
    */
   async createAllMasterWallets() {
-    const supportedBlockchains = [
-      { blockchain: 'bitcoin', endpoint: '/bitcoin/wallet' },
-      { blockchain: 'ethereum', endpoint: '/ethereum/wallet' },
-      { blockchain: 'tron', endpoint: '/tron/wallet' },
-      { blockchain: 'bsc', endpoint: '/bsc/wallet' },
-      { blockchain: 'solana', endpoint: '/solana/wallet' },
-      { blockchain: 'litecoin', endpoint: '/litecoin/wallet' },
-    ];
+    // Get unique blockchains from wallet_currencies table
+    const walletCurrencies = await prisma.walletCurrency.findMany({
+      select: {
+        blockchain: true,
+      },
+      distinct: ['blockchain'],
+    });
+
+    // Map blockchain names to their endpoints
+    // Some blockchains use different endpoints (e.g., XRP uses /account instead of /wallet)
+    const getEndpoint = (blockchain: string): string => {
+      const normalized = blockchain.toLowerCase();
+      if (normalized === 'xrp' || normalized === 'ripple') {
+        return '/xrp/account'; // XRP uses /account endpoint, not /wallet
+      }
+      return `/${normalized}/wallet`;
+    };
+
+    // Create list of blockchains with their endpoints
+    const supportedBlockchains = walletCurrencies.map((wc) => ({
+      blockchain: wc.blockchain.toLowerCase(),
+      endpoint: getEndpoint(wc.blockchain),
+    }));
+
+    console.log(`Found ${supportedBlockchains.length} unique blockchains in wallet_currencies:`, 
+      supportedBlockchains.map(b => b.blockchain).join(', '));
 
     const results = [];
     const errors = [];

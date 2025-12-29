@@ -207,3 +207,163 @@ export const getUserWalletsController = async (
   }
 };
 
+/**
+ * Generic wallet generation controller
+ * Generates wallet for a specific blockchain for user (if doesn't exist)
+ */
+const generateWalletForBlockchain = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  blockchain: string,
+  blockchainAliases: string[] = []
+) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return next(ApiError.badRequest('userId parameter is required'));
+    }
+
+    const userIdNum = parseInt(userId as string, 10);
+    if (isNaN(userIdNum) || userIdNum <= 0) {
+      return next(ApiError.badRequest('Invalid userId. Must be a positive integer'));
+    }
+
+    // Check if wallet already exists
+    const existingWallet = await userWalletService.getUserWallet(userIdNum, blockchain);
+    if (existingWallet) {
+      return new ApiResponse(
+        200,
+        {
+          wallet: {
+            id: existingWallet.id,
+            blockchain: existingWallet.blockchain,
+            address: existingWallet.xpub, // For non-xpub blockchains, address is stored in xpub field
+            createdAt: existingWallet.createdAt,
+          },
+          message: `${blockchain} wallet already exists`,
+        },
+        `${blockchain} wallet already exists`
+      ).send(res);
+    }
+
+    // Generate wallet
+    const wallet = await userWalletService.getOrCreateUserWallet(userIdNum, blockchain);
+
+    // Get virtual accounts for this blockchain
+    const virtualAccounts = await prisma.virtualAccount.findMany({
+      where: {
+        userId: userIdNum,
+        blockchain: { in: [blockchain, ...blockchainAliases] },
+      },
+    });
+
+    // Generate deposit addresses for virtual accounts
+    const depositAddressService = (await import('../../services/tatum/deposit.address.service')).default;
+    const createdAddresses = [];
+
+    for (const virtualAccount of virtualAccounts) {
+      try {
+        // Check if deposit address already exists
+        const existingAddress = await prisma.depositAddress.findFirst({
+          where: {
+            virtualAccountId: virtualAccount.id,
+            userWalletId: wallet.id,
+          },
+        });
+
+        if (existingAddress) {
+          console.log(`Deposit address already exists for virtual account ${virtualAccount.id}`);
+          createdAddresses.push({
+            virtualAccountId: virtualAccount.id,
+            currency: virtualAccount.currency,
+            address: existingAddress.address,
+            status: 'existing',
+          });
+          continue;
+        }
+
+        // Generate deposit address
+        const depositAddress = await depositAddressService.generateAndAssignToVirtualAccount(virtualAccount.id);
+        createdAddresses.push({
+          virtualAccountId: virtualAccount.id,
+          currency: virtualAccount.currency,
+          address: depositAddress.address,
+          status: 'created',
+        });
+      } catch (error: any) {
+        console.error(`Error generating deposit address for virtual account ${virtualAccount.id}:`, error.message);
+        createdAddresses.push({
+          virtualAccountId: virtualAccount.id,
+          currency: virtualAccount.currency,
+          error: error.message,
+          status: 'failed',
+        });
+      }
+    }
+
+    return new ApiResponse(
+      200,
+      {
+        wallet: {
+          id: wallet.id,
+          blockchain: wallet.blockchain,
+          address: wallet.xpub, // For non-xpub blockchains, address is stored in xpub field
+          createdAt: wallet.createdAt,
+        },
+        depositAddresses: createdAddresses,
+      },
+      `${blockchain} wallet generated successfully`
+    ).send(res);
+  } catch (error: any) {
+    console.error(`Error in generateWalletForBlockchain (${blockchain}):`, error);
+    return next(ApiError.internal(error.message || `Failed to generate ${blockchain} wallet`));
+  }
+};
+
+/**
+ * Generate Solana wallet for user (if doesn't exist)
+ * This endpoint helps fix users who don't have Solana wallet yet
+ */
+export const generateSolanaWalletController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  return generateWalletForBlockchain(req, res, next, 'solana', ['sol']);
+};
+
+/**
+ * Generate Polygon wallet for user (if doesn't exist)
+ */
+export const generatePolygonWalletController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  return generateWalletForBlockchain(req, res, next, 'polygon', ['matic']);
+};
+
+/**
+ * Generate Dogecoin wallet for user (if doesn't exist)
+ */
+export const generateDogecoinWalletController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  return generateWalletForBlockchain(req, res, next, 'dogecoin', ['doge']);
+};
+
+/**
+ * Generate XRP wallet for user (if doesn't exist)
+ */
+export const generateXrpWalletController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  return generateWalletForBlockchain(req, res, next, 'xrp', ['ripple']);
+};
+

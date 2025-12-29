@@ -78,6 +78,9 @@ masterWalletRouter.get('/', getAllMasterWalletsController);
  *       - BSC
  *       - Solana
  *       - Litecoin
+ *       - Polygon
+ *       - Dogecoin
+ *       - XRP
  *       
  *       If a master wallet already exists for a blockchain, it will be skipped.
  *     responses:

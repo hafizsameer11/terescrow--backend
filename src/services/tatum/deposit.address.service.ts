@@ -192,41 +192,102 @@ class DepositAddressService {
       // Each user gets their own unique wallet per blockchain
       const userWallet = await userWalletService.getOrCreateUserWallet(virtualAccount.userId, baseBlockchain);
       
-      if (!userWallet || !userWallet.xpub || !userWallet.mnemonic) {
+      if (!userWallet || !userWallet.mnemonic) {
         throw new Error(`Failed to get or create user wallet for user ${virtualAccount.userId}, blockchain ${baseBlockchain}`);
       }
 
-      // Decrypt user wallet mnemonic
+      // Check if this blockchain doesn't use xpub (returns address directly)
+      // Solana and XRP don't use xpub - they return address directly
+      const isNoXpub = baseBlockchain === 'solana' || baseBlockchain === 'sol' || 
+                       baseBlockchain === 'xrp' || baseBlockchain === 'ripple';
+
+      // Decrypt user wallet mnemonic/secret
       let mnemonic: string;
       try {
         mnemonic = decryptPrivateKey(userWallet.mnemonic);
       } catch (error) {
-        throw new Error('Failed to decrypt user wallet mnemonic');
+        throw new Error('Failed to decrypt user wallet mnemonic/secret');
       }
 
-      const xpub = userWallet.xpub;
-      console.log(`Using user wallet for user ${virtualAccount.userId}, blockchain ${baseBlockchain}`);
+      let address: string;
+      let privateKey: string;
+      const addressIndex = 0; // Always 0 for user wallet addresses (one per blockchain)
 
-      // Use index 0 for user wallet addresses (same as master wallet approach)
-      // One address per blockchain per user (all currencies on same blockchain share the address)
-      // This matches how master wallet works - index 0 for the wallet's address
-      const addressIndex = 0;
+      if (isNoXpub) {
+        // For Solana/XRP, check if we already have an address stored in xpub field
+        // These blockchains don't use HD derivation - one mnemonic/secret = one address/private key pair
+        if (userWallet.xpub) {
+          // Address already stored from previous generation
+          address = userWallet.xpub;
+          console.log(`Using existing ${baseBlockchain} address ${address} from user wallet`);
+          
+          // For Solana, we need to get the private key from the mnemonic
+          // For XRP, the secret IS the private key
+          if (baseBlockchain === 'xrp' || baseBlockchain === 'ripple') {
+            // XRP: secret is the private key
+            privateKey = mnemonic; // mnemonic field stores the secret for XRP
+          } else {
+            // Solana: generate private key from mnemonic
+            try {
+              privateKey = await tatumService.generatePrivateKey(baseBlockchain, mnemonic, 0);
+            } catch (error: any) {
+              console.error(`Failed to generate ${baseBlockchain} private key from mnemonic:`, error.message);
+              throw new Error(`Failed to get ${baseBlockchain} private key: ${error.message}`);
+            }
+          }
+        } else {
+          // First time generating wallet for this user
+          // Solana/XRP wallet generation returns address and privateKey/secret directly (not xpub-based)
+          console.log(`Generating ${baseBlockchain} wallet to get address and private key for user ${virtualAccount.userId}`);
+          const walletData = await tatumService.createWallet(baseBlockchain);
+          
+          if (!walletData.address) {
+            throw new Error(`Failed to generate ${baseBlockchain} wallet: missing address`);
+          }
 
-      console.log(`Generating new address for ${blockchain} using user wallet (user ${virtualAccount.userId}) with index ${addressIndex}`);
+          address = walletData.address;
+          // XRP uses 'secret', Solana uses 'privateKey'
+          privateKey = walletData.privateKey || walletData.secret || '';
+          
+          if (!privateKey) {
+            throw new Error(`Failed to generate ${baseBlockchain} wallet: missing privateKey/secret`);
+          }
 
-      // Generate address using the user's wallet xpub and index 0
-      const address = await tatumService.generateAddress(
-        baseBlockchain,
-        xpub,
-        addressIndex
-      );
+          // Store address in xpub field (since these blockchains don't have xpub)
+          // This allows us to reuse the address later
+          await prisma.userWallet.update({
+            where: { id: userWallet.id },
+            data: { xpub: address }, // Store address in xpub field
+          });
+          console.log(`Stored ${baseBlockchain} address ${address} in user wallet xpub field`);
+        }
 
-      // Generate private key using the user's wallet mnemonic and index 0
-      const privateKey = await tatumService.generatePrivateKey(
-        baseBlockchain,
-        mnemonic,
-        addressIndex
-      );
+        console.log(`Using ${baseBlockchain} address ${address} (${userWallet.xpub ? 'existing' : 'newly generated'})`);
+      } else {
+        // For other blockchains, use xpub-based address generation
+        if (!userWallet.xpub) {
+          throw new Error(`Failed to get or create user wallet: missing xpub for ${baseBlockchain}`);
+        }
+
+        const xpub = userWallet.xpub;
+        console.log(`Using user wallet for user ${virtualAccount.userId}, blockchain ${baseBlockchain}`);
+
+        console.log(`Generating new address for ${blockchain} using user wallet (user ${virtualAccount.userId}) with index ${addressIndex}`);
+
+        // Generate address using the user's wallet xpub and index 0
+        address = await tatumService.generateAddress(
+          baseBlockchain,
+          xpub,
+          addressIndex
+        );
+
+        // Generate private key using the user's wallet mnemonic and index 0
+        privateKey = await tatumService.generatePrivateKey(
+          baseBlockchain,
+          mnemonic,
+          addressIndex
+        );
+      }
 
       // Encrypt private key
       const encryptedPrivateKey = encryptPrivateKey(privateKey);

@@ -68,26 +68,58 @@ class UserWalletService {
       console.log(`Creating new user wallet for user ${userId}, blockchain ${normalizedBlockchain}`);
       const walletData = await tatumService.createWallet(normalizedBlockchain);
 
-      if (!walletData.mnemonic || !walletData.xpub) {
-        throw new Error(`Failed to generate wallet: missing mnemonic or xpub for ${normalizedBlockchain}`);
+      // Some blockchains don't return xpub, they return address directly
+      // Solana and XRP don't use xpub - they return address directly
+      // Polygon and Dogecoin use xpub (like Ethereum and Bitcoin)
+      const isNoXpub = normalizedBlockchain === 'solana' || normalizedBlockchain === 'sol' || 
+                       normalizedBlockchain === 'xrp' || normalizedBlockchain === 'ripple';
+      
+      if (!walletData.mnemonic) {
+        // XRP uses 'secret' instead of 'mnemonic'
+        if (normalizedBlockchain === 'xrp' || normalizedBlockchain === 'ripple') {
+          if (!walletData.secret && !walletData.privateKey) {
+            throw new Error(`Failed to generate wallet: missing secret/privateKey for ${normalizedBlockchain}`);
+          }
+        } else {
+          throw new Error(`Failed to generate wallet: missing mnemonic for ${normalizedBlockchain}`);
+        }
       }
 
-      // Encrypt mnemonic before storing
-      const encryptedMnemonic = encryptPrivateKey(walletData.mnemonic);
+      if (!isNoXpub && !walletData.xpub) {
+        throw new Error(`Failed to generate wallet: missing xpub for ${normalizedBlockchain}`);
+      }
+
+      if (isNoXpub && !walletData.address) {
+        throw new Error(`Failed to generate wallet: missing address for ${normalizedBlockchain}`);
+      }
+
+      // Encrypt mnemonic/secret before storing
+      // XRP uses 'secret' instead of 'mnemonic'
+      const mnemonicOrSecret = walletData.mnemonic || walletData.secret || walletData.privateKey;
+      if (!mnemonicOrSecret) {
+        throw new Error(`Failed to generate wallet: missing mnemonic/secret for ${normalizedBlockchain}`);
+      }
+      const encryptedMnemonic = encryptPrivateKey(mnemonicOrSecret);
 
       // Determine derivation path based on blockchain
       const derivationPath = this.getDerivationPath(normalizedBlockchain);
 
       // Create user wallet in database
+      // For Solana and XRP: store address in xpub field (since they don't have xpub, we reuse this field)
+      // This allows deposit address service to reuse the same address
       userWallet = await prisma.userWallet.create({
         data: {
           userId,
           blockchain: normalizedBlockchain,
           mnemonic: encryptedMnemonic,
-          xpub: walletData.xpub,
+          xpub: isNoXpub ? walletData.address : walletData.xpub, // Solana/XRP: store address in xpub field
           derivationPath,
         },
       });
+
+      if (isNoXpub) {
+        console.log(`Stored ${normalizedBlockchain} address ${walletData.address} in xpub field for user ${userId}`);
+      }
 
       console.log(`User wallet created for user ${userId}, blockchain ${normalizedBlockchain}`);
       return userWallet;
@@ -142,18 +174,23 @@ class UserWalletService {
   /**
    * Get derivation path for a blockchain
    */
-  private getDerivationPath(blockchain: string): string {
-    const paths: { [key: string]: string } = {
+  private getDerivationPath(blockchain: string): string | null {
+    const paths: { [key: string]: string | null } = {
       bitcoin: "m/44'/0'/0'",
       ethereum: "m/44'/60'/0'",
       tron: "m/44'/195'/0'",
       bsc: "m/44'/60'/0'", // Same as Ethereum
       litecoin: "m/44'/2'/0'",
       solana: "m/44'/501'/0'",
+      polygon: "m/44'/966'/0'", // Polygon uses coin type 966
+      dogecoin: "m/44'/3'/0'", // Dogecoin uses coin type 3
+      xrp: null, // XRP doesn't use HD derivation
+      ripple: null, // XRP doesn't use HD derivation
     };
 
     const normalized = blockchain.toLowerCase();
-    return paths[normalized] || "m/44'/60'/0'"; // Default to Ethereum path
+    const path = paths[normalized];
+    return path !== undefined ? path : "m/44'/60'/0'"; // Default to Ethereum path
   }
 
   /**
