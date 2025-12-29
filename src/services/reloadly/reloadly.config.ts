@@ -59,6 +59,17 @@ class ReloadlyConfigService {
     return this.config.audience;
   }
 
+  /**
+   * Get gift cards audience URL
+   * Gift cards use a different audience than topups/airtime
+   */
+  getGiftCardsAudience(): string {
+    const environment = this.config.environment;
+    return environment === 'production'
+      ? 'https://giftcards.reloadly.com'
+      : 'https://giftcards-sandbox.reloadly.com';
+  }
+
   getEnvironment(): 'sandbox' | 'production' {
     return this.config.environment;
   }
