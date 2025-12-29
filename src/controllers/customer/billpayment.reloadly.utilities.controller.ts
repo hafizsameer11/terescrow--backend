@@ -234,8 +234,9 @@ export const createReloadlyUtilityBillOrderController = async (
     }
 
     // Generate unique transaction ID
+    // Reloadly requires referenceId to be 36 characters or less
     const transactionId = uuidv4();
-    const customIdentifier = `reloadly_util_${transactionId.replace(/-/g, '')}`.substring(0, 64);
+    const customIdentifier = `reloadly_util_${transactionId.replace(/-/g, '')}`.substring(0, 36);
 
     // Create transaction record (status: pending)
     const transaction = await prisma.fiatTransaction.create({
