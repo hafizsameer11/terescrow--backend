@@ -147,7 +147,12 @@ class ReloadlyUtilitiesService {
         }
       );
 
-      console.log('[RELOADLY UTILITIES] Bill payment initiated:', response.data.id);
+      // Log the exact full response from Reloadly
+      console.log('[RELOADLY UTILITIES] Full response from Reloadly utility bill payment:', JSON.stringify(response.data, null, 2));
+      console.log('[RELOADLY UTILITIES] Response status:', response.status);
+      console.log('[RELOADLY UTILITIES] Response headers:', JSON.stringify(response.headers, null, 2));
+      console.log('[RELOADLY UTILITIES] Bill payment initiated, transaction ID:', response.data.id);
+      
       return response.data;
     } catch (error: any) {
       console.error('[RELOADLY UTILITIES] Failed to pay bill:', {
