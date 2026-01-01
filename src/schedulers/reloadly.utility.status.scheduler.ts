@@ -15,16 +15,12 @@ export async function checkProcessingReloadlyUtilityPayments() {
     console.log('[RELOADLY UTILITY SCHEDULER] Checking for PROCESSING payments...');
 
     // Find all Reloadly utility payments that are PROCESSING
-    // Only check payments that were created more than 1 minute ago (to avoid checking too soon)
-    const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
-    
     const processingPayments = await prisma.billPayment.findMany({
       where: {
         provider: 'reloadly',
         palmpayStatus: 'PROCESSING',
         status: 'pending',
         palmpayOrderNo: { not: null }, // Must have Reloadly transaction ID
-        createdAt: { lte: oneMinuteAgo }, // Only check payments older than 1 minute
       },
       select: {
         id: true,
@@ -46,15 +42,29 @@ export async function checkProcessingReloadlyUtilityPayments() {
 
     // Get the queue to check for existing jobs
     const queue = queueManager.getQueue('bill-payments');
-    const jobs = await queue.getJobs(['waiting', 'delayed', 'active']);
+    const jobs = await queue.getJobs(['waiting', 'delayed', 'active', 'failed']);
     
-    // Create a set of billPaymentIds that already have jobs queued
+    // Create a set of billPaymentIds that already have jobs queued (excluding failed jobs)
     const queuedPaymentIds = new Set<string>();
     for (const job of jobs) {
       if (job.name === 'reloadly-utility-status' && job.data?.billPaymentId) {
-        queuedPaymentIds.add(job.data.billPaymentId);
+        // Only skip if job is waiting, active, or delayed (not failed)
+        if (['waiting', 'active', 'delayed'].includes(job.state)) {
+          queuedPaymentIds.add(job.data.billPaymentId);
+        }
+        // Failed jobs will be re-queued
       }
     }
+    
+    // Log queue status for debugging
+    const stats = await queueManager.getQueueStats('bill-payments');
+    console.log(`[RELOADLY UTILITY SCHEDULER] Queue stats:`, {
+      waiting: stats.waiting,
+      active: stats.active,
+      failed: stats.failed,
+      delayed: stats.delayed,
+      completed: stats.completed,
+    });
 
     let queuedCount = 0;
     let skippedCount = 0;
@@ -62,8 +72,9 @@ export async function checkProcessingReloadlyUtilityPayments() {
     // Queue status check job for each payment (only if not already queued)
     for (const payment of processingPayments) {
       try {
-        // Skip if a job is already queued for this payment
+        // Skip if a job is already queued/active/delayed for this payment
         if (queuedPaymentIds.has(payment.id)) {
+          console.log(`[RELOADLY UTILITY SCHEDULER] Skipping payment ${payment.id} - job already queued/active`);
           skippedCount++;
           continue;
         }
@@ -76,7 +87,7 @@ export async function checkProcessingReloadlyUtilityPayments() {
           continue;
         }
 
-        await queueManager.addJob(
+        const job = await queueManager.addJob(
           'bill-payments',
           'reloadly-utility-status',
           {
@@ -84,7 +95,7 @@ export async function checkProcessingReloadlyUtilityPayments() {
             transactionId,
           },
           {
-            attempts: 3,
+            attempts: 10, // Increased attempts for reliability
             backoff: {
               type: 'exponential',
               delay: 5000, // 5 seconds initial delay
@@ -93,7 +104,7 @@ export async function checkProcessingReloadlyUtilityPayments() {
         );
 
         queuedCount++;
-        console.log(`[RELOADLY UTILITY SCHEDULER] Queued status check for payment ${payment.id}`);
+        console.log(`[RELOADLY UTILITY SCHEDULER] Queued status check for payment ${payment.id} (job ID: ${job.id})`);
       } catch (error: any) {
         console.error(`[RELOADLY UTILITY SCHEDULER] Error queuing job for payment ${payment.id}:`, error.message);
         skippedCount++;
