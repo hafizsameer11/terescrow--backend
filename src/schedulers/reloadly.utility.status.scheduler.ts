@@ -42,17 +42,23 @@ export async function checkProcessingReloadlyUtilityPayments() {
 
     // Get the queue to check for existing jobs
     const queue = queueManager.getQueue('bill-payments');
-    const jobs = await queue.getJobs(['waiting', 'delayed', 'active', 'failed']);
+    
+    // Get jobs for each state separately (since Bull doesn't expose job.state directly)
+    const [waitingJobs, activeJobs, delayedJobs] = await Promise.all([
+      queue.getWaiting(),
+      queue.getActive(),
+      queue.getDelayed(),
+    ]);
     
     // Create a set of billPaymentIds that already have jobs queued (excluding failed jobs)
     const queuedPaymentIds = new Set<string>();
-    for (const job of jobs) {
-      if (job.name === 'reloadly-utility-status' && job.data?.billPaymentId) {
-        // Only skip if job is waiting, active, or delayed (not failed)
-        if (['waiting', 'active', 'delayed'].includes(job.state)) {
+    
+    // Add waiting, active, and delayed jobs (failed jobs will be re-queued)
+    for (const jobs of [waitingJobs, activeJobs, delayedJobs]) {
+      for (const job of jobs) {
+        if (job.name === 'reloadly-utility-status' && job.data?.billPaymentId) {
           queuedPaymentIds.add(job.data.billPaymentId);
         }
-        // Failed jobs will be re-queued
       }
     }
     
