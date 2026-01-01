@@ -84,6 +84,45 @@ export const getCryptoTransactionByIdController = async (
 };
 
 /**
+ * Get all USDT transactions
+ */
+export const getUsdtTransactionsController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const user = (req as any).body?._user;
+    const userId = user?.id;
+
+    if (!userId) {
+      return next(ApiError.unauthorized('User not authenticated'));
+    }
+
+    const transactionType = req.query.type as string | undefined;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    // Get USDT transactions
+    const result = await cryptoTransactionService.getUsdtTransactions(
+      userId,
+      transactionType as any,
+      limit,
+      offset
+    );
+
+    return new ApiResponse(
+      200,
+      result,
+      'USDT transactions retrieved successfully'
+    ).send(res);
+  } catch (error: any) {
+    console.error('Error in getUsdtTransactionsController:', error);
+    return next(ApiError.internal(error.message || 'Failed to retrieve USDT transactions'));
+  }
+};
+
+/**
  * Get transactions for a specific virtual account
  */
 export const getVirtualAccountTransactionsController = async (

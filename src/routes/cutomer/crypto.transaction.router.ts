@@ -10,6 +10,7 @@ import {
   getUserCryptoTransactionsController,
   getCryptoTransactionByIdController,
   getVirtualAccountTransactionsController,
+  getUsdtTransactionsController,
 } from '../../controllers/customer/crypto.transaction.controller';
 
 const cryptoTransactionRouter = express.Router();
@@ -96,6 +97,67 @@ cryptoTransactionRouter.get('/transactions', authenticateUser, getUserCryptoTran
  *         description: Transaction not found
  */
 cryptoTransactionRouter.get('/transactions/:transactionId', authenticateUser, getCryptoTransactionByIdController);
+
+/**
+ * @swagger
+ * /api/v2/crypto/usdt/transactions:
+ *   get:
+ *     summary: Get all USDT transactions
+ *     tags: [V2 - Crypto - Transactions]
+ *     x-order: 2.5
+ *     description: |
+ *       Get all USDT transactions across all blockchains/networks for the authenticated user.
+ *       Returns transactions for USDT, USDT_TRON, USDT_ETH, USDT_BSC, etc.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [BUY, SELL, SEND, RECEIVE, SWAP]
+ *         description: Filter by transaction type
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Number of transactions to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *         description: Pagination offset
+ *     responses:
+ *       200:
+ *         description: USDT transactions retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: integer
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactions:
+ *                       type: array
+ *                       description: Array of USDT transactions
+ *                     total:
+ *                       type: integer
+ *                       description: Total number of USDT transactions
+ *                     limit:
+ *                       type: integer
+ *                     offset:
+ *                       type: integer
+ *       401:
+ *         description: Unauthorized
+ */
+cryptoTransactionRouter.get('/usdt/transactions', authenticateUser, getUsdtTransactionsController);
 
 /**
  * @swagger

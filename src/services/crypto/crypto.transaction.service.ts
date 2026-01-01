@@ -465,6 +465,102 @@ class CryptoTransactionService {
   }
 
   /**
+   * Get all USDT transactions for a user
+   * Returns transactions where currency contains "USDT" (e.g., USDT, USDT_TRON, USDT_ETH, USDT_BSC)
+   */
+  async getUsdtTransactions(
+    userId: number,
+    transactionType?: CryptoTxType,
+    limit: number = 50,
+    offset: number = 0
+  ) {
+    // Get all USDT virtual accounts for this user
+    const usdtVirtualAccounts = await prisma.virtualAccount.findMany({
+      where: {
+        userId,
+        OR: [
+          { currency: 'USDT' },
+          { currency: { startsWith: 'USDT_' } },
+        ],
+      },
+      select: { id: true },
+    });
+
+    const usdtVirtualAccountIds = usdtVirtualAccounts.map(va => va.id);
+
+    // Build where clause - match by currency field OR virtual account
+    const baseWhere: any = {
+      userId,
+    };
+
+    if (transactionType) {
+      baseWhere.transactionType = transactionType;
+    }
+
+    // Build OR condition for USDT matching
+    const orConditions: any[] = [];
+    
+    // Match by currency field (for non-swap transactions)
+    orConditions.push({
+      OR: [
+        { currency: 'USDT' },
+        { currency: { startsWith: 'USDT_' } },
+      ],
+    });
+
+    // Match by virtual account IDs
+    if (usdtVirtualAccountIds.length > 0) {
+      orConditions.push({
+        virtualAccountId: { in: usdtVirtualAccountIds },
+      });
+    }
+
+    baseWhere.OR = orConditions;
+
+    // First, get all transactions (including swaps for filtering)
+    const allTransactions = await prisma.cryptoTransaction.findMany({
+      where: baseWhere,
+      include: {
+        cryptoBuy: true,
+        cryptoSell: true,
+        cryptoSend: true,
+        cryptoReceive: true,
+        cryptoSwap: true,
+        virtualAccount: {
+          include: {
+            walletCurrency: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Filter to include swaps where fromCurrency or toCurrency is USDT
+    const usdtTransactions = allTransactions.filter((tx) => {
+      // For swap transactions, check both fromCurrency and toCurrency
+      if (tx.transactionType === 'SWAP' && tx.cryptoSwap) {
+        const fromCurrency = tx.cryptoSwap.fromCurrency?.toUpperCase() || '';
+        const toCurrency = tx.cryptoSwap.toCurrency?.toUpperCase() || '';
+        return fromCurrency === 'USDT' || fromCurrency.startsWith('USDT_') ||
+               toCurrency === 'USDT' || toCurrency.startsWith('USDT_');
+      }
+      // For other transactions, they should already match via the where clause
+      return true;
+    });
+
+    // Apply pagination after filtering
+    const total = usdtTransactions.length;
+    const paginatedTransactions = usdtTransactions.slice(offset, offset + limit);
+
+    return {
+      transactions: paginatedTransactions.map((tx) => this.formatTransaction(tx)),
+      total,
+      limit,
+      offset,
+    };
+  }
+
+  /**
    * Format transaction for API response
    */
   private formatTransaction(transaction: any) {
