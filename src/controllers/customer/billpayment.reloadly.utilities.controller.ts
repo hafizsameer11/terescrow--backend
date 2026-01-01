@@ -337,8 +337,52 @@ export const createReloadlyUtilityBillOrderController = async (
         },
       });
 
+      // If status is PROCESSING, queue a status check job (with delays for retries)
+      if (reloadlyResponse.status === 'PROCESSING') {
+        const { queueManager } = await import('../../queue/queue.manager');
+        
+        // Queue immediate check
+        await queueManager.addJob(
+          'bill-payments',
+          'reloadly-utility-status',
+          {
+            billPaymentId: billPayment.id,
+            transactionId: parseInt(orderNo),
+          },
+          {
+            attempts: 10, // Retry up to 10 times
+            backoff: {
+              type: 'exponential',
+              delay: 10000, // Start with 10 seconds, then 20s, 40s, 80s...
+            },
+          }
+        );
+        
+        console.log(`[RELOADLY UTILITY] Queued status check job for bill payment ${billPayment.id}`);
+      }
+
       // If order status is SUCCESSFUL, mark transaction as completed
       if (reloadlyResponse.status === 'SUCCESSFUL') {
+        // For SUCCESSFUL payments, fetch full transaction details to get the token (PIN)
+        // Queue a job to fetch and update the token (even though status is SUCCESSFUL)
+        // This ensures we capture the token/PIN for electricity payments
+        const { queueManager } = await import('../../queue/queue.manager');
+        await queueManager.addJob(
+          'bill-payments',
+          'reloadly-utility-status',
+          {
+            billPaymentId: billPayment.id,
+            transactionId: parseInt(orderNo),
+          },
+          {
+            attempts: 3,
+            backoff: {
+              type: 'exponential',
+              delay: 2000,
+            },
+          }
+        );
+
         await prisma.fiatTransaction.update({
           where: { id: transaction.id },
           data: {
@@ -352,6 +396,7 @@ export const createReloadlyUtilityBillOrderController = async (
           data: {
             status: 'completed',
             completedAt: new Date(),
+            // Token will be updated by the status check job
             billReference: reloadlyResponse.referenceId || orderNo,
           },
         });
@@ -506,7 +551,11 @@ export const queryReloadlyUtilityOrderStatusController = async (
               ...(reloadlyStatus.transaction.status === 'SUCCESSFUL' && {
                 status: 'completed',
                 completedAt: new Date(),
-                billReference: reloadlyStatus.transaction.billDetails?.billerReferenceId || billPayment.palmpayOrderNo,
+                // For electricity/token-based payments, prioritize token (PIN) over billerReferenceId
+                // Token format: "2288-6878-8467-9902-8849" (for prepaid electricity)
+                billReference: reloadlyStatus.transaction.billDetails?.pinDetails?.token
+                  || reloadlyStatus.transaction.billDetails?.billerReferenceId
+                  || billPayment.palmpayOrderNo,
               }),
             },
           });

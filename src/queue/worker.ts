@@ -1,6 +1,7 @@
 import Queue, { Job } from 'bull';
 import { redisConfig } from '../config/redis.config';
 import { processBillPaymentStatusJob, BillPaymentStatusJobData } from './jobs/billpayment.status.job';
+import { processReloadlyUtilityStatusJob, ReloadlyUtilityStatusJobData } from './jobs/reloadly.utility.status.job';
 import { processCreateVirtualAccountJob, CreateVirtualAccountJobData } from '../jobs/tatum/create.virtual.account.job';
 import { processRetrySellTokenTransferJob, RetrySellTokenTransferJobData } from '../jobs/tatum/retry.sell.token.transfer.job';
 
@@ -125,13 +126,16 @@ export const queueWorker = new QueueWorker();
 if (require.main === module) {
   const queueName = process.argv[2] || 'default';
 
-  // Register job processors by queue name
-  const queueProcessors: Record<string, Record<string, (job: Job) => Promise<void>>> = {
-    'bill-payments': {
-      'bill-payment-status': async (job: Job) => {
-        await processBillPaymentStatusJob(job as Job<BillPaymentStatusJobData>);
+    // Register job processors by queue name
+    const queueProcessors: Record<string, Record<string, (job: Job) => Promise<void>>> = {
+      'bill-payments': {
+        'bill-payment-status': async (job: Job) => {
+          await processBillPaymentStatusJob(job as Job<BillPaymentStatusJobData>);
+        },
+        'reloadly-utility-status': async (job: Job) => {
+          await processReloadlyUtilityStatusJob(job as Job<ReloadlyUtilityStatusJobData>);
+        },
       },
-    },
     'tatum': {
       'create-virtual-account': async (job: Job) => {
         await processCreateVirtualAccountJob(job as Job<CreateVirtualAccountJobData>);

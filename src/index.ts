@@ -98,6 +98,11 @@ import authRouter from './routes/cutomer/auth.router';
 import publicRouter from './routes/public.router';
 const bodyParser = require('body-parser')
 
+// ============================================
+// Schedulers
+// ============================================
+import { startReloadlyUtilityStatusScheduler } from './schedulers/reloadly.utility.status.scheduler';
+
 const port = process.env.PORT || 5000;
 
 //middlewares
@@ -458,6 +463,9 @@ app.get('/', (req: Request, res: Response) => {
 });
 httpServer.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
+  
+  // Start schedulers
+  startReloadlyUtilityStatusScheduler();
 });
 
 app.get('/.well-known/pki-validation/E9D0BCFADE508ECB66F1A9236CF3AB96.txt', (req, res) => {
