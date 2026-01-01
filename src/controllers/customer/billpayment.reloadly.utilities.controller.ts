@@ -338,7 +338,7 @@ export const createReloadlyUtilityBillOrderController = async (
       });
 
       // If status is PROCESSING, queue a status check job (with delays for retries)
-      if (reloadlyResponse.status === 'PROCESSING') {
+      if (reloadlyResponse.status === 'PROCESSING' && orderNo) {
         const { queueManager } = await import('../../queue/queue.manager');
         
         // Queue immediate check
@@ -366,22 +366,24 @@ export const createReloadlyUtilityBillOrderController = async (
         // For SUCCESSFUL payments, fetch full transaction details to get the token (PIN)
         // Queue a job to fetch and update the token (even though status is SUCCESSFUL)
         // This ensures we capture the token/PIN for electricity payments
-        const { queueManager } = await import('../../queue/queue.manager');
-        await queueManager.addJob(
-          'bill-payments',
-          'reloadly-utility-status',
-          {
-            billPaymentId: billPayment.id,
-            transactionId: parseInt(orderNo),
-          },
-          {
-            attempts: 3,
-            backoff: {
-              type: 'exponential',
-              delay: 2000,
+        if (orderNo) {
+          const { queueManager } = await import('../../queue/queue.manager');
+          await queueManager.addJob(
+            'bill-payments',
+            'reloadly-utility-status',
+            {
+              billPaymentId: billPayment.id,
+              transactionId: parseInt(orderNo),
             },
-          }
-        );
+            {
+              attempts: 3,
+              backoff: {
+                type: 'exponential',
+                delay: 2000,
+              },
+            }
+          );
+        }
 
         await prisma.fiatTransaction.update({
           where: { id: transaction.id },
