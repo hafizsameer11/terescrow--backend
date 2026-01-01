@@ -108,8 +108,9 @@ export const verifyReloadlyAccountController = async (
       return next(ApiError.badRequest('rechargeAccount is required'));
     }
 
-    if (!/^0\d{10}$/.test(rechargeAccount)) {
-      return next(ApiError.badRequest('Invalid phone number format. Must start with 0 and be 11 digits'));
+    // Allow 11-digit (standard) or 15-digit (extended) numbers starting with 0
+    if (!/^0\d{10}$/.test(rechargeAccount) && !/^0\d{14}$/.test(rechargeAccount)) {
+      return next(ApiError.badRequest('Invalid account format. Must start with 0 and be 11 or 15 digits'));
     }
 
     // Auto-detect operator from phone number
