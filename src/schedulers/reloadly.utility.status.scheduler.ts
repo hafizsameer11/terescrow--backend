@@ -8,23 +8,29 @@ import { queueManager } from '../queue/queue.manager';
 
 /**
  * Check for PROCESSING Reloadly utility payments and queue status checks
+ * Only queues jobs for payments that haven't been checked in the last 1 minute
  */
 export async function checkProcessingReloadlyUtilityPayments() {
   try {
     console.log('[RELOADLY UTILITY SCHEDULER] Checking for PROCESSING payments...');
 
     // Find all Reloadly utility payments that are PROCESSING
+    // Only check payments that were created more than 1 minute ago (to avoid checking too soon)
+    const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+    
     const processingPayments = await prisma.billPayment.findMany({
       where: {
         provider: 'reloadly',
         palmpayStatus: 'PROCESSING',
         status: 'pending',
         palmpayOrderNo: { not: null }, // Must have Reloadly transaction ID
+        createdAt: { lte: oneMinuteAgo }, // Only check payments older than 1 minute
       },
       select: {
         id: true,
         palmpayOrderNo: true,
         createdAt: true,
+        updatedAt: true,
       },
       take: 100, // Process up to 100 at a time
       orderBy: {
@@ -38,18 +44,37 @@ export async function checkProcessingReloadlyUtilityPayments() {
       return;
     }
 
-    // Queue status check job for each payment
+    // Get the queue to check for existing jobs
+    const queue = queueManager.getQueue('bill-payments');
+    const jobs = await queue.getJobs(['waiting', 'delayed', 'active']);
+    
+    // Create a set of billPaymentIds that already have jobs queued
+    const queuedPaymentIds = new Set<string>();
+    for (const job of jobs) {
+      if (job.name === 'reloadly-utility-status' && job.data?.billPaymentId) {
+        queuedPaymentIds.add(job.data.billPaymentId);
+      }
+    }
+
+    let queuedCount = 0;
+    let skippedCount = 0;
+
+    // Queue status check job for each payment (only if not already queued)
     for (const payment of processingPayments) {
       try {
+        // Skip if a job is already queued for this payment
+        if (queuedPaymentIds.has(payment.id)) {
+          skippedCount++;
+          continue;
+        }
+
         const transactionId = payment.palmpayOrderNo ? parseInt(payment.palmpayOrderNo) : null;
         
         if (!transactionId) {
           console.warn(`[RELOADLY UTILITY SCHEDULER] Skipping payment ${payment.id} - no transaction ID`);
+          skippedCount++;
           continue;
         }
-
-        // Check if a job is already queued for this payment (optional optimization)
-        // For now, we'll queue it anyway - the job itself is idempotent
 
         await queueManager.addJob(
           'bill-payments',
@@ -67,13 +92,15 @@ export async function checkProcessingReloadlyUtilityPayments() {
           }
         );
 
+        queuedCount++;
         console.log(`[RELOADLY UTILITY SCHEDULER] Queued status check for payment ${payment.id}`);
       } catch (error: any) {
         console.error(`[RELOADLY UTILITY SCHEDULER] Error queuing job for payment ${payment.id}:`, error.message);
+        skippedCount++;
       }
     }
 
-    console.log(`[RELOADLY UTILITY SCHEDULER] Completed processing ${processingPayments.length} payments`);
+    console.log(`[RELOADLY UTILITY SCHEDULER] Completed: ${queuedCount} queued, ${skippedCount} skipped`);
   } catch (error: any) {
     console.error('[RELOADLY UTILITY SCHEDULER] Error checking processing payments:', error.message);
   }
