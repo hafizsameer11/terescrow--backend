@@ -89,23 +89,67 @@ export const getProductsController = async (
       );
     }
 
-    // Format response to match expected structure
-    const formattedProducts = allProducts.map((product) => ({
+    // Format response to include all Reloadly API fields
+    const formattedProducts = allProducts.map((product: any) => ({
       productId: product.productId,
       id: product.productId.toString(), // Use Reloadly productId as id
       productName: product.productName,
-      brandName: product.brandName || null,
-      countryCode: product.countryCode || null,
-      currencyCode: product.currencyCode,
-      minValue: product.minValue || null,
-      maxValue: product.maxValue || null,
-      fixedValue: product.fixedRecipientDenominations?.[0] || product.fixedSenderDenominations?.[0] || null,
-      isVariableDenomination: !product.fixedRecipientDenominations && !product.fixedSenderDenominations,
-      imageUrl: product.logoUrls?.[0] || product.logoUrl || null, // Use Reloadly logo
-      category: product.productType || null,
-      status: 'active', // Reloadly products are active by default
-      description: product.description || null,
+      global: product.global ?? product.isGlobal ?? false,
+      status: product.status || 'ACTIVE',
+      supportsPreOrder: product.supportsPreOrder ?? false,
+      senderFee: product.senderFee ?? null,
+      senderFeePercentage: product.senderFeePercentage ?? null,
+      discountPercentage: product.discountPercentage ?? null,
+      denominationType: product.denominationType || (product.fixedRecipientDenominations?.length > 0 ? 'FIXED' : 'RANGE'),
+      recipientCurrencyCode: product.recipientCurrencyCode || product.currencyCode,
+      minRecipientDenomination: product.minRecipientDenomination ?? product.minValue ?? null,
+      maxRecipientDenomination: product.maxRecipientDenomination ?? product.maxValue ?? null,
+      senderCurrencyCode: product.senderCurrencyCode ?? null,
+      minSenderDenomination: product.minSenderDenomination ?? null,
+      maxSenderDenomination: product.maxSenderDenomination ?? null,
+      fixedRecipientDenominations: product.fixedRecipientDenominations || [],
+      fixedSenderDenominations: product.fixedSenderDenominations || null,
+      fixedRecipientToSenderDenominationsMap: product.fixedRecipientToSenderDenominationsMap || null,
+      metadata: product.metadata || null,
+      logoUrls: product.logoUrls || (product.logoUrl ? [product.logoUrl] : []),
+      brand: product.brand ? {
+        brandId: product.brand.brandId,
+        brandName: product.brand.brandName,
+        logoUrl: product.brand.logoUrl,
+      } : (product.brandName ? {
+        brandId: null,
+        brandName: product.brandName,
+        logoUrl: null,
+      } : null),
+      category: product.category ? {
+        id: product.category.id,
+        name: product.category.name,
+      } : (product.productType ? {
+        id: null,
+        name: product.productType,
+      } : null),
+      country: product.country ? {
+        isoName: product.country.isoName,
+        name: product.country.name,
+        flagUrl: product.country.flagUrl,
+      } : (product.countryCode ? {
+        isoName: product.countryCode,
+        name: null,
+        flagUrl: null,
+      } : null),
       redeemInstruction: product.redeemInstruction || null,
+      additionalRequirements: product.additionalRequirements || null,
+      recipientCurrencyToSenderCurrencyExchangeRate: product.recipientCurrencyToSenderCurrencyExchangeRate ?? null,
+      // Legacy fields for backward compatibility
+      brandName: product.brandName || product.brand?.brandName || null,
+      countryCode: product.countryCode || product.country?.isoName || null,
+      currencyCode: product.currencyCode || product.recipientCurrencyCode,
+      minValue: product.minRecipientDenomination ?? product.minValue ?? null,
+      maxValue: product.maxRecipientDenomination ?? product.maxValue ?? null,
+      fixedValue: product.fixedRecipientDenominations?.[0] || product.fixedSenderDenominations?.[0] || null,
+      isVariableDenomination: !product.fixedRecipientDenominations?.length && !product.fixedSenderDenominations?.length,
+      imageUrl: product.logoUrls?.[0] || product.logoUrl || null,
+      description: product.description || null,
     }));
 
     return new ApiResponse(200, {
@@ -157,71 +201,81 @@ export const getProductByIdController = async (
   try {
     const { productId } = req.params;
 
-    // Try database first
-    const product = await prisma.giftCardProduct.findFirst({
-      where: {
-        OR: [
-          { id: parseInt(productId, 10) },
-          { reloadlyProductId: parseInt(productId, 10) },
-        ],
-      },
-      include: {
-        productCountries: true,
-      },
-    });
+    // Always fetch from Reloadly to get complete and up-to-date product data
+    try {
+      const reloadlyProduct: any = await reloadlyProductsService.getProductById(
+        parseInt(productId, 10)
+      );
 
-    if (!product) {
-      // Try fetching from Reloadly
-      try {
-        const reloadlyProduct = await reloadlyProductsService.getProductById(
-          parseInt(productId, 10)
-        );
-
-        return new ApiResponse(200, {
-          productId: reloadlyProduct.productId,
-          productName: reloadlyProduct.productName,
+      // Format response to include all Reloadly API fields
+      const formattedProduct = {
+        productId: reloadlyProduct.productId,
+        id: reloadlyProduct.productId.toString(),
+        productName: reloadlyProduct.productName,
+        global: reloadlyProduct.global ?? reloadlyProduct.isGlobal ?? false,
+        status: reloadlyProduct.status || 'ACTIVE',
+        supportsPreOrder: reloadlyProduct.supportsPreOrder ?? false,
+        senderFee: reloadlyProduct.senderFee ?? null,
+        senderFeePercentage: reloadlyProduct.senderFeePercentage ?? null,
+        discountPercentage: reloadlyProduct.discountPercentage ?? null,
+        denominationType: reloadlyProduct.denominationType || (reloadlyProduct.fixedRecipientDenominations?.length > 0 ? 'FIXED' : 'RANGE'),
+        recipientCurrencyCode: reloadlyProduct.recipientCurrencyCode || reloadlyProduct.currencyCode,
+        minRecipientDenomination: reloadlyProduct.minRecipientDenomination ?? reloadlyProduct.minValue ?? null,
+        maxRecipientDenomination: reloadlyProduct.maxRecipientDenomination ?? reloadlyProduct.maxValue ?? null,
+        senderCurrencyCode: reloadlyProduct.senderCurrencyCode ?? null,
+        minSenderDenomination: reloadlyProduct.minSenderDenomination ?? null,
+        maxSenderDenomination: reloadlyProduct.maxSenderDenomination ?? null,
+        fixedRecipientDenominations: reloadlyProduct.fixedRecipientDenominations || [],
+        fixedSenderDenominations: reloadlyProduct.fixedSenderDenominations || null,
+        fixedRecipientToSenderDenominationsMap: reloadlyProduct.fixedRecipientToSenderDenominationsMap || null,
+        metadata: reloadlyProduct.metadata || null,
+        logoUrls: reloadlyProduct.logoUrls || (reloadlyProduct.logoUrl ? [reloadlyProduct.logoUrl] : []),
+        brand: reloadlyProduct.brand ? {
+          brandId: reloadlyProduct.brand.brandId,
+          brandName: reloadlyProduct.brand.brandName,
+          logoUrl: reloadlyProduct.brand.logoUrl,
+        } : (reloadlyProduct.brandName ? {
+          brandId: null,
           brandName: reloadlyProduct.brandName,
-          countryCode: reloadlyProduct.countryCode,
-          currencyCode: reloadlyProduct.currencyCode,
-          minValue: reloadlyProduct.minValue,
-          maxValue: reloadlyProduct.maxValue,
-          imageUrl: reloadlyProduct.logoUrl || (reloadlyProduct.logoUrls && reloadlyProduct.logoUrls[0]) || null,
-          isGlobal: reloadlyProduct.isGlobal,
-          productType: reloadlyProduct.productType,
-          description: reloadlyProduct.description,
-          redemptionInstructions: reloadlyProduct.redeemInstruction,
-        }, 'Product retrieved successfully').send(res);
-      } catch (reloadlyError) {
-        throw ApiError.notFound('Product not found');
-      }
+          logoUrl: null,
+        } : null),
+        category: reloadlyProduct.category ? {
+          id: reloadlyProduct.category.id,
+          name: reloadlyProduct.category.name,
+        } : (reloadlyProduct.productType ? {
+          id: null,
+          name: reloadlyProduct.productType,
+        } : null),
+        country: reloadlyProduct.country ? {
+          isoName: reloadlyProduct.country.isoName,
+          name: reloadlyProduct.country.name,
+          flagUrl: reloadlyProduct.country.flagUrl,
+        } : (reloadlyProduct.countryCode ? {
+          isoName: reloadlyProduct.countryCode,
+          name: null,
+          flagUrl: null,
+        } : null),
+        redeemInstruction: reloadlyProduct.redeemInstruction || null,
+        additionalRequirements: reloadlyProduct.additionalRequirements || null,
+        recipientCurrencyToSenderCurrencyExchangeRate: reloadlyProduct.recipientCurrencyToSenderCurrencyExchangeRate ?? null,
+        // Legacy fields for backward compatibility
+        brandName: reloadlyProduct.brandName || reloadlyProduct.brand?.brandName || null,
+        countryCode: reloadlyProduct.countryCode || reloadlyProduct.country?.isoName || null,
+        currencyCode: reloadlyProduct.currencyCode || reloadlyProduct.recipientCurrencyCode,
+        minValue: reloadlyProduct.minRecipientDenomination ?? reloadlyProduct.minValue ?? null,
+        maxValue: reloadlyProduct.maxRecipientDenomination ?? reloadlyProduct.maxValue ?? null,
+        fixedValue: reloadlyProduct.fixedRecipientDenominations?.[0] || reloadlyProduct.fixedSenderDenominations?.[0] || null,
+        isVariableDenomination: !reloadlyProduct.fixedRecipientDenominations?.length && !reloadlyProduct.fixedSenderDenominations?.length,
+        imageUrl: reloadlyProduct.logoUrls?.[0] || reloadlyProduct.logoUrl || null,
+        productType: reloadlyProduct.productType || null,
+        description: reloadlyProduct.description || null,
+        redemptionInstructions: reloadlyProduct.redeemInstruction || null,
+      };
+
+      return new ApiResponse(200, formattedProduct, 'Product retrieved successfully').send(res);
+    } catch (reloadlyError) {
+      throw ApiError.notFound('Product not found');
     }
-
-    // Format response
-    const formattedProduct = {
-      productId: product.reloadlyProductId,
-      id: product.id,
-      productName: product.productName,
-      brandName: product.brandName,
-      countryCode: product.countryCode,
-      currencyCode: product.currencyCode,
-      minValue: product.minValue,
-      maxValue: product.maxValue,
-      fixedValue: product.fixedValue,
-      isVariableDenomination: product.isVariableDenomination,
-      isGlobal: product.isGlobal,
-      imageUrl: product.reloadlyImageUrl || product.imageUrl || null,
-      category: product.category,
-      productType: product.productType,
-      description: product.description,
-      redemptionInstructions: product.redemptionInstructions,
-      supportedCardTypes: product.supportedCardTypes
-        ? (typeof product.supportedCardTypes === 'string' 
-            ? JSON.parse(product.supportedCardTypes) 
-            : product.supportedCardTypes) as string[]
-        : ['Physical', 'E-Code', 'Code Only'],
-    };
-
-    return new ApiResponse(200, formattedProduct, 'Product retrieved successfully').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);

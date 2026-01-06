@@ -174,22 +174,27 @@ export const purchaseController = async (
     // Generate custom identifier if not provided
     const orderCustomIdentifier = customIdentifier || `GC-${userId}-${Date.now()}`;
 
-    // Prepare Reloadly order request
+    // Prepare Reloadly order request (following Reloadly API architecture)
+    // Only include optional fields if they have values (to match API requirements)
     const reloadlyOrderRequest: ReloadlyOrderRequest = {
       productId,
       quantity,
       unitPrice,
       senderName,
       customIdentifier: orderCustomIdentifier,
-      preOrder,
-      recipientEmail: recipientEmail || user.email,
-      recipientPhoneDetails: recipientPhoneDetails
-        ? {
-            countryCode: recipientPhoneDetails.countryCode,
-            phoneNumber: recipientPhoneDetails.phoneNumber,
-          }
-        : undefined,
-      productAdditionalRequirements,
+      // Only include preOrder if it's true (API defaults to false if omitted)
+      ...(preOrder === true && { preOrder: true }),
+      // Only include recipientEmail if explicitly provided (API says if absent, no email sent)
+      ...(recipientEmail && { recipientEmail }),
+      // Only include recipientPhoneDetails if provided
+      ...(recipientPhoneDetails?.countryCode && recipientPhoneDetails?.phoneNumber && {
+        recipientPhoneDetails: {
+          countryCode: recipientPhoneDetails.countryCode,
+          phoneNumber: recipientPhoneDetails.phoneNumber,
+        },
+      }),
+      // Only include productAdditionalRequirements if provided
+      ...(productAdditionalRequirements && { productAdditionalRequirements }),
     };
 
     // Log the complete request object before sending to Reloadly
