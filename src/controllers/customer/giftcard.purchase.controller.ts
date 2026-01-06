@@ -192,6 +192,9 @@ export const purchaseController = async (
       productAdditionalRequirements,
     };
 
+    // Log the complete request object before sending to Reloadly
+    console.log('[GIFT CARD PURCHASE] Complete Reloadly Order Request:', JSON.stringify(reloadlyOrderRequest, null, 2));
+
     // Create order in Reloadly
     let reloadlyOrder: ReloadlyOrderResponse;
     try {

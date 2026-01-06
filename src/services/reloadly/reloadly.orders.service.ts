@@ -34,28 +34,42 @@ class ReloadlyOrdersService {
   async createOrder(orderData: ReloadlyOrderRequest): Promise<ReloadlyOrderResponse> {
     try {
       const token = await reloadlyGiftCardsAuth.getAccessToken();
+      const url = `${this.getBaseUrl()}/orders`;
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/com.reloadly.giftcards-v1+json',
+        'Content-Type': 'application/json',
+      };
 
-      const response = await fetch(`${this.getBaseUrl()}/orders`, {
+      // Log complete request object for debugging
+      console.log('[RELOADLY ORDERS] Creating gift card order...');
+      console.log('[RELOADLY ORDERS] Request URL:', url);
+      console.log('[RELOADLY ORDERS] Request Headers:', JSON.stringify(headers, null, 2));
+      console.log('[RELOADLY ORDERS] Complete Request Body:', JSON.stringify(orderData, null, 2));
+
+      const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/com.reloadly.giftcards-v1+json',
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(orderData),
       });
 
+      // Log response status and headers
+      console.log('[RELOADLY ORDERS] Response Status:', response.status);
+      console.log('[RELOADLY ORDERS] Response Headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
+
       if (!response.ok) {
         const errorData: ReloadlyError = await response.json().catch(() => ({}));
+        console.error('[RELOADLY ORDERS] Error Response:', JSON.stringify(errorData, null, 2));
         throw new Error(
           `Reloadly API error: ${errorData.error || errorData.message || response.statusText} (${response.status})`
         );
       }
 
       const data: ReloadlyOrderResponse = await response.json();
+      console.log('[RELOADLY ORDERS] Success Response:', JSON.stringify(data, null, 2));
       return data;
     } catch (error) {
-      console.error('Error creating order:', error);
+      console.error('[RELOADLY ORDERS] Error creating order:', error);
       throw error;
     }
   }
