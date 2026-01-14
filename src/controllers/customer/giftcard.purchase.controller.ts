@@ -15,6 +15,7 @@ import ApiResponse from '../../utils/ApiResponse';
 import { reloadlyOrdersService } from '../../services/reloadly/reloadly.orders.service';
 import { reloadlyProductsService } from '../../services/reloadly/reloadly.products.service';
 import { ReloadlyOrderRequest, ReloadlyOrderResponse } from '../../types/reloadly.types';
+import { sendGiftCardOrderEmail } from '../../utils/authUtils';
 
 /**
  * Process gift card purchase
@@ -174,6 +175,9 @@ export const purchaseController = async (
     // Generate custom identifier if not provided
     const orderCustomIdentifier = customIdentifier || `GC-${userId}-${Date.now()}`;
 
+    // Always send user's email to Reloadly (use recipientEmail if provided, otherwise use user's email)
+    const emailToSendToReloadly = recipientEmail || user.email;
+
     // Prepare Reloadly order request (following Reloadly API architecture)
     // Only include optional fields if they have values (to match API requirements)
     const reloadlyOrderRequest: ReloadlyOrderRequest = {
@@ -182,10 +186,10 @@ export const purchaseController = async (
       unitPrice,
       senderName,
       customIdentifier: orderCustomIdentifier,
+      // Always include recipientEmail (user's email or provided recipientEmail)
+      recipientEmail: emailToSendToReloadly,
       // Only include preOrder if it's true (API defaults to false if omitted)
       ...(preOrder === true && { preOrder: true }),
-      // Only include recipientEmail if explicitly provided (API says if absent, no email sent)
-      ...(recipientEmail && { recipientEmail }),
       // Only include recipientPhoneDetails if provided
       ...(recipientPhoneDetails?.countryCode && recipientPhoneDetails?.phoneNumber && {
         recipientPhoneDetails: {
@@ -236,25 +240,72 @@ export const purchaseController = async (
     });
 
     // If order is immediately successful, try to fetch card code
+    let cardCode: string | undefined;
+    let cardPin: string | undefined;
+    let expiryDate: Date | null = null;
+    
     if (reloadlyOrder.status === 'SUCCESSFUL' && reloadlyOrder.transactionId) {
       try {
         const cardCodes = await reloadlyOrdersService.getCardCodes(reloadlyOrder.transactionId);
         
         if (cardCodes.content && cardCodes.content.length > 0) {
-          const cardCode = cardCodes.content[0];
+          const cardCodeData = cardCodes.content[0];
+          cardCode = cardCodeData.redemptionCode;
+          cardPin = cardCodeData.pin;
+          expiryDate = cardCodeData.expiryDate ? new Date(cardCodeData.expiryDate) : null;
           
           await prisma.giftCardOrder.update({
             where: { id: order.id },
             data: {
-              cardCode: cardCode.redemptionCode,
-              cardPin: cardCode.pin || null,
-              expiryDate: cardCode.expiryDate ? new Date(cardCode.expiryDate) : null,
+              cardCode: cardCode,
+              cardPin: cardPin || null,
+              expiryDate: expiryDate,
             },
           });
         }
       } catch (cardError) {
         // Card code not available yet, will be fetched later via polling
         console.log('Card code not available yet, will poll later');
+      }
+    }
+
+    // Send email notification to user
+    // Use the same email that was sent to Reloadly
+    if (emailToSendToReloadly) {
+      try {
+        // Get redemption instructions from product
+        let redemptionInstructions: string | null = null;
+        if (product.redeemInstruction) {
+          if (typeof product.redeemInstruction === 'string') {
+            redemptionInstructions = product.redeemInstruction;
+          } else if (typeof product.redeemInstruction === 'object') {
+            const redeemObj = product.redeemInstruction as any;
+            redemptionInstructions = redeemObj.verbose || redeemObj.concise || JSON.stringify(redeemObj);
+          }
+        }
+
+        await sendGiftCardOrderEmail(emailToSendToReloadly, {
+          transactionId: reloadlyOrder.transactionId,
+          productName: reloadlyOrder.product.productName,
+          brandName: reloadlyOrder.product.brand?.brandName,
+          countryCode: reloadlyOrder.product.countryCode,
+          quantity: reloadlyOrder.product.quantity,
+          unitPrice: reloadlyOrder.product.unitPrice,
+          currencyCode: reloadlyOrder.product.currencyCode || reloadlyOrder.currencyCode,
+          totalAmount: reloadlyOrder.amount,
+          fee: reloadlyOrder.fee,
+          status: reloadlyOrder.status,
+          cardCode: cardCode,
+          cardPin: cardPin,
+          expiryDate: expiryDate,
+          redemptionInstructions: redemptionInstructions,
+          transactionCreatedTime: reloadlyOrder.transactionCreatedTime,
+          senderName: senderName,
+        });
+        console.log(`[GIFT CARD PURCHASE] Email sent to ${emailToSendToReloadly} for order #${reloadlyOrder.transactionId}`);
+      } catch (emailError) {
+        // Don't fail the order if email fails - just log it
+        console.error('[GIFT CARD PURCHASE] Failed to send email:', emailError);
       }
     }
 

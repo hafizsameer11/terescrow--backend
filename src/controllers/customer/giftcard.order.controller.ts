@@ -12,6 +12,7 @@ import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { reloadlyOrdersService } from '../../services/reloadly/reloadly.orders.service';
+import { sendGiftCardOrderEmail } from '../../utils/authUtils';
 
 /**
  * Get user's gift card orders
@@ -200,6 +201,12 @@ export const getCardDetailsController = async (
             redemptionInstructions: true,
           },
         },
+        user: {
+          select: {
+            email: true,
+            firstName: true,
+          },
+        },
       },
     });
 
@@ -216,6 +223,9 @@ export const getCardDetailsController = async (
 
         if (cardCodes.content && cardCodes.content.length > 0) {
           const cardCode = cardCodes.content[0];
+
+          // Check if card code was already available (to avoid duplicate emails)
+          const hadCardCode = !!order.cardCode;
 
           // Update order with card code
           await prisma.giftCardOrder.update({
@@ -244,6 +254,37 @@ export const getCardDetailsController = async (
               },
             },
           });
+
+          // Send email if card code just became available (wasn't available before)
+          if (updatedOrder && !hadCardCode) {
+            const emailToSend = order.recipientEmail || order.user?.email;
+            if (emailToSend) {
+              try {
+                await sendGiftCardOrderEmail(emailToSend, {
+                  transactionId: parseInt(order.reloadlyTransactionId || '0', 10),
+                  productName: updatedOrder.product.productName,
+                  brandName: updatedOrder.product.brandName || undefined,
+                  countryCode: order.countryCode || undefined,
+                  quantity: order.quantity,
+                  unitPrice: Number(order.faceValue),
+                  currencyCode: order.currencyCode,
+                  totalAmount: Number(order.totalAmount),
+                  fee: Number(order.fees),
+                  status: 'SUCCESSFUL',
+                  cardCode: cardCode.redemptionCode,
+                  cardPin: cardCode.pin,
+                  expiryDate: cardCode.expiryDate ? new Date(cardCode.expiryDate) : null,
+                  redemptionInstructions: updatedOrder.product.redemptionInstructions || undefined,
+                  transactionCreatedTime: order.createdAt.toISOString(),
+                  senderName: order.senderName || order.user?.firstName || undefined,
+                });
+                console.log(`[GIFT CARD ORDER] Email sent to ${emailToSend} for order #${order.id} with card code`);
+              } catch (emailError) {
+                // Don't fail the request if email fails - just log it
+                console.error('[GIFT CARD ORDER] Failed to send email:', emailError);
+              }
+            }
+          }
 
           if (updatedOrder) {
             return new ApiResponse(200, {
