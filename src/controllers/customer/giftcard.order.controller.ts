@@ -204,7 +204,7 @@ export const getCardDetailsController = async (
         user: {
           select: {
             email: true,
-            firstName: true,
+            firstname: true,
           },
         },
       },
@@ -239,7 +239,7 @@ export const getCardDetailsController = async (
             },
           });
 
-          // Reload order
+          // Reload order with all relations needed
           const updatedOrder = await prisma.giftCardOrder.findUnique({
             where: { id: order.id },
             include: {
@@ -252,31 +252,37 @@ export const getCardDetailsController = async (
                   redemptionInstructions: true,
                 },
               },
+              user: {
+                select: {
+                  email: true,
+                  firstname: true,
+                },
+              },
             },
           });
 
           // Send email if card code just became available (wasn't available before)
           if (updatedOrder && !hadCardCode) {
-            const emailToSend = order.recipientEmail || order.user?.email;
+            const emailToSend = updatedOrder.recipientEmail || updatedOrder.user?.email || order.user?.email;
             if (emailToSend) {
               try {
                 await sendGiftCardOrderEmail(emailToSend, {
-                  transactionId: parseInt(order.reloadlyTransactionId || '0', 10),
+                  transactionId: parseInt(updatedOrder.reloadlyTransactionId || order.reloadlyTransactionId || '0', 10),
                   productName: updatedOrder.product.productName,
                   brandName: updatedOrder.product.brandName || undefined,
-                  countryCode: order.countryCode || undefined,
-                  quantity: order.quantity,
-                  unitPrice: Number(order.faceValue),
-                  currencyCode: order.currencyCode,
-                  totalAmount: Number(order.totalAmount),
-                  fee: Number(order.fees),
+                  countryCode: updatedOrder.countryCode || order.countryCode || undefined,
+                  quantity: updatedOrder.quantity,
+                  unitPrice: Number(updatedOrder.faceValue),
+                  currencyCode: updatedOrder.currencyCode,
+                  totalAmount: Number(updatedOrder.totalAmount),
+                  fee: Number(updatedOrder.fees),
                   status: 'SUCCESSFUL',
                   cardCode: cardCode.redemptionCode,
                   cardPin: cardCode.pin,
                   expiryDate: cardCode.expiryDate ? new Date(cardCode.expiryDate) : null,
                   redemptionInstructions: updatedOrder.product.redemptionInstructions || undefined,
-                  transactionCreatedTime: order.createdAt.toISOString(),
-                  senderName: order.senderName || order.user?.firstName || undefined,
+                  transactionCreatedTime: updatedOrder.createdAt.toISOString(),
+                  senderName: updatedOrder.senderName || updatedOrder.user?.firstname || order.user?.firstname || undefined,
                 });
                 console.log(`[GIFT CARD ORDER] Email sent to ${emailToSend} for order #${order.id} with card code`);
               } catch (emailError) {

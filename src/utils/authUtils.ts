@@ -119,7 +119,7 @@ export const sendWelcomeEmail = async (userEmail: string, firstName: string): Pr
     const mailOptions = {
       from: smtpSettings?.email || process.env.GMAIL_USER,
       to: userEmail,
-      subject: 'Welcome to Tercescrow – Let's Trade Giftcards Safely and Easily!',
+      subject: 'Welcome to Tercescrow - Let\'s Trade Giftcards Safely and Easily!',
       html: `
         <p>Hi <strong>${firstName}</strong>,</p>
         <p>Welcome to <strong>Tercescrow</strong> – your trusted platform for trading gift cards securely and conveniently!</p>
@@ -376,5 +376,4 @@ export {
   comparePassword,
   sendVerificationEmail,
   generateOTP,
-  sendGiftCardOrderEmail,
 };
