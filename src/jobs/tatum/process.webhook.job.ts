@@ -493,6 +493,46 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       txId,
     });
 
+    // Send push notification for balance update and transaction creation
+    try {
+      await sendPushNotification({
+        userId: virtualAccount.userId,
+        title: 'Crypto Deposit Received',
+        body: `You received ${receivedAmount.toString()} ${currency.toUpperCase()}. Your balance has been updated.`,
+        sound: 'default',
+        priority: 'high',
+        data: {
+          type: 'crypto_receive',
+          transactionId: receiveTransaction.id.toString(),
+          amount: receivedAmount.toString(),
+          currency: currency.toUpperCase(),
+          txHash: txId || '',
+        },
+      });
+
+      await prisma.inAppNotification.create({
+        data: {
+          userId: virtualAccount.userId,
+          title: 'Crypto Deposit Received',
+          description: `You received ${receivedAmount.toString()} ${currency.toUpperCase()}. Transaction: ${txId || 'N/A'}`,
+          type: InAppNotificationType.customeer,
+        },
+      });
+
+      tatumLogger.info('Balance update and transaction notification sent', {
+        userId: virtualAccount.userId,
+        receiveTransactionId: receiveTransaction.id,
+        amount: receivedAmount.toString(),
+        currency,
+      });
+    } catch (notifError: any) {
+      tatumLogger.exception('Send balance update notification', notifError, {
+        userId: virtualAccount.userId,
+        receiveTransactionId: receiveTransaction.id,
+      });
+      // Don't fail webhook processing if notification fails
+    }
+
     // Create CryptoReceive transaction record
     try {
       // Get wallet currency for price calculation
@@ -550,33 +590,34 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         txHash: txId,
       });
 
-      // Send notifications for crypto receive
+      // Send enhanced notification with USD value (optional - first notification already sent above)
+      // This provides additional details like USD value if available
       try {
         await sendPushNotification({
           userId: virtualAccount.userId,
-          title: 'Crypto Deposit Received',
-          body: `You received ${amountDecimal.toString()} ${currency.toUpperCase()} ($${amountUsd.toString()})`,
+          title: 'Crypto Deposit Confirmed',
+          body: `Your deposit of ${amountDecimal.toString()} ${currency.toUpperCase()} is worth $${amountUsd.toFixed(2)}`,
           sound: 'default',
           priority: 'high',
-        });
-
-        await prisma.inAppNotification.create({
           data: {
-            userId: virtualAccount.userId,
-            title: 'Crypto Deposit Received',
-            description: `You received ${amountDecimal.toString()} ${currency.toUpperCase()} ($${amountUsd.toString()}). Transaction ID: ${transactionId}`,
-            type: InAppNotificationType.customeer,
+            type: 'crypto_receive_enhanced',
+            transactionId: cryptoReceiveTx.transactionId,
+            amount: amountDecimal.toString(),
+            amountUsd: amountUsd.toString(),
+            currency: currency.toUpperCase(),
+            txHash: txId || '',
           },
         });
 
-        tatumLogger.info('Receive transaction notification sent', {
+        tatumLogger.info('Enhanced receive transaction notification sent', {
           userId: virtualAccount.userId,
-          transactionId,
+          transactionId: cryptoReceiveTx.transactionId,
+          amountUsd: amountUsd.toString(),
         });
       } catch (notifError: any) {
-        tatumLogger.exception('Send receive notification', notifError, {
+        tatumLogger.exception('Send enhanced receive notification', notifError, {
           userId: virtualAccount.userId,
-          transactionId,
+          transactionId: cryptoReceiveTx.transactionId,
         });
         // Don't fail webhook processing if notification fails
       }
