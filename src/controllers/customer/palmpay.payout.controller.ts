@@ -107,10 +107,20 @@ export const initiatePayoutController = async (
     // Get or create wallet
     const wallet = await fiatWalletService.getOrCreateWallet(user.id, currency);
 
-    // Check balance
+    // Estimate fees conservatively (100 NGN or 1% of amount, whichever is higher)
+    // This ensures we have enough balance even if actual fees are higher
+    const amountDecimal = parseFloat(amount);
+    const estimatedFeePercentage = 0.01; // 1%
+    const estimatedFeeFixed = 100; // 100 NGN minimum
+    const estimatedFee = Math.max(amountDecimal * estimatedFeePercentage, estimatedFeeFixed);
+    const totalAmountWithFees = amountDecimal + estimatedFee;
+
+    // Check balance including estimated fees
     const balance = await fiatWalletService.getBalance(wallet.id);
-    if (!balance || parseFloat(balance.balance) < parseFloat(amount)) {
-      return next(ApiError.badRequest('Insufficient balance'));
+    if (!balance || parseFloat(balance.balance) < totalAmountWithFees) {
+      return next(ApiError.badRequest(
+        `Insufficient balance. Required: ${totalAmountWithFees.toFixed(2)} ${currency.toUpperCase()} (amount: ${amountDecimal.toFixed(2)} + estimated fees: ${estimatedFee.toFixed(2)}), Available: ${balance?.balance || '0'} ${currency.toUpperCase()}`
+      ));
     }
 
     // Generate unique order ID
@@ -155,6 +165,27 @@ export const initiatePayoutController = async (
     // Calculate fees
     const fees = palmpayResponse.fee ? palmpayResponse.fee.fee / 100 : 0; // Convert cents to currency
     const totalAmount = parseFloat(amount) + fees;
+
+    // Verify balance again with actual fees (in case actual fees are higher than estimated)
+    const currentBalance = await fiatWalletService.getBalance(wallet.id);
+    if (!currentBalance || parseFloat(currentBalance.balance) < totalAmount) {
+      // Update transaction status to failed due to insufficient balance
+      await prisma.fiatTransaction.update({
+        where: { id: transaction.id },
+        data: {
+          palmpayOrderNo: palmpayResponse.orderNo,
+          palmpayStatus: palmpayResponse.orderStatus.toString(),
+          palmpaySessionId: palmpayResponse.sessionId,
+          fees: fees,
+          totalAmount: totalAmount,
+          status: 'failed',
+          errorMessage: `Insufficient balance after fee calculation. Required: ${totalAmount.toFixed(2)} ${currency.toUpperCase()}, Available: ${currentBalance?.balance || '0'} ${currency.toUpperCase()}`,
+        },
+      });
+      return next(ApiError.badRequest(
+        `Insufficient balance after fee calculation. Required: ${totalAmount.toFixed(2)} ${currency.toUpperCase()} (amount: ${amountDecimal.toFixed(2)} + fees: ${fees.toFixed(2)}), Available: ${currentBalance?.balance || '0'} ${currency.toUpperCase()}`
+      ));
+    }
 
     // Update transaction with PalmPay response
     await prisma.fiatTransaction.update({
@@ -274,8 +305,24 @@ export const checkPayoutStatusController = async (
           },
         });
 
-        // If payout is successful and wallet hasn't been debited, debit it now
+        // If payout is successful and wallet hasn't been debited, check balance and debit it now
         if (palmpayStatus.orderStatus === 2 && transaction.status !== 'completed') {
+          // Check balance before debiting (in case user spent money between initiation and completion)
+          const currentBalance = await fiatWalletService.getBalance(transaction.walletId);
+          if (!currentBalance || parseFloat(currentBalance.balance) < totalAmount) {
+            // Update transaction status to failed due to insufficient balance
+            await prisma.fiatTransaction.update({
+              where: { id: transaction.id },
+              data: {
+                status: 'failed',
+                errorMessage: `Insufficient balance when processing withdrawal. Required: ${totalAmount.toFixed(2)} ${transaction.currency}, Available: ${currentBalance?.balance || '0'} ${transaction.currency}`,
+              },
+            });
+            return next(ApiError.badRequest(
+              `Insufficient balance when processing withdrawal. Required: ${totalAmount.toFixed(2)} ${transaction.currency}, Available: ${currentBalance?.balance || '0'} ${transaction.currency}`
+            ));
+          }
+          
           await fiatWalletService.debitWallet(transaction.walletId, totalAmount, transaction.id);
         }
 

@@ -78,6 +78,12 @@ export const loginController = async (
         if (!isUser) {
             return next(ApiError.badRequest('This email is not registerd'));
         }
+        
+        // Check if user has verified their OTP/email
+        if (isUser.isVerified === false) {
+            return next(ApiError.badRequest('Your account is not verified. Please verify your email with the OTP sent to your email address'));
+        }
+        
         const isMatch = await comparePassword(password, isUser.password);
         if (!isMatch) {
             return next(ApiError.badRequest('Your password is not correct'));
