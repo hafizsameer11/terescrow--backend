@@ -116,12 +116,14 @@ export const initiatePayoutController = async (
       ));
     }
 
-    // Check withdrawal limit (temporary 1000 NGN limit for QA testing)
+    // Check withdrawal limits (daily and monthly)
     try {
-      const WITHDRAWAL_LIMIT = 1000; // Temporary limit for QA testing
+      const DAILY_WITHDRAWAL_LIMIT = 1000; // Daily limit: 1,000 NGN
+      const MONTHLY_WITHDRAWAL_LIMIT = 10000; // Monthly limit: 10,000 NGN
+      
+      const now = new Date();
       
       // Calculate today's total withdrawals
-      const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
@@ -144,10 +146,42 @@ export const initiatePayoutController = async (
       const dailyTotal = dailyWithdrawals._sum.amount?.toNumber() || 0;
       const newDailyTotal = dailyTotal + amountDecimal;
 
-      // Check daily limit
-      if (newDailyTotal > WITHDRAWAL_LIMIT) {
+      // Calculate current month's total withdrawals
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+      const monthlyWithdrawals = await prisma.fiatTransaction.aggregate({
+        where: {
+          userId: user.id,
+          type: 'WITHDRAW',
+          status: { in: ['completed', 'successful', 'pending'] }, // Include pending as they're already debited
+          currency: currency.toUpperCase(),
+          createdAt: {
+            gte: monthStart,
+            lte: monthEnd,
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      });
+
+      const monthlyTotal = monthlyWithdrawals._sum.amount?.toNumber() || 0;
+      const newMonthlyTotal = monthlyTotal + amountDecimal;
+
+      // Check daily limit first
+      if (newDailyTotal > DAILY_WITHDRAWAL_LIMIT) {
+        const remainingDaily = Math.max(0, DAILY_WITHDRAWAL_LIMIT - dailyTotal);
         return next(ApiError.badRequest(
-          `Daily withdrawal limit exceeded. Maximum withdrawal limit is ${WITHDRAWAL_LIMIT.toLocaleString()} ${currency.toUpperCase()} per day. You have already withdrawn ${dailyTotal.toLocaleString()} ${currency.toUpperCase()} today. Remaining limit: ${(WITHDRAWAL_LIMIT - dailyTotal).toLocaleString()} ${currency.toUpperCase()}`
+          `Daily withdrawal limit exceeded. Your daily withdrawal limit is ${DAILY_WITHDRAWAL_LIMIT.toLocaleString()} ${currency.toUpperCase()}. You have already withdrawn ${dailyTotal.toLocaleString()} ${currency.toUpperCase()} today. Remaining daily limit: ${remainingDaily.toLocaleString()} ${currency.toUpperCase()}. Please try again tomorrow or reduce the withdrawal amount.`
+        ));
+      }
+
+      // Check monthly limit
+      if (newMonthlyTotal > MONTHLY_WITHDRAWAL_LIMIT) {
+        const remainingMonthly = Math.max(0, MONTHLY_WITHDRAWAL_LIMIT - monthlyTotal);
+        return next(ApiError.badRequest(
+          `Monthly withdrawal limit exceeded. Your monthly withdrawal limit is ${MONTHLY_WITHDRAWAL_LIMIT.toLocaleString()} ${currency.toUpperCase()}. You have already withdrawn ${monthlyTotal.toLocaleString()} ${currency.toUpperCase()} this month. Remaining monthly limit: ${remainingMonthly.toLocaleString()} ${currency.toUpperCase()}. Please try again next month or reduce the withdrawal amount.`
         ));
       }
     } catch (limitError: any) {
