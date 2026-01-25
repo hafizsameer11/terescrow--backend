@@ -33,6 +33,8 @@ const authenticateUser = async (
       throw ApiError.unauthorized('You are not logged in');
     }
 
+    // Store user in both req.user (standard Express practice) and req.body._user (for backward compatibility)
+    (req as any).user = isUser;
     req.body._user = isUser;
     next();
   } catch (error) {

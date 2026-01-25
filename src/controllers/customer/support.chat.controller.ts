@@ -29,7 +29,9 @@ export const createSupportChatController = async (
       throw ApiError.badRequest('Validation failed', errors.array());
     }
 
-    const authenticatedUser = req.body._user;
+    // Check req.user first (set by authenticateUser, not overwritten by multer)
+    // Fall back to req.body._user for backward compatibility
+    const authenticatedUser = (req as any).user || req.body._user;
     if (!authenticatedUser || !authenticatedUser.id) {
       throw ApiError.unauthorized('User not authenticated');
     }
@@ -149,7 +151,9 @@ export const getSupportChatsController = async (
   next: NextFunction
 ) => {
   try {
-    const authenticatedUser = req.body._user;
+    // Check req.user first (set by authenticateUser, not overwritten by multer)
+    // Fall back to req.body._user for backward compatibility
+    const authenticatedUser = (req as any).user || req.body._user;
     if (!authenticatedUser || !authenticatedUser.id) {
       throw ApiError.unauthorized('User not authenticated');
     }
@@ -262,7 +266,9 @@ export const getSupportChatByIdController = async (
   next: NextFunction
 ) => {
   try {
-    const authenticatedUser = req.body._user;
+    // Check req.user first (set by authenticateUser, not overwritten by multer)
+    // Fall back to req.body._user for backward compatibility
+    const authenticatedUser = (req as any).user || req.body._user;
     if (!authenticatedUser || !authenticatedUser.id) {
       throw ApiError.unauthorized('User not authenticated');
     }
@@ -368,7 +374,9 @@ export const sendSupportChatMessageController = async (
   next: NextFunction
 ) => {
   try {
-    const authenticatedUser = req.body._user;
+    // Check req.user first (set by authenticateUser, not overwritten by multer)
+    // Fall back to req.body._user for backward compatibility
+    const authenticatedUser = (req as any).user || req.body._user;
     if (!authenticatedUser || !authenticatedUser.id) {
       throw ApiError.unauthorized('User not authenticated');
     }
@@ -476,7 +484,9 @@ export const markMessagesAsReadController = async (
   next: NextFunction
 ) => {
   try {
-    const authenticatedUser = req.body._user;
+    // Check req.user first (set by authenticateUser, not overwritten by multer)
+    // Fall back to req.body._user for backward compatibility
+    const authenticatedUser = (req as any).user || req.body._user;
     if (!authenticatedUser || !authenticatedUser.id) {
       throw ApiError.unauthorized('User not authenticated');
     }
