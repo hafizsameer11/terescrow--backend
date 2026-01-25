@@ -7,6 +7,7 @@ import { palmpayBanks } from '../../services/palmpay/palmpay.banks.service';
 import { palmpayPayout } from '../../services/palmpay/palmpay.payout.service';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { palmpayConfig } from '../../services/palmpay/palmpay.config';
+import { kycStatusService } from '../../services/kyc/kyc.status.service';
 
 /**
  * Get bank list
@@ -114,6 +115,91 @@ export const initiatePayoutController = async (
       return next(ApiError.badRequest(
         `Insufficient balance. Required: ${amountDecimal.toFixed(2)} ${currency.toUpperCase()}, Available: ${balance?.balance || '0'} ${currency.toUpperCase()}`
       ));
+    }
+
+    // Check KYC tier and monthly withdrawal limits
+    try {
+      // Check if user has at least Tier 1 verified
+      const isTier1Verified = await kycStatusService.isTierVerified(user.id, 'tier1');
+      if (!isTier1Verified) {
+        return next(ApiError.badRequest(
+          'KYC verification required. Please complete Tier 1 verification before making withdrawals.'
+        ));
+      }
+
+      // Get user's current KYC tier
+      const currentTier = await kycStatusService.getCurrentTier(user.id);
+      
+      // Get tier limits
+      const tierLimits = await kycStatusService.getTierLimits(currentTier);
+      
+      const monthlyLimit = parseFloat(tierLimits.withdrawal.monthly || '0');
+      const dailyLimit = parseFloat(tierLimits.withdrawal.daily || '0');
+
+      // Calculate current month's total withdrawals
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+      const monthlyWithdrawals = await prisma.fiatTransaction.aggregate({
+        where: {
+          userId: user.id,
+          type: 'WITHDRAW',
+          status: { in: ['completed', 'successful', 'pending'] }, // Include pending as they're already debited
+          currency: currency.toUpperCase(),
+          createdAt: {
+            gte: monthStart,
+            lte: monthEnd,
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      });
+
+      const monthlyTotal = monthlyWithdrawals._sum.amount?.toNumber() || 0;
+      const newMonthlyTotal = monthlyTotal + amountDecimal;
+
+      // Check monthly limit
+      if (monthlyLimit > 0 && newMonthlyTotal > monthlyLimit) {
+        return next(ApiError.badRequest(
+          `Monthly withdrawal limit exceeded. Your ${currentTier.toUpperCase()} tier allows ${monthlyLimit.toLocaleString()} ${currency.toUpperCase()} per month. You have already withdrawn ${monthlyTotal.toLocaleString()} ${currency.toUpperCase()} this month. Remaining limit: ${(monthlyLimit - monthlyTotal).toLocaleString()} ${currency.toUpperCase()}`
+        ));
+      }
+
+      // Calculate today's total withdrawals
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+      const dailyWithdrawals = await prisma.fiatTransaction.aggregate({
+        where: {
+          userId: user.id,
+          type: 'WITHDRAW',
+          status: { in: ['completed', 'successful', 'pending'] }, // Include pending as they're already debited
+          currency: currency.toUpperCase(),
+          createdAt: {
+            gte: todayStart,
+            lte: todayEnd,
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      });
+
+      const dailyTotal = dailyWithdrawals._sum.amount?.toNumber() || 0;
+      const newDailyTotal = dailyTotal + amountDecimal;
+
+      // Check daily limit
+      if (dailyLimit > 0 && newDailyTotal > dailyLimit) {
+        return next(ApiError.badRequest(
+          `Daily withdrawal limit exceeded. Your ${currentTier.toUpperCase()} tier allows ${dailyLimit.toLocaleString()} ${currency.toUpperCase()} per day. You have already withdrawn ${dailyTotal.toLocaleString()} ${currency.toUpperCase()} today. Remaining limit: ${(dailyLimit - dailyTotal).toLocaleString()} ${currency.toUpperCase()}`
+        ));
+      }
+    } catch (kycError: any) {
+      console.error('KYC limit check error:', kycError);
+      // If KYC check fails, we can either block or allow. For safety, we'll block.
+      return next(ApiError.internal('Unable to verify withdrawal limits. Please try again or contact support.'));
     }
 
     // Generate unique order ID
