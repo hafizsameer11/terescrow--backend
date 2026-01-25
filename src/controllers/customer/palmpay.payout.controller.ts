@@ -116,10 +116,22 @@ export const initiatePayoutController = async (
       ));
     }
 
-    // Check withdrawal limits (daily and monthly)
+    // Check withdrawal limits (daily and monthly) based on KYC tier
     try {
-      const DAILY_WITHDRAWAL_LIMIT = 1000; // Daily limit: 1,000 NGN
-      const MONTHLY_WITHDRAWAL_LIMIT = 10000; // Monthly limit: 10,000 NGN
+      // Fetch user with KYC tier information
+      const userWithKyc = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: {
+          id: true,
+          kycTier2Verified: true,
+        },
+      });
+
+      // Set limits based on KYC tier
+      // Tier 2 verified: 3,000 daily / 30,000 monthly
+      // Default (Tier 1 or unverified): 1,000 daily / 10,000 monthly
+      const DAILY_WITHDRAWAL_LIMIT = userWithKyc?.kycTier2Verified ? 3000 : 1000;
+      const MONTHLY_WITHDRAWAL_LIMIT = userWithKyc?.kycTier2Verified ? 30000 : 10000;
       
       const now = new Date();
       
