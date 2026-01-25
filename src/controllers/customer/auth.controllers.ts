@@ -657,25 +657,39 @@ export const editProfileController = async (
     }
 
     // Check if email, phone number, or username already exists for other users
-    const isDuplicate = await prisma.user.findFirst({
-      where: {
-        AND: [
-          { id: { not: user.id } }, // Ensure it's not the current user
-          {
-            OR: [
-              { email: email },
-              { username: userName },
-              { phoneNumber: phoneNumber },
-            ],
-          },
-        ],
-      },
-    });
+    // Only check fields that are being updated and are different from current values
+    const duplicateConditions: any[] = [];
+    
+    if (email && email !== existingUser.email) {
+      duplicateConditions.push({ email: email });
+    }
+    
+    if (userName && userName !== existingUser.username) {
+      duplicateConditions.push({ username: userName });
+    }
+    
+    if (phoneNumber && phoneNumber !== existingUser.phoneNumber) {
+      duplicateConditions.push({ phoneNumber: phoneNumber });
+    }
 
-    if (isDuplicate) {
-      return next(
-        ApiError.badRequest('Email, username, or phone already in use')
-      );
+    // Only check for duplicates if there are fields to check
+    if (duplicateConditions.length > 0) {
+      const isDuplicate = await prisma.user.findFirst({
+        where: {
+          AND: [
+            { id: { not: user.id } }, // Ensure it's not the current user
+            {
+              OR: duplicateConditions,
+            },
+          ],
+        },
+      });
+
+      if (isDuplicate) {
+        return next(
+          ApiError.badRequest('Email, username, or phone already in use')
+        );
+      }
     }
 
     // Update user profile
