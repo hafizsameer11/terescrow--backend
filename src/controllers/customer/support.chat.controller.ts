@@ -213,6 +213,7 @@ export const getSupportChatsController = async (
             select: {
               id: true,
               message: true,
+              imageUrl: true,
               senderType: true,
               createdAt: true,
             },
@@ -345,6 +346,7 @@ export const getSupportChatByIdController = async (
         senderType: msg.senderType,
         senderId: msg.senderId,
         message: msg.message,
+        imageUrl: msg.imageUrl,
         isRead: msg.isRead,
         createdAt: msg.createdAt,
       })),
