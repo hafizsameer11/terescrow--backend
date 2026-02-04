@@ -533,14 +533,9 @@ const sendPasswordOtpController = async (
       },
     });
 
+    // If user does not exist, return a clear error message and DO NOT send any email
     if (!isUser) {
-      // For security and better UX, do not reveal whether the email exists.
-      // Always return a generic success message.
-      return new ApiResponse(
-        200,
-        null,
-        'If this email is registered, an OTP has been sent to your email.'
-      ).send(res);
+      return next(ApiError.badRequest('Email does not exist'));
     }
 
     const otp = generateOTP();
