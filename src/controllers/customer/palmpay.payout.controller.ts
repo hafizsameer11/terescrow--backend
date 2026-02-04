@@ -185,7 +185,7 @@ export const initiatePayoutController = async (
       if (newDailyTotal > DAILY_WITHDRAWAL_LIMIT) {
         const remainingDaily = Math.max(0, DAILY_WITHDRAWAL_LIMIT - dailyTotal);
         return next(ApiError.badRequest(
-          `Daily withdrawal limit exceeded. Your daily withdrawal limit is ${DAILY_WITHDRAWAL_LIMIT.toLocaleString()} ${currency.toUpperCase()}. You have already withdrawn ${dailyTotal.toLocaleString()} ${currency.toUpperCase()} today. Remaining daily limit: ${remainingDaily.toLocaleString()} ${currency.toUpperCase()}. Please try again tomorrow or reduce the withdrawal amount.`
+          `Daily withdrawal limit exceeded. You are trying to withdraw ${amountDecimal.toLocaleString()} ${currency.toUpperCase()}, but your remaining daily limit is ${remainingDaily.toLocaleString()} ${currency.toUpperCase()}. Your daily limit is ${DAILY_WITHDRAWAL_LIMIT.toLocaleString()} ${currency.toUpperCase()} and you have already withdrawn ${dailyTotal.toLocaleString()} ${currency.toUpperCase()} today. Please reduce the withdrawal amount or try again tomorrow.`
         ));
       }
 
@@ -193,7 +193,7 @@ export const initiatePayoutController = async (
       if (newMonthlyTotal > MONTHLY_WITHDRAWAL_LIMIT) {
         const remainingMonthly = Math.max(0, MONTHLY_WITHDRAWAL_LIMIT - monthlyTotal);
         return next(ApiError.badRequest(
-          `Monthly withdrawal limit exceeded. Your monthly withdrawal limit is ${MONTHLY_WITHDRAWAL_LIMIT.toLocaleString()} ${currency.toUpperCase()}. You have already withdrawn ${monthlyTotal.toLocaleString()} ${currency.toUpperCase()} this month. Remaining monthly limit: ${remainingMonthly.toLocaleString()} ${currency.toUpperCase()}. Please try again next month or reduce the withdrawal amount.`
+          `Monthly withdrawal limit exceeded. You are trying to withdraw ${amountDecimal.toLocaleString()} ${currency.toUpperCase()}, but your remaining monthly limit is ${remainingMonthly.toLocaleString()} ${currency.toUpperCase()}. Your monthly limit is ${MONTHLY_WITHDRAWAL_LIMIT.toLocaleString()} ${currency.toUpperCase()} and you have already withdrawn ${monthlyTotal.toLocaleString()} ${currency.toUpperCase()} this month. Please reduce the withdrawal amount or try again next month.`
         ));
       }
     } catch (limitError: any) {
