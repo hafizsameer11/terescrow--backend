@@ -28,6 +28,7 @@ const swaggerDefinition: SwaggerDefinition = {
     { name: 'V2 - Transactions', description: 'Transaction overview and chart data grouped by type' },
     { name: 'Admin - Crypto Rates', description: 'Crypto trade rate management (buy, sell, swap, send, receive)' },
     { name: 'Admin - Tatum', description: 'Tatum master wallet management' },
+    { name: 'Admin Panel', description: 'Admin app: transactions, user balances, vendors, daily report, transaction tracking, referrals, support, customer freeze/ban' },
     { name: 'Webhooks', description: 'Webhook endpoints' },
     // V2 API Routes (Existing)
     { name: 'V2 - Gift Cards', description: 'Gift card management endpoints' },

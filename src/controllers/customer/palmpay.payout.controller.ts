@@ -7,6 +7,7 @@ import { palmpayBanks } from '../../services/palmpay/palmpay.banks.service';
 import { palmpayPayout } from '../../services/palmpay/palmpay.payout.service';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { palmpayConfig } from '../../services/palmpay/palmpay.config';
+import { getCustomerRestrictions, isFeatureFrozen, FEATURE_WITHDRAWAL } from '../../utils/customer.restrictions';
 
 /**
  * Get bank list
@@ -86,7 +87,14 @@ export const initiatePayoutController = async (
   next: NextFunction
 ) => {
   try {
-    const user = req.body._user;
+    const user = (req as any).user || req.body._user;
+    const restrictions = await getCustomerRestrictions(user.id);
+    if (restrictions.banned) {
+      return next(ApiError.forbidden('Your account has been banned. Contact support.'));
+    }
+    if (isFeatureFrozen(restrictions, FEATURE_WITHDRAWAL)) {
+      return next(ApiError.forbidden('Withdrawal is temporarily disabled for your account.'));
+    }
     const { amount, currency = 'NGN', bankCode, accountNumber, accountName, phoneNumber } = req.body;
 
     // Validate inputs

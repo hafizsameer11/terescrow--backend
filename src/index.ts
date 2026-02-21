@@ -67,6 +67,14 @@ import vtpassEducationTestRouter from './routes/test/vtpass.education.test.route
 // ============================================
 import cryptoRateRouter from './routes/admin/crypto.rate.router';
 import masterWalletRouter from './routes/admin/master.wallet.router';
+import transactionsAdminRouter from './routes/admin/transactions.router';
+import userBalancesRouter from './routes/admin/user.balances.router';
+import vendorsRouter from './routes/admin/vendors.router';
+import dailyReportRouter from './routes/admin/daily.report.router';
+import transactionTrackingRouter from './routes/admin/transaction.tracking.router';
+import referralsAdminRouter from './routes/admin/referrals.admin.router';
+import supportAdminRouter from './routes/admin/support.admin.router';
+import customersFreezeRouter from './routes/admin/customers.freeze.router';
 
 // ============================================
 // V1 API Routes (Legacy - if any)
@@ -234,6 +242,14 @@ app.use('/api/v2/test/vtpass/education', vtpassEducationTestRouter);
 // ============================================
 app.use('/api/admin/crypto', cryptoRateRouter);
 app.use('/api/admin/master-wallet', masterWalletRouter);
+app.use('/api/admin/transactions', transactionsAdminRouter);
+app.use('/api/admin/user-balances', userBalancesRouter);
+app.use('/api/admin/vendors', vendorsRouter);
+app.use('/api/admin/daily-report', dailyReportRouter);
+app.use('/api/admin/transaction-tracking', transactionTrackingRouter);
+app.use('/api/admin/referrals', referralsAdminRouter);
+app.use('/api/admin/support', supportAdminRouter);
+app.use('/api/admin/customers', customersFreezeRouter);
 
 // ============================================
 // V1 API Routes (Legacy - if any)

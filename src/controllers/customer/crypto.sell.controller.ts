@@ -121,11 +121,15 @@ export const sellCryptoController = async (
       return next(ApiError.badRequest('Validation failed', errors.array()));
     }
 
-    const user = (req as any).body?._user;
+    const user = (req as any).user || (req as any).body?._user;
     const userId = user?.id;
     if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
+    const { getCustomerRestrictions, isFeatureFrozen, FEATURE_CRYPTO } = await import('../../utils/customer.restrictions');
+    const restrictions = await getCustomerRestrictions(userId);
+    if (restrictions.banned) return next(ApiError.forbidden('Your account has been banned. Contact support.'));
+    if (isFeatureFrozen(restrictions, FEATURE_CRYPTO)) return next(ApiError.forbidden('Crypto operations are temporarily disabled for your account.'));
 
     const { amount, currency, blockchain } = req.body;
 

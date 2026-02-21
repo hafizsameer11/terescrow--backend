@@ -7,6 +7,7 @@ import { palmpayCheckout } from '../../services/palmpay/palmpay.checkout.service
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { palmpayConfig } from '../../services/palmpay/palmpay.config';
 import { PalmPayCustomerInfo } from '../../types/palmpay.types';
+import { getCustomerRestrictions, isFeatureFrozen, FEATURE_DEPOSIT } from '../../utils/customer.restrictions';
 
 /**
  * Initiate deposit (wallet top-up)
@@ -18,7 +19,14 @@ export const initiateDepositController = async (
   next: NextFunction
 ) => {
   try {
-    const user = req.body._user;
+    const user = (req as any).user || req.body._user;
+    const restrictions = await getCustomerRestrictions(user.id);
+    if (restrictions.banned) {
+      return next(ApiError.forbidden('Your account has been banned. Contact support.'));
+    }
+    if (isFeatureFrozen(restrictions, FEATURE_DEPOSIT)) {
+      return next(ApiError.forbidden('Deposit is temporarily disabled for your account.'));
+    }
     const { amount, currency = 'NGN' } = req.body;
 
     // Validate amount

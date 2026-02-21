@@ -62,6 +62,8 @@ model User {
   palmpayUserVirtualAccounts PalmPayUserVirtualAccount[]
   means                WaysOfHearing?      @relation(fields: [meansId], references: [id])
   otps                 UserOTP?
+  featureFreezes       UserFeatureFreeze[]
+  attendanceLogs       AttendanceLog[]
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
@@ -820,6 +822,78 @@ model UserBankAccount {
   @@map("user_bank_accounts")
 }
 
+model Vendor {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(255)
+  network      String   @db.VarChar(100)
+  currency     String   @db.VarChar(20)
+  walletAddress String  @db.VarChar(255)
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([currency])
+  @@map("vendors")
+}
+
+model ShiftSettings {
+  id               Int    @id @default(autoincrement())
+  dayCheckIn       String @db.VarChar(20)
+  dayCheckOut      String @db.VarChar(20)
+  dayGracePeriod   Int    @default(0)
+  nightCheckIn     String @db.VarChar(20)
+  nightCheckOut    String @db.VarChar(20)
+  nightGracePeriod Int    @default(0)
+  updatedAt        DateTime @updatedAt
+
+  @@map("shift_settings")
+}
+
+model AttendanceLog {
+  id              Int       @id @default(autoincrement())
+  userId          Int       @map("user_id")
+  date            DateTime  @db.Date
+  shift           String    @db.VarChar(20)
+  checkInTime     DateTime? @map("check_in_time")
+  checkOutTime    DateTime? @map("check_out_time")
+  status          String    @default("pending") @db.VarChar(50)
+  amountMade      Decimal?  @map("amount_made") @db.Decimal(15, 2)
+  myReport        String?   @map("my_report") @db.Text
+  auditorsReport  String?   @map("auditors_report") @db.Text
+  reportStatus    String    @default("not_approved") @map("report_status") @db.VarChar(50)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+  @@index([shift])
+  @@map("attendance_logs")
+}
+
+model ReferralEarnSettings {
+  id                           Int     @id @default(autoincrement())
+  firstTimeDepositBonusPct     Decimal @map("first_time_deposit_bonus_pct") @db.Decimal(5, 2)
+  commissionReferralTradesPct  Decimal @map("commission_referral_trades_pct") @db.Decimal(5, 2)
+  commissionDownlineTradesPct  Decimal @map("commission_downline_trades_pct") @db.Decimal(5, 2)
+  updatedAt                    DateTime @updatedAt
+
+  @@map("referral_earn_settings")
+}
+
+model UserFeatureFreeze {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  feature   String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, feature])
+  @@index([userId])
+  @@map("user_feature_freezes")
+}
+
 enum UserRoles {
   admin
   agent
@@ -919,6 +993,24 @@ model MasterWallet {
 
   @@unique([blockchain])
   @@map("MasterWallet")
+}
+
+model MasterWalletTransaction {
+  id             Int       @id @default(autoincrement())
+  walletId       String    @map("wallet_id") @db.VarChar(50)
+  type           String    @db.VarChar(50)
+  assetSymbol    String    @map("asset_symbol") @db.VarChar(20)
+  amount         Decimal   @db.Decimal(20, 8)
+  toAddress      String?   @map("to_address") @db.VarChar(255)
+  txHash         String?   @map("tx_hash") @db.VarChar(255)
+  status         String    @default("pending") @db.VarChar(50)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([walletId])
+  @@index([assetSymbol])
+  @@index([createdAt])
+  @@map("master_wallet_transactions")
 }
 
 model WalletCurrency {

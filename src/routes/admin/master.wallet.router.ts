@@ -11,10 +11,17 @@ import {
   updateAllMasterWalletsController,
   getMasterWalletsBalancesController,
   getDepositAddressController,
+  getMasterWalletBalanceSummaryController,
+  getMasterWalletAssetsController,
+  getMasterWalletTransactionsController,
+  postMasterWalletSendController,
+  postMasterWalletSwapController,
 } from '../../controllers/admin/master.wallet.controller';
-// import authenticateAdmin from '../../middlewares/authenticate.admin'; // Add admin auth if needed
+import authenticateUser from '../../middlewares/authenticate.user';
+import authenticateAdmin from '../../middlewares/authenticate.admin';
 
 const masterWalletRouter = express.Router();
+const adminOnly = [authenticateUser, authenticateAdmin];
 
 /**
  * @swagger
@@ -176,6 +183,12 @@ masterWalletRouter.post('/update-all', updateAllMasterWalletsController);
  *                             type: string
  */
 masterWalletRouter.get('/balances', getMasterWalletsBalancesController);
+
+masterWalletRouter.get('/balances/summary', ...adminOnly, getMasterWalletBalanceSummaryController);
+masterWalletRouter.get('/assets', ...adminOnly, getMasterWalletAssetsController);
+masterWalletRouter.get('/transactions', ...adminOnly, getMasterWalletTransactionsController);
+masterWalletRouter.post('/send', ...adminOnly, postMasterWalletSendController);
+masterWalletRouter.post('/swap', ...adminOnly, postMasterWalletSwapController);
 
 /**
  * @swagger

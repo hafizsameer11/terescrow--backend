@@ -9,6 +9,7 @@ import { validationResult } from 'express-validator';
 import masterWalletService from '../../services/tatum/master.wallet.service';
 import tatumService from '../../services/tatum/tatum.service';
 import depositAddressService from '../../services/tatum/deposit.address.service';
+import * as masterWalletAdminService from '../../services/admin/master.wallet.admin.service';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 
@@ -258,3 +259,125 @@ export const getDepositAddressController = async (
   }
 };
 
+/**
+ * Get balance summary per wallet id (tercescrow, yellowcard, palmpay)
+ * GET /api/admin/master-wallet/balances/summary
+ */
+export const getMasterWalletBalanceSummaryController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const summary = await masterWalletAdminService.getMasterWalletBalanceSummary();
+    return new ApiResponse(200, { summary }, 'Balance summary retrieved').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to get balance summary'));
+  }
+};
+
+/**
+ * Get assets list (optional walletId)
+ * GET /api/admin/master-wallet/assets
+ */
+export const getMasterWalletAssetsController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const walletId = req.query.walletId as string | undefined;
+    const assets = await masterWalletAdminService.getMasterWalletAssets(walletId);
+    return new ApiResponse(200, { assets }, 'Assets retrieved').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to get assets'));
+  }
+};
+
+/**
+ * Get master wallet transactions
+ * GET /api/admin/master-wallet/transactions
+ */
+export const getMasterWalletTransactionsController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const assetSymbol = req.query.assetSymbol as string | undefined;
+    const walletId = req.query.walletId as string | undefined;
+    const transactions = await masterWalletAdminService.getMasterWalletTransactions(
+      assetSymbol,
+      walletId
+    );
+    return new ApiResponse(200, { transactions }, 'Transactions retrieved').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to get transactions'));
+  }
+};
+
+/**
+ * Send from master wallet
+ * POST /api/admin/master-wallet/send
+ */
+export const postMasterWalletSendController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { address, amountCrypto, amountDollar, network, symbol, vendorId } = req.body;
+    if (!address || !symbol || !network) {
+      return next(ApiError.badRequest('address, symbol, and network are required'));
+    }
+    const result = await masterWalletAdminService.createMasterWalletSend({
+      address,
+      amountCrypto,
+      amountDollar,
+      network,
+      symbol,
+      vendorId,
+    });
+    if (!result.success) {
+      return next(ApiError.badRequest(result.error ?? 'Send failed'));
+    }
+    return new ApiResponse(200, { success: true, txId: result.txId }, 'Send initiated').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Send failed'));
+  }
+};
+
+/**
+ * Swap on master wallet
+ * POST /api/admin/master-wallet/swap
+ */
+export const postMasterWalletSwapController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { fromSymbol, toSymbol, fromAmount, toAmount, receivingWallet } = req.body;
+    if (!fromSymbol || !toSymbol || !fromAmount || !toAmount) {
+      return next(ApiError.badRequest('fromSymbol, toSymbol, fromAmount, toAmount are required'));
+    }
+    const result = await masterWalletAdminService.createMasterWalletSwap({
+      fromSymbol,
+      toSymbol,
+      fromAmount,
+      toAmount,
+      receivingWallet,
+    });
+    if (!result.success) {
+      return next(ApiError.badRequest(result.error ?? 'Swap failed'));
+    }
+    return new ApiResponse(200, { success: true, txId: result.txId }, 'Swap initiated').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Swap failed'));
+  }
+};

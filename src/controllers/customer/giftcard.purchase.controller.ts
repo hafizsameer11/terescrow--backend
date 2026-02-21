@@ -43,12 +43,16 @@ export const purchaseController = async (
       throw ApiError.badRequest('Validation failed', errors.array());
     }
 
-    const authenticatedUser = req.body._user;
+    const authenticatedUser = (req as any).user || req.body._user;
     if (!authenticatedUser || !authenticatedUser.id) {
       throw ApiError.unauthorized('User not authenticated');
     }
 
     const userId = authenticatedUser.id;
+    const { getCustomerRestrictions, isFeatureFrozen, FEATURE_GIFT_CARD } = await import('../../utils/customer.restrictions');
+    const restrictions = await getCustomerRestrictions(userId);
+    if (restrictions.banned) return next(ApiError.forbidden('Your account has been banned. Contact support.'));
+    if (isFeatureFrozen(restrictions, FEATURE_GIFT_CARD)) return next(ApiError.forbidden('Gift card purchase is temporarily disabled for your account.'));
 
     // Get user
     const user = await prisma.user.findUnique({
