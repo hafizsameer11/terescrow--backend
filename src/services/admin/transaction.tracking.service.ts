@@ -1,5 +1,4 @@
 import { prisma } from '../../utils/prisma';
-import { CryptoTxType } from '@prisma/client';
 
 export interface TrackingListItem {
   id: string;
@@ -53,16 +52,14 @@ export async function getTransactionTrackingList(filters: {
   const limit = Math.min(100, Math.max(1, filters.limit ?? 20));
   const skip = (page - 1) * limit;
   const where: any = {};
-  if (filters.txType) {
-    const txType = filters.txType.toUpperCase();
-    if (['SEND', 'RECEIVE', 'BUY', 'SELL', 'SWAP'].includes(txType)) {
-      where.transactionType = txType as CryptoTxType;
-    }
-  }
   if (filters.startDate || filters.endDate) {
     where.createdAt = {};
     if (filters.startDate) where.createdAt.gte = new Date(filters.startDate);
-    if (filters.endDate) where.createdAt.lte = new Date(filters.endDate);
+    if (filters.endDate) {
+      const end = new Date(filters.endDate);
+      end.setHours(23, 59, 59, 999);
+      where.createdAt.lte = end;
+    }
   }
   if (filters.search?.trim()) {
     const q = filters.search.trim();

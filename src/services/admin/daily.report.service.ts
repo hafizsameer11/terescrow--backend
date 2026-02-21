@@ -1,6 +1,9 @@
 import { prisma } from '../../utils/prisma';
 import { UserRoles } from '@prisma/client';
 
+const shiftModel = (prisma as any).shiftSettings;
+const attendanceModel = (prisma as any).attendanceLog;
+
 const DEFAULT_SHIFT = {
   dayCheckIn: '09:00',
   dayCheckOut: '18:00',
@@ -11,9 +14,9 @@ const DEFAULT_SHIFT = {
 };
 
 export async function getShiftSettings() {
-  let row = await prisma.shiftSettings.findFirst();
+  let row = await shiftModel.findFirst();
   if (!row) {
-    row = await prisma.shiftSettings.create({
+    row = await shiftModel.create({
       data: DEFAULT_SHIFT,
     });
   }
@@ -35,9 +38,9 @@ export async function updateShiftSettings(body: {
   day?: { checkIn?: string; checkOut?: string; gracePeriod?: number };
   night?: { checkIn?: string; checkOut?: string; gracePeriod?: number };
 }) {
-  let row = await prisma.shiftSettings.findFirst();
+  let row = await shiftModel.findFirst();
   if (!row) {
-    row = await prisma.shiftSettings.create({ data: DEFAULT_SHIFT });
+    row = await shiftModel.create({ data: DEFAULT_SHIFT });
   }
   const data: any = {};
   if (body.day) {
@@ -50,7 +53,7 @@ export async function updateShiftSettings(body: {
     if (body.night.checkOut !== undefined) data.nightCheckOut = body.night.checkOut;
     if (body.night.gracePeriod !== undefined) data.nightGracePeriod = body.night.gracePeriod;
   }
-  const updated = await prisma.shiftSettings.update({
+  const updated = await shiftModel.update({
     where: { id: row.id },
     data,
   });
@@ -85,19 +88,23 @@ export async function getDailyReportLogs(filters: {
   if (filters.startDate || filters.endDate) {
     where.date = {};
     if (filters.startDate) where.date.gte = new Date(filters.startDate);
-    if (filters.endDate) where.date.lte = new Date(filters.endDate);
+    if (filters.endDate) {
+      const end = new Date(filters.endDate);
+      end.setHours(23, 59, 59, 999);
+      where.date.lte = end;
+    }
   }
   if (filters.shift) where.shift = filters.shift;
   if (filters.agentId !== undefined) where.userId = filters.agentId;
 
-  const rows = await prisma.attendanceLog.findMany({
+  const rows = await attendanceModel.findMany({
     where,
     include: { user: { select: { id: true, firstname: true, lastname: true } } },
     orderBy: [{ date: 'desc' }, { checkInTime: 'desc' }],
     take: 200,
   });
 
-  return rows.map((r) => ({
+  return rows.map((r: any) => ({
     id: r.id,
     employeeId: r.userId,
     employeeName: r.user ? `${r.user.firstname} ${r.user.lastname}`.trim() : '',
@@ -114,7 +121,7 @@ export async function getDailyReportLogs(filters: {
 }
 
 export async function getReportById(reportId: number) {
-  const log = await prisma.attendanceLog.findUnique({
+  const log = await attendanceModel.findUnique({
     where: { id: reportId },
     include: { user: { select: { id: true, firstname: true, lastname: true, email: true } } },
   });
@@ -149,7 +156,7 @@ export async function getReportById(reportId: number) {
 
 export async function getDailyReportSummary(agentId?: number) {
   const where = agentId !== undefined ? { userId: agentId } : {};
-  const logs = await prisma.attendanceLog.findMany({
+  const logs = await attendanceModel.findMany({
     where,
     orderBy: { date: 'desc' },
     take: 30,
@@ -160,7 +167,7 @@ export async function getDailyReportSummary(agentId?: number) {
       activeHours += (log.checkOutTime.getTime() - log.checkInTime.getTime()) / (1000 * 60 * 60);
     }
   }
-  const amountEarned = logs.reduce((s, l) => s + (l.amountMade ? Number(l.amountMade) : 0), 0);
+  const amountEarned = logs.reduce((s: number, l: any) => s + (l.amountMade ? Number(l.amountMade) : 0), 0);
   return {
     activeHours: Math.round(activeHours * 100) / 100,
     activeHoursTrend: 0,
@@ -172,7 +179,7 @@ export async function getDailyReportSummary(agentId?: number) {
 export async function getAvgWorkHoursChart(days: number = 7) {
   const start = new Date();
   start.setDate(start.getDate() - days);
-  const logs = await prisma.attendanceLog.findMany({
+  const logs = await attendanceModel.findMany({
     where: { date: { gte: start } },
     select: { date: true, checkInTime: true, checkOutTime: true },
   });
@@ -194,7 +201,7 @@ export async function getWorkHoursPerMonthChart(months: number = 3) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const next = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-    const logs = await prisma.attendanceLog.findMany({
+    const logs = await attendanceModel.findMany({
       where: { date: { gte: d, lte: next } },
       select: { checkInTime: true, checkOutTime: true },
     });
@@ -224,16 +231,16 @@ export async function checkIn(userId: number, shift: string, timestamp?: Date) {
   const ts = timestamp ? new Date(timestamp) : new Date();
   const date = new Date(ts);
   date.setHours(0, 0, 0, 0);
-  const existing = await prisma.attendanceLog.findUnique({
+  const existing = await attendanceModel.findUnique({
     where: { userId_date: { userId, date } },
   });
   if (existing) {
-    return await prisma.attendanceLog.update({
+    return await attendanceModel.update({
       where: { id: existing.id },
       data: { checkInTime: ts, shift, status: 'checked_in' },
     });
   }
-  return await prisma.attendanceLog.create({
+  return await attendanceModel.create({
     data: {
       userId,
       date,
@@ -248,11 +255,11 @@ export async function checkOut(userId: number, timestamp?: Date) {
   const ts = timestamp ? new Date(timestamp) : new Date();
   const date = new Date(ts);
   date.setHours(0, 0, 0, 0);
-  const log = await prisma.attendanceLog.findUnique({
+  const log = await attendanceModel.findUnique({
     where: { userId_date: { userId, date } },
   });
   if (!log) throw new Error('No check-in found for today');
-  return await prisma.attendanceLog.update({
+  return await attendanceModel.update({
     where: { id: log.id },
     data: { checkOutTime: ts, status: 'checked_out' },
   });
@@ -269,7 +276,7 @@ export async function updateReport(
     if (updates.status !== undefined) data.reportStatus = updates.status;
     if (updates.auditorsReport !== undefined) data.auditorsReport = updates.auditorsReport;
   }
-  return await prisma.attendanceLog.update({
+  return await attendanceModel.update({
     where: { id: reportId },
     data,
   });

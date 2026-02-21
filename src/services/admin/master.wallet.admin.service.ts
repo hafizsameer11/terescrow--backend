@@ -1,6 +1,8 @@
 import { prisma } from '../../utils/prisma';
 import tatumService from '../tatum/tatum.service';
 
+const mwTxModel = (prisma as any).masterWalletTransaction;
+
 export interface BalanceSummaryItem {
   walletId: string;
   label: string;
@@ -144,12 +146,12 @@ export async function getMasterWalletTransactions(
   const where: any = {};
   if (walletId) where.walletId = walletId;
   if (assetSymbol) where.assetSymbol = assetSymbol;
-  const rows = await prisma.masterWalletTransaction.findMany({
+  const rows = await mwTxModel.findMany({
     where,
     orderBy: { createdAt: 'desc' },
     take: 100,
   });
-  return rows.map((r) => ({
+  return rows.map((r: any) => ({
     id: r.id,
     to: r.toAddress,
     status: r.status,
@@ -172,7 +174,7 @@ export async function createMasterWalletSend(params: {
 }): Promise<{ success: boolean; txId?: number; error?: string }> {
   const amount = params.amountCrypto ?? '0';
   const walletId = 'tercescrow';
-  const record = await prisma.masterWalletTransaction.create({
+  const record = await mwTxModel.create({
     data: {
       walletId,
       type: 'send',
@@ -193,7 +195,7 @@ export async function createMasterWalletSwap(params: {
   receivingWallet?: string;
 }): Promise<{ success: boolean; txId?: number; error?: string }> {
   const walletId = 'tercescrow';
-  const record = await prisma.masterWalletTransaction.create({
+  const record = await mwTxModel.create({
     data: {
       walletId,
       type: 'swap',

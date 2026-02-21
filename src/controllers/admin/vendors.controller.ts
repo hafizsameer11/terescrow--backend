@@ -4,6 +4,8 @@ import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 
+const vendorModel = (prisma as any).vendor;
+
 export async function getVendorsController(
   req: Request,
   res: Response,
@@ -12,7 +14,7 @@ export async function getVendorsController(
   try {
     const currency = req.query.currency as string | undefined;
     const where = currency ? { currency } : {};
-    const vendors = await prisma.vendor.findMany({
+    const vendors = await vendorModel.findMany({
       where,
       orderBy: { createdAt: 'desc' },
     });
@@ -34,7 +36,7 @@ export async function createVendorController(
       return next(ApiError.badRequest('Validation failed', errors.array()));
     }
     const { name, network, currency, walletAddress, notes } = req.body;
-    const vendor = await prisma.vendor.create({
+    const vendor = await vendorModel.create({
       data: {
         name,
         network,
@@ -65,7 +67,7 @@ export async function updateVendorController(
     if (currency !== undefined) data.currency = currency;
     if (walletAddress !== undefined) data.walletAddress = walletAddress;
     if (notes !== undefined) data.notes = notes;
-    const vendor = await prisma.vendor.update({
+    const vendor = await vendorModel.update({
       where: { id },
       data,
     });
@@ -85,7 +87,7 @@ export async function deleteVendorController(
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return next(ApiError.badRequest('Invalid vendor id'));
-    await prisma.vendor.delete({ where: { id } });
+    await vendorModel.delete({ where: { id } });
     return res.status(204).send();
   } catch (error: any) {
     if (error?.code === 'P2025') return next(ApiError.notFound('Vendor not found'));

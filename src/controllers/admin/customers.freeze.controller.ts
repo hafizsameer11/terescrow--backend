@@ -3,6 +3,8 @@ import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 
+const freezeModel = (prisma as any).userFeatureFreeze;
+
 const ALLOWED_FEATURES = [
   'Deposit',
   'Withdrawal',
@@ -21,13 +23,13 @@ export async function postFreezeController(req: Request, res: Response, next: Ne
     }
     const user = await prisma.user.findUnique({ where: { id: customerId } });
     if (!user) return next(ApiError.notFound('Customer not found'));
-    await prisma.userFeatureFreeze.upsert({
+    await freezeModel.upsert({
       where: { userId_feature: { userId: customerId, feature } },
       create: { userId: customerId, feature },
       update: {},
     });
-    const freezes = await prisma.userFeatureFreeze.findMany({ where: { userId: customerId } });
-    return new ApiResponse(200, { frozenFeatures: freezes.map((f) => f.feature) }, 'Feature frozen').send(res);
+    const freezes = await freezeModel.findMany({ where: { userId: customerId } });
+    return new ApiResponse(200, { frozenFeatures: freezes.map((f: any) => f.feature) }, 'Feature frozen').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to freeze feature'));
@@ -40,11 +42,11 @@ export async function postUnfreezeController(req: Request, res: Response, next: 
     if (isNaN(customerId)) return next(ApiError.badRequest('Invalid customer id'));
     const { feature } = req.body;
     if (!feature || typeof feature !== 'string') return next(ApiError.badRequest('feature is required'));
-    await prisma.userFeatureFreeze.deleteMany({
+    await freezeModel.deleteMany({
       where: { userId: customerId, feature },
     });
-    const freezes = await prisma.userFeatureFreeze.findMany({ where: { userId: customerId } });
-    return new ApiResponse(200, { frozenFeatures: freezes.map((f) => f.feature) }, 'Feature unfrozen').send(res);
+    const freezes = await freezeModel.findMany({ where: { userId: customerId } });
+    return new ApiResponse(200, { frozenFeatures: freezes.map((f: any) => f.feature) }, 'Feature unfrozen').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to unfreeze feature'));

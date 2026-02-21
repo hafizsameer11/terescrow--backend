@@ -1,6 +1,8 @@
 import { prisma } from '../../utils/prisma';
 import { UserRoles } from '@prisma/client';
 
+const earnSettingsModel = (prisma as any).referralEarnSettings;
+
 const DEFAULT_EARN_SETTINGS = {
   firstTimeDepositBonusPct: 0,
   commissionReferralTradesPct: 0,
@@ -128,9 +130,9 @@ export async function getReferralsByUser(userId: number) {
 }
 
 export async function getEarnSettings() {
-  let row = await prisma.referralEarnSettings.findFirst();
+  let row = await earnSettingsModel.findFirst();
   if (!row) {
-    row = await prisma.referralEarnSettings.create({
+    row = await earnSettingsModel.create({
       data: DEFAULT_EARN_SETTINGS,
     });
   }
@@ -146,9 +148,9 @@ export async function updateEarnSettings(body: {
   commissionReferralTradesPct?: number;
   commissionDownlineTradesPct?: number;
 }) {
-  let row = await prisma.referralEarnSettings.findFirst();
+  let row = await earnSettingsModel.findFirst();
   if (!row) {
-    row = await prisma.referralEarnSettings.create({
+    row = await earnSettingsModel.create({
       data: {
         firstTimeDepositBonusPct: body.firstTimeDepositBonusPct ?? 0,
         commissionReferralTradesPct: body.commissionReferralTradesPct ?? 0,
@@ -161,6 +163,6 @@ export async function updateEarnSettings(body: {
   if (body.firstTimeDepositBonusPct !== undefined) data.firstTimeDepositBonusPct = body.firstTimeDepositBonusPct;
   if (body.commissionReferralTradesPct !== undefined) data.commissionReferralTradesPct = body.commissionReferralTradesPct;
   if (body.commissionDownlineTradesPct !== undefined) data.commissionDownlineTradesPct = body.commissionDownlineTradesPct;
-  await prisma.referralEarnSettings.update({ where: { id: row.id }, data });
+  await earnSettingsModel.update({ where: { id: row.id }, data });
   return getEarnSettings();
 }

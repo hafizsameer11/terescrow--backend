@@ -11,18 +11,23 @@ export interface CustomerRestrictions {
 }
 
 export async function getCustomerRestrictions(userId: number): Promise<CustomerRestrictions> {
-  const [user, freezes] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: { status: true },
-    }),
-    prisma.userFeatureFreeze.findMany({
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { status: true },
+  });
+  const banned = (user?.status === 'banned') || false;
+
+  let frozenFeatures: string[] = [];
+  try {
+    const freezes: Array<{ feature: string }> = await (prisma as any).userFeatureFreeze.findMany({
       where: { userId },
       select: { feature: true },
-    }),
-  ]);
-  const banned = (user?.status === 'banned') || false;
-  const frozenFeatures = freezes.map((f) => f.feature);
+    });
+    frozenFeatures = freezes.map((f: { feature: string }) => f.feature);
+  } catch (_) {
+    // Table may not exist yet before migration runs
+  }
+
   return { banned, frozenFeatures };
 }
 

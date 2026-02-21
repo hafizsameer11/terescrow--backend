@@ -35,10 +35,12 @@ export interface AdminTransactionsResult {
   totalPages: number;
 }
 
-function toDate(s: string | undefined): Date | undefined {
+function toDate(s: string | undefined, endOfDay = false): Date | undefined {
   if (!s) return undefined;
   const d = new Date(s);
-  return isNaN(d.getTime()) ? undefined : d;
+  if (isNaN(d.getTime())) return undefined;
+  if (endOfDay) d.setHours(23, 59, 59, 999);
+  return d;
 }
 
 export async function getAdminTransactions(
@@ -48,7 +50,7 @@ export async function getAdminTransactions(
   const limit = Math.min(100, Math.max(1, filters.limit ?? 20));
   const skip = (page - 1) * limit;
   const startDate = toDate(filters.startDate);
-  const endDate = toDate(filters.endDate);
+  const endDate = toDate(filters.endDate, true);
   const search = filters.search?.trim();
   const transactionType = filters.transactionType;
   const status = filters.status;
