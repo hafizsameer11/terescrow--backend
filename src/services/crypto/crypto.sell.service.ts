@@ -16,6 +16,7 @@ import cryptoTransactionService from './crypto.transaction.service';
 import cryptoLogger from '../../utils/crypto.logger';
 import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
+import { creditReferralCommission, ReferralService } from '../referral/referral.commission.service';
 
 export interface SellCryptoInput {
   userId: number;
@@ -652,7 +653,7 @@ class CryptoSellService {
     const cryptoBalanceAfter = cryptoBalanceBefore.minus(amountCryptoDecimal);
 
     // Now execute the database transaction
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
 
       // Step 1: Debit virtual account (crypto)
       await tx.virtualAccount.update({
@@ -796,6 +797,11 @@ class CryptoSellService {
       maxWait: 10000,
       timeout: 15000,
     });
+
+    creditReferralCommission(input.userId, ReferralService.CRYPTO_SELL, parseFloat(result.amountNgn))
+      .catch((err) => console.error('[SellCrypto] Referral commission error:', err));
+
+    return result;
   }
 
   /**

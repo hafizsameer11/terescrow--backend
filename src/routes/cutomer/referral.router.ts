@@ -1,7 +1,7 @@
 /**
  * Referral Routes (Customer)
  * 
- * Routes for referral code management
+ * Routes for referral code management, stats, earnings, and withdrawal
  */
 
 import express from 'express';
@@ -9,6 +9,8 @@ import authenticateUser from '../../middlewares/authenticate.user';
 import {
   getReferralCodeController,
   getReferralStatsController,
+  getReferralEarningsController,
+  withdrawReferralController,
 } from '../../controllers/customer/referral.controller';
 
 const referralRouter = express.Router();
@@ -17,7 +19,7 @@ const referralRouter = express.Router();
  * @swagger
  * tags:
  *   name: V2 - Referrals
- *   description: Referral code and statistics endpoints
+ *   description: Referral code, statistics, earnings, and withdrawal endpoints
  */
 
 /**
@@ -27,30 +29,12 @@ const referralRouter = express.Router();
  *     summary: Get user's referral code
  *     tags: [V2 - Referrals]
  *     x-order: 0
- *     description: |
- *       Returns the user's referral code. If the user doesn't have one, it will be generated automatically.
+ *     description: Returns the user's referral code. If the user doesn't have one, it will be generated automatically.
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: Referral code retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: integer
- *                   example: 200
- *                 message:
- *                   type: string
- *                   example: "Referral code retrieved successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     referralCode:
- *                       type: string
- *                       example: "DEMSCR3ATIONS"
  */
 referralRouter.get('/code', authenticateUser, getReferralCodeController);
 
@@ -62,7 +46,8 @@ referralRouter.get('/code', authenticateUser, getReferralCodeController);
  *     tags: [V2 - Referrals]
  *     x-order: 1
  *     description: |
- *       Returns referral code and statistics including total number of users referred and list of referred users.
+ *       Returns referral code, statistics, earnings breakdown (level 1, level 2, signup bonuses),
+ *       wallet balance, and list of referred users.
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -73,39 +58,93 @@ referralRouter.get('/code', authenticateUser, getReferralCodeController);
  *             schema:
  *               type: object
  *               properties:
- *                 status:
- *                   type: integer
- *                   example: 200
- *                 message:
- *                   type: string
- *                   example: "Referral statistics retrieved successfully"
  *                 data:
  *                   type: object
  *                   properties:
  *                     referralCode:
  *                       type: string
- *                       example: "DEMSCR3ATIONS"
  *                     totalReferrals:
  *                       type: integer
- *                       example: 14
+ *                     earnings:
+ *                       type: object
+ *                       properties:
+ *                         totalEarningsNaira:
+ *                           type: number
+ *                         level1Earnings:
+ *                           type: number
+ *                         level2Earnings:
+ *                           type: number
+ *                         signupBonuses:
+ *                           type: number
+ *                         walletBalance:
+ *                           type: number
+ *                         hasWithdrawn:
+ *                           type: boolean
  *                     referredUsers:
  *                       type: array
  *                       items:
  *                         type: object
- *                         properties:
- *                           id:
- *                             type: integer
- *                           firstname:
- *                             type: string
- *                           lastname:
- *                             type: string
- *                           email:
- *                             type: string
- *                           createdAt:
- *                             type: string
- *                             format: date-time
  */
 referralRouter.get('/stats', authenticateUser, getReferralStatsController);
 
-export default referralRouter;
+/**
+ * @swagger
+ * /api/v2/referrals/earnings:
+ *   get:
+ *     summary: Get referral earning history
+ *     tags: [V2 - Referrals]
+ *     x-order: 2
+ *     description: Paginated list of all referral earnings (commissions, bonuses, overrides).
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Referral earnings retrieved successfully
+ */
+referralRouter.get('/earnings', authenticateUser, getReferralEarningsController);
 
+/**
+ * @swagger
+ * /api/v2/referrals/withdraw:
+ *   post:
+ *     summary: Withdraw from referral wallet
+ *     tags: [V2 - Referrals]
+ *     x-order: 3
+ *     description: |
+ *       Withdraws funds from the referral wallet to the user's main NGN fiat wallet.
+ *       First withdrawal requires a minimum balance of 20,000 NGN.
+ *       Subsequent withdrawals have no minimum.
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - amount
+ *             properties:
+ *               amount:
+ *                 type: number
+ *                 description: Amount in NGN to withdraw
+ *     responses:
+ *       200:
+ *         description: Withdrawal successful
+ *       400:
+ *         description: Insufficient balance or minimum not met
+ */
+referralRouter.post('/withdraw', authenticateUser, withdrawReferralController);
+
+export default referralRouter;

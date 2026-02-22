@@ -48,6 +48,7 @@ export async function getReferralsByUserController(req: Request, res: Response, 
   }
 }
 
+// Legacy earn settings (backward compat)
 export async function getEarnSettingsController(req: Request, res: Response, next: NextFunction) {
   try {
     const settings = await referralsAdminService.getEarnSettings();
@@ -70,5 +71,107 @@ export async function putEarnSettingsController(req: Request, res: Response, nex
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to update earn settings'));
+  }
+}
+
+// ──────────────────────────────────────────────────────
+// New Commission Settings (per-service)
+// ──────────────────────────────────────────────────────
+
+export async function getCommissionSettingsController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const settings = await referralsAdminService.getCommissionSettings();
+    return new ApiResponse(200, settings, 'Commission settings retrieved').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to get commission settings'));
+  }
+}
+
+export async function upsertCommissionSettingController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { service, commissionType, commissionValue, level2Pct, signupBonus, minFirstWithdrawal, isActive } = req.body;
+
+    if (!service || !commissionType || commissionValue === undefined) {
+      return next(ApiError.badRequest('Missing required fields: service, commissionType, commissionValue'));
+    }
+
+    const validServices = ['BILL_PAYMENT', 'GIFT_CARD_BUY', 'GIFT_CARD_SELL', 'CRYPTO_BUY', 'CRYPTO_SELL'];
+    if (!validServices.includes(service)) {
+      return next(ApiError.badRequest('Invalid service'));
+    }
+    if (!['PERCENTAGE', 'FIXED'].includes(commissionType)) {
+      return next(ApiError.badRequest('commissionType must be PERCENTAGE or FIXED'));
+    }
+
+    const result = await referralsAdminService.upsertCommissionSetting({
+      service,
+      commissionType,
+      commissionValue: parseFloat(commissionValue),
+      level2Pct: level2Pct !== undefined ? parseFloat(level2Pct) : undefined,
+      signupBonus: signupBonus !== undefined ? parseFloat(signupBonus) : undefined,
+      minFirstWithdrawal: minFirstWithdrawal !== undefined ? parseFloat(minFirstWithdrawal) : undefined,
+      isActive,
+    });
+
+    return new ApiResponse(200, result, 'Commission setting saved').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to save commission setting'));
+  }
+}
+
+// ──────────────────────────────────────────────────────
+// Per-User Overrides
+// ──────────────────────────────────────────────────────
+
+export async function getUserOverridesController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = parseInt(req.params.userId, 10);
+    if (isNaN(userId)) return next(ApiError.badRequest('Invalid user id'));
+    const overrides = await referralsAdminService.getUserOverrides(userId);
+    return new ApiResponse(200, overrides, 'User overrides retrieved').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to get user overrides'));
+  }
+}
+
+export async function upsertUserOverrideController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = parseInt(req.params.userId, 10);
+    if (isNaN(userId)) return next(ApiError.badRequest('Invalid user id'));
+
+    const { service, commissionType, commissionValue } = req.body;
+
+    if (!service || !commissionType || commissionValue === undefined) {
+      return next(ApiError.badRequest('Missing required fields: service, commissionType, commissionValue'));
+    }
+
+    const result = await referralsAdminService.upsertUserOverride({
+      userId,
+      service,
+      commissionType,
+      commissionValue: parseFloat(commissionValue),
+    });
+
+    return new ApiResponse(200, result, 'User override saved').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to save user override'));
+  }
+}
+
+export async function deleteUserOverrideController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = parseInt(req.params.userId, 10);
+    const { service } = req.params;
+    if (isNaN(userId)) return next(ApiError.badRequest('Invalid user id'));
+
+    await referralsAdminService.deleteUserOverride(userId, service as any);
+    return new ApiResponse(200, null, 'User override deleted').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to delete user override'));
   }
 }

@@ -11,6 +11,7 @@ import { prisma } from '../../utils/prisma';
 import { reloadlyUtilitiesService } from '../../services/reloadly/reloadly.utilities.service';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { Decimal } from '@prisma/client/runtime/library';
+import { creditReferralCommission, ReferralService } from '../../services/referral/referral.commission.service';
 
 /**
  * Query Reloadly Utility Billers
@@ -402,6 +403,9 @@ export const createReloadlyUtilityBillOrderController = async (
             billReference: reloadlyResponse.referenceId || orderNo,
           },
         });
+
+        creditReferralCommission(user.id, ReferralService.BILL_PAYMENT, amountNum)
+          .catch((err) => console.error('[ReloadlyUtility] Referral commission error:', err));
       }
     } catch (error: any) {
       // If Reloadly order creation fails, REFUND the wallet
@@ -570,6 +574,9 @@ export const queryReloadlyUtilityOrderStatusController = async (
                 completedAt: new Date(),
               },
             });
+
+            creditReferralCommission(billPayment.userId, ReferralService.BILL_PAYMENT, Number(billPayment.amount))
+              .catch((err) => console.error('[ReloadlyUtilityStatus] Referral commission error:', err));
           }
         }
       } catch (error) {

@@ -16,6 +16,7 @@ import cryptoTransactionService from './crypto.transaction.service';
 import cryptoLogger from '../../utils/crypto.logger';
 import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
+import { creditReferralCommission, ReferralService } from '../referral/referral.commission.service';
 
 export interface BuyCryptoInput {
   userId: number;
@@ -469,7 +470,7 @@ class CryptoBuyService {
 
     // Now execute the transaction with increased timeout
     // Transaction completed successfully (internal ledger operation)
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // Step 9: Debit fiat wallet (NGN)
       // Create fiat transaction first
       const fiatTransaction = await tx.fiatTransaction.create({
@@ -618,6 +619,11 @@ class CryptoBuyService {
       maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
       timeout: 15000, // Maximum time the transaction can run (15 seconds)
     });
+
+    creditReferralCommission(input.userId, ReferralService.CRYPTO_BUY, parseFloat(result.amountNgn))
+      .catch((err) => console.error('[BuyCrypto] Referral commission error:', err));
+
+    return result;
   }
 
   /**

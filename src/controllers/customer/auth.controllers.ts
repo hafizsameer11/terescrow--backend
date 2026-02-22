@@ -14,6 +14,7 @@ import {
 } from '../../utils/authUtils';
 import { prisma } from '../../utils/prisma';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
+import { creditSignupBonus } from '../../services/referral/referral.commission.service';
 
 const registerCustomerController = async (
   req: Request,
@@ -48,7 +49,8 @@ const registerCustomerController = async (
       gender,
       countryId,
       country,
-      means
+      means,
+      referralCodeInput,
     } = req.body;
     console.log(req.body)
     const profilePicture = req.file ? req.file.filename : '';
@@ -109,6 +111,17 @@ const registerCustomerController = async (
       }
     }
 
+    let referrerId: number | null = null;
+    if (referralCodeInput) {
+      const referrer = await prisma.user.findUnique({
+        where: { referralCode: referralCodeInput.toString().trim().toUpperCase() },
+        select: { id: true },
+      });
+      if (referrer) {
+        referrerId = referrer.id;
+      }
+    }
+
     const newUser = await prisma.user.create({
       data: {
         firstname: firstName,
@@ -124,11 +137,17 @@ const registerCustomerController = async (
         meansId: selectMeans?.id || 1,
         role: UserRoles.customer,
         referralCode: referralCode!,
+        ...(referrerId ? { referredBy: referrerId } : {}),
       },
     });
 
     if (!newUser) {
       throw ApiError.internal('User creation failed');
+    }
+
+    if (referrerId) {
+      creditSignupBonus(newUser.id, referrerId)
+        .catch((err) => console.error('[Register] Referral signup bonus error:', err));
     }
 
     const otp = generateOTP(4);

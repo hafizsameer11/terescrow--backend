@@ -64,6 +64,11 @@ model User {
   otps                 UserOTP?
   featureFreezes       UserFeatureFreeze[]
   attendanceLogs       AttendanceLog[]
+  referralWallet       ReferralWallet?
+  referralOverrides    UserReferralOverride[]
+  referralEarnings     ReferralEarning[]      @relation("ReferralEarnings")
+  referralEarningSources ReferralEarning[]    @relation("ReferralEarningsSources")
+  referralWithdrawals  ReferralWithdrawal[]
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
@@ -608,9 +613,10 @@ model FiatWallet {
   status       String            @default("active")
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
-  transactions FiatTransaction[]
-  billPayments BillPayment[]
-  user         User              @relation(fields: [userId], references: [id])
+  transactions         FiatTransaction[]
+  billPayments         BillPayment[]
+  referralWithdrawals  ReferralWithdrawal[]
+  user                 User              @relation(fields: [userId], references: [id])
 
   @@unique([userId, currency])
   @@index([userId])
@@ -880,6 +886,111 @@ model ReferralEarnSettings {
   updatedAt                    DateTime @updatedAt
 
   @@map("referral_earn_settings")
+}
+
+model ReferralCommissionSetting {
+  id              Int                      @id @default(autoincrement())
+  service         ReferralService
+  commissionType  ReferralCommissionType   @default(PERCENTAGE) @map("commission_type")
+  commissionValue Decimal                  @map("commission_value") @db.Decimal(15, 4)
+  level2Pct       Decimal                  @default(30) @map("level2_pct") @db.Decimal(5, 2)
+  signupBonus     Decimal                  @default(10000) @map("signup_bonus") @db.Decimal(15, 2)
+  minFirstWithdrawal Decimal              @default(20000) @map("min_first_withdrawal") @db.Decimal(15, 2)
+  isActive        Boolean                  @default(true) @map("is_active")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  @@unique([service])
+  @@map("referral_commission_settings")
+}
+
+model UserReferralOverride {
+  id              Int                      @id @default(autoincrement())
+  userId          Int                      @map("user_id")
+  service         ReferralService
+  commissionType  ReferralCommissionType   @map("commission_type")
+  commissionValue Decimal                  @map("commission_value") @db.Decimal(15, 4)
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+  user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, service])
+  @@index([userId])
+  @@map("user_referral_overrides")
+}
+
+model ReferralWallet {
+  id           Int                  @id @default(autoincrement())
+  userId       Int                  @unique @map("user_id")
+  balance      Decimal              @default(0) @db.Decimal(15, 2)
+  hasWithdrawn Boolean              @default(false) @map("has_withdrawn")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  earnings     ReferralEarning[]
+  withdrawals  ReferralWithdrawal[]
+
+  @@map("referral_wallets")
+}
+
+model ReferralEarning {
+  id               Int                    @id @default(autoincrement())
+  walletId         Int                    @map("wallet_id")
+  userId           Int                    @map("user_id")
+  sourceUserId     Int?                   @map("source_user_id")
+  level            Int                    @db.SmallInt
+  service          ReferralService
+  earningType      ReferralEarningType    @map("earning_type")
+  tradeAmountNaira Decimal?               @map("trade_amount_naira") @db.Decimal(15, 2)
+  commissionType   ReferralCommissionType @map("commission_type")
+  commissionValue  Decimal                @map("commission_value") @db.Decimal(15, 4)
+  earnedAmount     Decimal                @map("earned_amount") @db.Decimal(15, 2)
+  createdAt        DateTime               @default(now()) @map("created_at")
+  wallet           ReferralWallet         @relation(fields: [walletId], references: [id])
+  user             User                   @relation("ReferralEarnings", fields: [userId], references: [id])
+  sourceUser       User?                  @relation("ReferralEarningsSources", fields: [sourceUserId], references: [id])
+
+  @@index([userId])
+  @@index([sourceUserId])
+  @@index([walletId])
+  @@index([service])
+  @@index([createdAt])
+  @@map("referral_earnings")
+}
+
+model ReferralWithdrawal {
+  id              Int            @id @default(autoincrement())
+  walletId        Int            @map("wallet_id")
+  userId          Int            @map("user_id")
+  amount          Decimal        @db.Decimal(15, 2)
+  fiatWalletId    String?        @map("fiat_wallet_id")
+  status          String         @default("completed") @db.VarChar(20)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  wallet          ReferralWallet @relation(fields: [walletId], references: [id])
+  user            User           @relation(fields: [userId], references: [id])
+  fiatWallet      FiatWallet?    @relation(fields: [fiatWalletId], references: [id])
+
+  @@index([userId])
+  @@index([walletId])
+  @@map("referral_withdrawals")
+}
+
+enum ReferralService {
+  BILL_PAYMENT
+  GIFT_CARD_BUY
+  GIFT_CARD_SELL
+  CRYPTO_BUY
+  CRYPTO_SELL
+}
+
+enum ReferralCommissionType {
+  PERCENTAGE
+  FIXED
+}
+
+enum ReferralEarningType {
+  SIGNUP_BONUS
+  TRADE_COMMISSION
+  LEVEL2_OVERRIDE
 }
 
 model UserFeatureFreeze {

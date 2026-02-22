@@ -4,6 +4,7 @@ import { palmpayBillPaymentService } from '../../services/palmpay/palmpay.billpa
 import { PalmPayOrderStatus } from '../../types/palmpay.types';
 import palmpayLogger from '../../utils/palmpay.logger';
 import { Decimal } from '@prisma/client/runtime/library';
+import { creditReferralCommission, ReferralService } from '../../services/referral/referral.commission.service';
 
 /**
  * Bill Payment Status Check Job Data
@@ -260,6 +261,11 @@ export async function processBillPaymentStatusJob(
     }, {
       timeout: 10000, // 10 second timeout
     });
+
+    if (newStatus === 'completed' && billPayment.userId) {
+      creditReferralCommission(billPayment.userId, ReferralService.BILL_PAYMENT, Number(billPayment.amount))
+        .catch((err) => console.error('[BillPaymentJob] Referral commission error:', err));
+    }
 
     palmpayLogger.transactionUpdate({
       billPaymentId,

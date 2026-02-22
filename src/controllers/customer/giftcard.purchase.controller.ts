@@ -13,6 +13,7 @@ import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { reloadlyOrdersService } from '../../services/reloadly/reloadly.orders.service';
+import { creditReferralCommission, ReferralService } from '../../services/referral/referral.commission.service';
 import { reloadlyProductsService } from '../../services/reloadly/reloadly.products.service';
 import { ReloadlyOrderRequest, ReloadlyOrderResponse } from '../../types/reloadly.types';
 import { sendGiftCardOrderEmail } from '../../utils/authUtils';
@@ -311,6 +312,11 @@ export const purchaseController = async (
         // Don't fail the order if email fails - just log it
         console.error('[GIFT CARD PURCHASE] Failed to send email:', emailError);
       }
+    }
+
+    if (reloadlyOrder.status === 'SUCCESSFUL') {
+      creditReferralCommission(userId, ReferralService.GIFT_CARD_BUY, reloadlyOrder.amount)
+        .catch((err) => console.error('[GiftCardPurchase] Referral commission error:', err));
     }
 
     // Return response matching Reloadly's structure

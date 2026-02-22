@@ -11,6 +11,7 @@ import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { palmpayConfig } from '../../services/palmpay/palmpay.config';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PalmPaySceneCode, PalmPayOrderStatus } from '../../types/palmpay.types';
+import { creditReferralCommission, ReferralService } from '../../services/referral/referral.commission.service';
 
 /**
  * Query Billers (Operators) for a scene code
@@ -484,6 +485,9 @@ export const createBillOrderController = async (
               billReference: reloadlyResponse.operatorTransactionId || orderNo,
             },
           });
+
+          creditReferralCommission(user.id, ReferralService.BILL_PAYMENT, amountNum)
+            .catch((err) => console.error('[BillPayment] Referral commission error:', err));
         }
       } else if (actualProvider === 'reloadly' && sceneCode === 'electricity') {
         if (!reloadlyBillerId) {
@@ -549,6 +553,9 @@ export const createBillOrderController = async (
               billReference: reloadlyResponse.referenceId || orderNo,
             },
           });
+
+          creditReferralCommission(user.id, ReferralService.BILL_PAYMENT, amountNum)
+            .catch((err) => console.error('[BillPayment] Referral commission error:', err));
         }
       } else if (actualProvider === 'vtpass') {
         // Get meterType for electricity
@@ -615,6 +622,9 @@ export const createBillOrderController = async (
               billReference: orderNo,
             },
           });
+
+          creditReferralCommission(user.id, ReferralService.BILL_PAYMENT, amountNum)
+            .catch((err) => console.error('[BillPayment] Referral commission error:', err));
         }
       } else {
         // PalmPay flow
@@ -679,6 +689,9 @@ export const createBillOrderController = async (
               billReference: palmpayResponse.orderNo,
             },
           });
+
+          creditReferralCommission(user.id, ReferralService.BILL_PAYMENT, amountNum)
+            .catch((err) => console.error('[BillPayment] Referral commission error:', err));
         }
       }
     } catch (error: any) {
