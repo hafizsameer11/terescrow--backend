@@ -3,6 +3,7 @@ import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { validationResult } from 'express-validator';
 import { Gender, OtpType, PrismaClient, User, UserRoles } from '@prisma/client';
+import cryptoRateService, { TransactionType } from '../../services/crypto/crypto.rate.service';
 
 const prisma = new PrismaClient();
 
@@ -180,3 +181,55 @@ export const getTransactionBydepartment = async (req: Request, res: Response, ne
 
   }
 }
+
+/**
+ * Get all crypto rate tiers for a transaction type.
+ * Returns all active tiers sorted by minAmount ASC, plus the
+ * "best" (most attractive) rate — the tier reserved for the highest trade amounts.
+ *
+ * GET /api/customer/utilities/crypto-rates/:type
+ * :type = BUY | SELL | SWAP | SEND | RECEIVE
+ */
+export const getCryptoRatesByType = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { type } = req.params;
+    const upperType = type?.toUpperCase();
+
+    const validTypes: TransactionType[] = ['BUY', 'SELL', 'SWAP', 'SEND', 'RECEIVE'];
+    if (!validTypes.includes(upperType as TransactionType)) {
+      return next(
+        ApiError.badRequest(
+          'Invalid transaction type. Must be one of: BUY, SELL, SWAP, SEND, RECEIVE'
+        )
+      );
+    }
+
+    const tiers = await cryptoRateService.getRatesByType(upperType as TransactionType);
+
+    if (!tiers.length) {
+      return new ApiResponse(200, { tiers: [], bestRate: null }, 'No rates configured for this type').send(res);
+    }
+
+    // "Best" rate = the tier with the highest minAmount (reserved for large trades).
+    // This is the rate displayed before the user enters an amount.
+    const bestRate = tiers.reduce((best, tier) =>
+      tier.minAmount.greaterThan(best.minAmount) ? tier : best
+    , tiers[0]);
+
+    return new ApiResponse(
+      200,
+      { tiers, bestRate },
+      'Crypto rates retrieved successfully'
+    ).send(res);
+  } catch (error) {
+    console.error('Error in getCryptoRatesByType:', error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(ApiError.internal('Failed to retrieve crypto rates'));
+  }
+};

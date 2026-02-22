@@ -539,29 +539,45 @@ Body: `{ "timestamp?" }` Auth: Agent/Admin.
 
 ---
 
-### B5. Transaction Tracking
+### B5. Transaction Tracking (On-Chain Received Transactions Only)
 
 **Page:** `/transaction-tracking`
 **Files:** `src/services/admin/transaction.tracking.service.ts`, `src/controllers/admin/transaction.tracking.controller.ts`, `src/routes/admin/transaction.tracking.router.ts`
 **Route mount:** `app.use('/api/admin/transaction-tracking', transactionTrackingRouter)`
 
+> **Note:** This endpoint now exclusively returns **on-chain RECEIVE** transactions. Each entry includes a `masterWalletStatus` field indicating whether the received crypto has been transferred to the master wallet or not. Possible values: `"inWallet"` (not yet transferred), `"transferredToMaster"` (swept to master wallet), `"unknown"` (no matching received asset record).
+
 #### GET `/api/admin/transaction-tracking`
 
-Query: `txType?` (Send/Receive/Buy/Sell/Swap), `startDate?`, `endDate?`, `search?`, `page?`, `limit?`
+Query: `startDate?`, `endDate?`, `search?` (by txHash, address, name, email, transactionId), `page?`, `limit?`
 
 Response:
 
 ```json
 {
   "status": "success",
-  "message": "Transaction tracking list retrieved",
+  "message": "On-chain received transactions retrieved",
   "data": {
     "items": [
       {
-        "id": "031pxtg2c101", "name": "Qamar Malik",
-        "status": "successful", "txId": "031pxtg2c101",
-        "type": "BUY", "amount": "250",
-        "date": "2025-11-06T10:30:00.000Z", "txType": "BUY"
+        "id": 1,
+        "transactionId": "031pxtg2c101",
+        "customerName": "Qamar Malik",
+        "customerEmail": "qamar@example.com",
+        "customerId": 13,
+        "status": "successful",
+        "masterWalletStatus": "inWallet",
+        "txHash": "0xabc123def456...",
+        "amount": "0.005",
+        "amountUsd": "250",
+        "amountNaira": "100000",
+        "currency": "BTC",
+        "blockchain": "bitcoin",
+        "fromAddress": "bc1qsender...",
+        "toAddress": "bc1qreceiver...",
+        "confirmations": 6,
+        "blockNumber": "800123",
+        "date": "2025-11-06T10:30:00.000Z"
       }
     ],
     "total": 100, "page": 1, "limit": 20, "totalPages": 5
@@ -571,22 +587,47 @@ Response:
 
 #### GET `/api/admin/transaction-tracking/:txId/steps`
 
+`:txId` is the internal `transactionId` string (e.g. `"031pxtg2c101"`).
+
 Response:
 
 ```json
 {
   "status": "success",
-  "message": "Steps retrieved",
+  "message": "Tracking steps retrieved",
   "data": {
     "steps": [
       {
-        "title": "Transaction created", "crypto": "BTC",
-        "network": "bitcoin", "date": "...", "status": "successful"
+        "title": "On-chain deposit detected",
+        "status": "completed",
+        "date": "2025-11-06T10:30:00.000Z",
+        "details": {
+          "txHash": "0xabc123...", "fromAddress": "bc1qsender...",
+          "toAddress": "bc1qreceiver...", "amount": "0.005",
+          "currency": "BTC", "blockchain": "bitcoin",
+          "blockNumber": "800123"
+        }
       },
       {
-        "title": "Send", "fromAddress": "bc1q...", "toAddress": "bc1q...",
-        "transactionHash": "0xabc123...", "txHash": "0xabc123...",
-        "status": "successful", "date": "..."
+        "title": "Confirmations",
+        "status": "completed",
+        "date": "2025-11-06T10:35:00.000Z",
+        "details": { "confirmations": 6 }
+      },
+      {
+        "title": "Credited to user wallet",
+        "status": "completed",
+        "date": "2025-11-06T10:35:00.000Z",
+        "details": {
+          "amountUsd": "250", "amountNaira": "100000",
+          "accountId": "acc_abc123"
+        }
+      },
+      {
+        "title": "Transfer to master wallet",
+        "status": "pending",
+        "date": "2025-11-06T10:35:00.000Z",
+        "details": { "masterWalletStatus": "inWallet" }
       }
     ]
   }
@@ -600,19 +641,38 @@ Response:
 ```json
 {
   "status": "success",
-  "message": "Details retrieved",
+  "message": "Transaction details retrieved",
   "data": {
-    "amountDollar": "250", "amountNaira": "100000",
-    "serviceType": "BUY", "cryptoType": "BTC",
-    "cryptoChain": "bitcoin", "cryptoAmount": "0.005",
-    "sendAddress": "bc1q...", "receiverAddress": "bc1q...",
-    "transactionHash": "0xabc...", "transactionId": "031pxtg2c101",
-    "transactionStatus": "successful"
+    "transactionId": "031pxtg2c101",
+    "status": "successful",
+    "masterWalletStatus": "inWallet",
+    "currency": "BTC",
+    "blockchain": "bitcoin",
+    "amount": "0.005",
+    "amountUsd": "250",
+    "amountNaira": "100000",
+    "fromAddress": "bc1qsender...",
+    "toAddress": "bc1qreceiver...",
+    "txHash": "0xabc123...",
+    "blockNumber": "800123",
+    "confirmations": 6,
+    "customer": {
+      "id": 13, "firstname": "Qamar", "lastname": "Malik",
+      "email": "qamar@example.com", "username": "qamar",
+      "profilePicture": null
+    },
+    "receivedAsset": {
+      "id": 1, "accountId": "acc_abc123", "status": "inWallet",
+      "reference": "ref_xyz", "index": 0,
+      "transactionDate": "2025-11-06T10:30:00.000Z"
+    },
+    "createdAt": "2025-11-06T10:30:00.000Z",
+    "updatedAt": "2025-11-06T10:35:00.000Z"
   }
 }
 ```
 
-**Implementation:** Queries `CryptoTransaction` with all child relations (cryptoBuy, cryptoSell, cryptoSend, cryptoReceive, cryptoSwap).
+**Implementation:** Queries `CryptoTransaction` where `transactionType = RECEIVE` with `CryptoReceive` relation. Cross-references `ReceivedAsset` (matched by `txId = txHash`) to derive `masterWalletStatus`. The `ReceivedAsset.status` field tracks whether the deposit is still `"inWallet"` or has been `"transferredToMaster"`.
 
 ---
 

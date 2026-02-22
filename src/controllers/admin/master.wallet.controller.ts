@@ -275,9 +275,7 @@ export const getMasterWalletBalanceSummaryController = async (
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to get balance summary'));
   }
-};
-
-/**
+};/**
  * Get assets list (optional walletId)
  * GET /api/admin/master-wallet/assets
  */
@@ -294,9 +292,7 @@ export const getMasterWalletAssetsController = async (
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to get assets'));
   }
-};
-
-/**
+};/**
  * Get master wallet transactions
  * GET /api/admin/master-wallet/transactions
  */
