@@ -6,18 +6,23 @@ import ApiResponse from '../../utils/ApiResponse';
 const freezeModel = (prisma as any).userFeatureFreeze;
 
 const ALLOWED_FEATURES = [
-  'Deposit',
-  'Withdrawal',
-  'Send/Receive/Swap/Buy/Sell Crypto',
-  'Buy/Sell Gift Card',
+  'deposit',
+  'withdrawal',
+  'send/receive/swap/buy/sell crypto',
+  'buy/sell gift card',
 ];
+
+function normalizeFeature(f: string): string {
+  return f.toLowerCase().trim();
+}
 
 export async function postFreezeController(req: Request, res: Response, next: NextFunction) {
   try {
     const customerId = parseInt(req.params.customerId, 10);
     if (isNaN(customerId)) return next(ApiError.badRequest('Invalid customer id'));
-    const { feature } = req.body;
+    let { feature } = req.body;
     if (!feature || typeof feature !== 'string') return next(ApiError.badRequest('feature is required'));
+    feature = normalizeFeature(feature);
     if (!ALLOWED_FEATURES.includes(feature)) {
       return next(ApiError.badRequest(`feature must be one of: ${ALLOWED_FEATURES.join(', ')}`));
     }
@@ -40,8 +45,9 @@ export async function postUnfreezeController(req: Request, res: Response, next: 
   try {
     const customerId = parseInt(req.params.customerId, 10);
     if (isNaN(customerId)) return next(ApiError.badRequest('Invalid customer id'));
-    const { feature } = req.body;
+    let { feature } = req.body;
     if (!feature || typeof feature !== 'string') return next(ApiError.badRequest('feature is required'));
+    feature = normalizeFeature(feature);
     await freezeModel.deleteMany({
       where: { userId: customerId, feature },
     });

@@ -6,15 +6,16 @@ import ApiResponse from '../../utils/ApiResponse';
 
 export async function getAdminSupportChatsController(req: Request, res: Response, next: NextFunction) {
   try {
-    const filter = (req.query.filter as string) || 'All';
+    const rawFilter = (req.query.filter as string) || '';
+    const filter = rawFilter.toLowerCase();
     const search = (req.query.search as string)?.trim();
     const page = Math.max(1, parseInt(String(req.query.page), 10) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit), 10) || 20));
     const skip = (page - 1) * limit;
 
     const where: any = {};
-    if (filter === 'Closed') where.status = 'completed';
-    else if (filter === 'Active') where.status = { in: ['pending', 'processing'] };
+    if (filter === 'closed' || filter === 'completed') where.status = 'completed';
+    else if (filter === 'active' || filter === 'processing') where.status = { in: ['pending', 'processing'] };
     if (search) {
       where.OR = [
         { user: { firstname: { contains: search } } },
@@ -42,7 +43,7 @@ export async function getAdminSupportChatsController(req: Request, res: Response
       prisma.supportChat.count({ where }),
     ]);
 
-    if (filter === 'Unread') {
+    if (filter === 'unread') {
       const withUnread = chats.filter((c) => c.messages.length > 0);
       const list = withUnread.map((chat) => {
         const lastMsg = (chat as any).lastMessage;

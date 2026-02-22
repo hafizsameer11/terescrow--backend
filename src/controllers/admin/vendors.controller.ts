@@ -88,7 +88,7 @@ export async function deleteVendorController(
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return next(ApiError.badRequest('Invalid vendor id'));
     await vendorModel.delete({ where: { id } });
-    return res.status(204).send();
+    return new ApiResponse(200, null, 'Vendor deleted').send(res);
   } catch (error: any) {
     if (error?.code === 'P2025') return next(ApiError.notFound('Vendor not found'));
     if (error instanceof ApiError) return next(error);

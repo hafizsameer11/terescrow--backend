@@ -116,7 +116,7 @@ const port = process.env.PORT || 5000;
 //middlewares
 app.use(
   cors({
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     origin: '*',
     credentials: false,
   })

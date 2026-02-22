@@ -349,9 +349,7 @@ export const postMasterWalletSendController = async (
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Send failed'));
   }
-};
-
-/**
+};/**
  * Swap on master wallet
  * POST /api/admin/master-wallet/swap
  */

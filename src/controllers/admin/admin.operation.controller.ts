@@ -30,16 +30,28 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
             },
             include: {
                 KycStateTwo: {
-                    take: 1, // Limit to the first record
+                    take: 1,
                     orderBy: {
-                        createdAt: 'desc', // Sort by `createdAt` in descending order
+                        createdAt: 'desc',
                     },
                 },
                 AccountActivity: {
-                    take: 6, // Fetch the latest 6 activities
+                    take: 6,
                     orderBy: {
-                        createdAt: 'desc', // Sort by `createdAt` in descending order
+                        createdAt: 'desc',
                     },
+                },
+                fiatWallets: {
+                    where: { currency: 'NGN' },
+                    select: { balance: true },
+                },
+                virtualAccounts: {
+                    include: {
+                        walletCurrency: { select: { price: true } },
+                    },
+                },
+                featureFreezes: {
+                    select: { feature: true },
                 },
             },
         });
@@ -48,15 +60,50 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
             return next(ApiError.notFound('Customer not found'));
         }
 
-        // Extract the first KycStateTwo object or return null if none exist
         const kycStateTwo = customer.KycStateTwo.length > 0 ? customer.KycStateTwo[0] : null;
 
-        // Return the response with the single KycStateTwo object
+        let nairaBalance = 0;
+        for (const w of customer.fiatWallets) {
+            nairaBalance += Number(w.balance || 0);
+        }
+
+        let cryptoBalanceUsd = 0;
+        const cryptoAssets: { symbol: string; name: string; balance: string; usdEquivalent: number }[] = [];
+        for (const va of customer.virtualAccounts) {
+            const bal = Number(va.availableBalance || va.accountBalance || 0);
+            const price = va.walletCurrency?.price ? Number(va.walletCurrency.price) : 0;
+            const usdVal = bal * price;
+            cryptoBalanceUsd += usdVal;
+            if (bal > 0) {
+                cryptoAssets.push({
+                    symbol: va.currency,
+                    name: va.blockchain,
+                    balance: String(bal),
+                    usdEquivalent: Math.round(usdVal * 100) / 100,
+                });
+            }
+        }
+
+        let tier = 'Tier 1';
+        if (customer.kycTier4Verified) tier = 'Tier 4';
+        else if (customer.kycTier3Verified) tier = 'Tier 3';
+        else if (customer.kycTier2Verified) tier = 'Tier 2';
+
         return new ApiResponse(
             200,
             {
                 ...customer,
-                KycStateTwo: kycStateTwo, // Replace array with the single object
+                KycStateTwo: kycStateTwo,
+                fiatWallets: undefined,
+                virtualAccounts: undefined,
+                featureFreezes: undefined,
+                ipAddress: null,
+                tier,
+                nairaBalance: Math.round(nairaBalance * 100) / 100,
+                cryptoBalance: Math.round(cryptoBalanceUsd * 100) / 100,
+                referralCode: customer.referralCode ?? null,
+                cryptoAssets,
+                frozenFeatures: customer.featureFreezes.map((f: any) => f.feature),
             },
             'Customer details fetched successfully'
         ).send(res);
