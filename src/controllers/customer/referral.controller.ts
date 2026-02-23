@@ -4,17 +4,8 @@ import ApiResponse from '../../utils/ApiResponse';
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 
-function generateReferralCode(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = '';
-  for (let i = 0; i < 12; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
 /**
- * Get or generate referral code for user
+ * Get referral code for user (= their username)
  * GET /api/v2/referrals/code
  */
 export const getReferralCodeController = async (
@@ -32,32 +23,19 @@ export const getReferralCodeController = async (
 
     let userWithCode = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, referralCode: true },
+      select: { id: true, referralCode: true, username: true },
     });
 
     if (!userWithCode) {
       return next(ApiError.notFound('User not found'));
     }
 
+    // If no referral code yet, set it to the username
     if (!userWithCode.referralCode) {
-      let newCode: string;
-      let isUnique = false;
-
-      while (!isUnique) {
-        newCode = generateReferralCode();
-        const existing = await prisma.user.findUnique({
-          where: { referralCode: newCode },
-          select: { id: true },
-        });
-        if (!existing) {
-          isUnique = true;
-        }
-      }
-
       userWithCode = await prisma.user.update({
         where: { id: userId },
-        data: { referralCode: newCode! },
-        select: { id: true, referralCode: true },
+        data: { referralCode: userWithCode.username },
+        select: { id: true, referralCode: true, username: true },
       });
     }
 

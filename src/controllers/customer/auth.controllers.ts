@@ -86,35 +86,19 @@ const registerCustomerController = async (
       },
     })
 
-    // Generate unique referral code
-    function generateReferralCode(): string {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-      let result = '';
-      for (let i = 0; i < 12; i++) {
-        result += chars.charAt(Math.floor(Math.random() * chars.length));
-      }
-      return result;
-    }
-
-    let referralCode: string;
-    let isUnique = false;
-
-    // Ensure code is unique
-    while (!isUnique) {
-      referralCode = generateReferralCode();
-      const existing = await prisma.user.findUnique({
-        where: { referralCode },
-        select: { id: true },
-      });
-      if (!existing) {
-        isUnique = true;
-      }
-    }
+    // Referral code = username (case-insensitive lookup supported)
+    const referralCode = username;
 
     let referrerId: number | null = null;
     if (referralCodeInput) {
-      const referrer = await prisma.user.findUnique({
-        where: { referralCode: referralCodeInput.toString().trim().toUpperCase() },
+      const codeToLookup = referralCodeInput.toString().trim();
+      const referrer = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { referralCode: codeToLookup },
+            { username: codeToLookup },
+          ],
+        },
         select: { id: true },
       });
       if (referrer) {
@@ -136,7 +120,7 @@ const registerCustomerController = async (
         profilePicture,
         meansId: selectMeans?.id || 1,
         role: UserRoles.customer,
-        referralCode: referralCode!,
+        referralCode,
         ...(referrerId ? { referredBy: referrerId } : {}),
       },
     });

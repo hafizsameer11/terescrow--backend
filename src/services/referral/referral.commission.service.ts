@@ -156,7 +156,9 @@ export async function creditReferralCommission(
 }
 
 /**
- * Credit signup bonus to the referrer when a new user registers with a referral code.
+ * Credit signup bonus to the NEW USER who signed up with a referral code.
+ * The bonus goes into the new user's referral wallet (not the referrer's).
+ * They cannot withdraw until balance reaches the minimum threshold (default 20,000).
  */
 export async function creditSignupBonus(newUserId: number, referrerId: number) {
   try {
@@ -172,7 +174,7 @@ export async function creditSignupBonus(newUserId: number, referrerId: number) {
     if (bonusAmount.lte(0)) return;
 
     await prisma.$transaction(async (tx) => {
-      const wallet = await getOrCreateWallet(referrerId, tx);
+      const wallet = await getOrCreateWallet(newUserId, tx);
 
       await tx.referralWallet.update({
         where: { id: wallet.id },
@@ -182,9 +184,9 @@ export async function creditSignupBonus(newUserId: number, referrerId: number) {
       await tx.referralEarning.create({
         data: {
           walletId: wallet.id,
-          userId: referrerId,
-          sourceUserId: newUserId,
-          level: 1,
+          userId: newUserId,
+          sourceUserId: referrerId,
+          level: 0,
           service: ReferralService.CRYPTO_BUY,
           earningType: ReferralEarningType.SIGNUP_BONUS,
           tradeAmountNaira: null,
