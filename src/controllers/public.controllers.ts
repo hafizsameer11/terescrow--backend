@@ -11,6 +11,7 @@ import ApiResponse from '../utils/ApiResponse';
 import { comparePassword, generateToken } from '../utils/authUtils';
 import { validationResult } from 'express-validator';
 import { profile } from 'console';
+import axios from 'axios';
 import { sendToUserById } from '../utils/notificationController';
 import { sendPushNotification } from '../utils/pushService';
 // import { sendPushNotification } from '../utils/firebaseNotificationService';
@@ -520,6 +521,92 @@ export const markAllMessageReadController = async (req: Request, res: Response, 
     // next(error);
   }
 }
+
+/**
+ * Public utility endpoint to manually refresh wallet currency USD prices
+ * from CoinMarketCap and persist to wallet_currencies.price.
+ *
+ * NOTE:
+ * - CoinMarketCap key is hardcoded for now (as requested)
+ * - Intended as manual trigger for now (queue/job can be added later)
+ */
+export const updateWalletCurrencyPricesController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const apiKey = 'cedec018-8d93-4a8f-b42e-29252a40c621';
+
+    const apiSymbols = ['BTC', 'ETH', 'BNB', 'TRX', 'LTC'];
+    const symbolMap: Record<string, string> = {
+      BTC: 'btc',
+      ETH: 'eth',
+      BNB: 'bsc',
+      TRX: 'tron',
+      LTC: 'ltc',
+    };
+
+    const response = await axios.get(
+      'https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest',
+      {
+        headers: {
+          'X-CMC_PRO_API_KEY': apiKey,
+          Accept: 'application/json',
+        },
+        params: {
+          symbol: apiSymbols.join(','),
+          convert: 'USD',
+        },
+      }
+    );
+
+    const data = response?.data?.data || {};
+    const updates: Array<{ symbol: string; dbCurrency: string; price: number; updatedRows: number }> = [];
+    const skipped: Array<{ symbol: string; dbCurrency: string; reason: string }> = [];
+
+    for (const [apiSymbol, dbCurrency] of Object.entries(symbolMap)) {
+      const rawPrice = data?.[apiSymbol]?.quote?.USD?.price;
+      if (rawPrice === undefined || rawPrice === null) {
+        skipped.push({ symbol: apiSymbol, dbCurrency, reason: 'Price missing in CoinMarketCap response' });
+        continue;
+      }
+
+      const price = Number(Number(rawPrice).toFixed(6));
+
+      const result = await prisma.walletCurrency.updateMany({
+        where: {
+          OR: [{ currency: dbCurrency }, { currency: dbCurrency.toUpperCase() }],
+        },
+        data: { price },
+      });
+
+      updates.push({
+        symbol: apiSymbol,
+        dbCurrency,
+        price,
+        updatedRows: result.count,
+      });
+
+      if (result.count === 0) {
+        skipped.push({ symbol: apiSymbol, dbCurrency, reason: 'No wallet_currencies rows matched currency' });
+      }
+    }
+
+    return new ApiResponse(
+      200,
+      {
+        totalSymbols: apiSymbols.length,
+        updated: updates,
+        skipped,
+      },
+      'Wallet currency prices updated successfully'
+    ).send(res);
+  } catch (error: any) {
+    console.error('Error updating wallet currency prices:', error?.response?.data || error?.message || error);
+    return next(ApiError.internal('Failed to update wallet currency prices'));
+  }
+};
 
 
 // export const getBanners

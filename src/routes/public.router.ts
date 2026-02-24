@@ -11,6 +11,7 @@ import {
   markAllMessageReadController,
   markAllReadController,
   readAllMessagesControllers,
+  updateWalletCurrencyPricesController,
 } from '../controllers/public.controllers';
 import { generateOTP, sendVerificationEmail } from '../utils/authUtils';
 
@@ -211,4 +212,18 @@ publicRouter.get('/test-otp', async function (req, res) {
 
 publicRouter.get('/get-unread-count', authenticateUser, getUnreadMessagesCountController);
 publicRouter.get('/mark-all-messages-read', authenticateUser, markAllMessageReadController)
+
+/**
+ * @swagger
+ * /api/public/update-wallet-currency-prices:
+ *   post:
+ *     summary: Manually update wallet currency USD prices from CoinMarketCap
+ *     tags: [Public]
+ *     description: Public utility endpoint to refresh BTC/ETH/BNB/TRX/LTC prices in wallet_currencies.
+ *     responses:
+ *       200:
+ *         description: Prices updated successfully
+ */
+publicRouter.post('/update-wallet-currency-prices', updateWalletCurrencyPricesController);
+
 export default publicRouter;

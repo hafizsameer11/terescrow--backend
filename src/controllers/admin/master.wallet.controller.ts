@@ -313,9 +313,7 @@ export const getMasterWalletTransactionsController = async (
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to get transactions'));
   }
-};
-
-/**
+};/**
  * Send from master wallet
  * POST /api/admin/master-wallet/send
  */
