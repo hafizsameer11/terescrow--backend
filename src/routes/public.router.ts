@@ -216,7 +216,7 @@ publicRouter.get('/mark-all-messages-read', authenticateUser, markAllMessageRead
 /**
  * @swagger
  * /api/public/update-wallet-currency-prices:
- *   post:
+ *   get:
  *     summary: Manually update wallet currency USD prices from CoinMarketCap
  *     tags: [Public]
  *     description: Public utility endpoint to refresh BTC/ETH/BNB/TRX/LTC prices in wallet_currencies.
@@ -224,6 +224,6 @@ publicRouter.get('/mark-all-messages-read', authenticateUser, markAllMessageRead
  *       200:
  *         description: Prices updated successfully
  */
-publicRouter.post('/update-wallet-currency-prices', updateWalletCurrencyPricesController);
+publicRouter.get('/update-wallet-currency-prices', updateWalletCurrencyPricesController);
 
 export default publicRouter;
