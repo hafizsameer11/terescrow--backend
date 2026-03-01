@@ -1098,7 +1098,21 @@ class CryptoBuyService {
       ],
     });
 
-    return currencies.map((c) => ({
+    const filteredCurrencies = currencies.filter((c) => {
+      if ((c.currency || '').toUpperCase() !== 'USDC') return true;
+      const blockchain = (c.blockchain || '').toLowerCase();
+      const blockchainName = (c.blockchainName || '').toLowerCase();
+      return (
+        blockchain === 'ethereum' ||
+        blockchain === 'eth' ||
+        blockchain === 'erc20' ||
+        blockchainName.includes('erc-20') ||
+        blockchainName.includes('erc20') ||
+        blockchainName.includes('ethereum')
+      );
+    });
+
+    return filteredCurrencies.map((c) => ({
       id: c.id,
       currency: c.currency,
       blockchain: c.blockchain,

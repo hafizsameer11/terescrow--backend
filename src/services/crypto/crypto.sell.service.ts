@@ -1299,6 +1299,23 @@ class CryptoSellService {
     for (const walletCurrency of allWalletCurrencies) {
       const currencyUpper = walletCurrency.currency.toUpperCase();
       const isUsdtVariant = currencyUpper === 'USDT' || currencyUpper.startsWith('USDT_');
+      const isUsdc = currencyUpper === 'USDC' || currencyUpper.startsWith('USDC_');
+      const blockchain = (walletCurrency.blockchain || '').toLowerCase();
+      const blockchainName = (walletCurrency.blockchainName || '').toLowerCase();
+
+      // Keep only one USDC variant for frontend display: ERC-20 / Ethereum
+      if (isUsdc) {
+        const isErc20Usdc =
+          blockchain === 'ethereum' ||
+          blockchain === 'eth' ||
+          blockchain === 'erc20' ||
+          blockchainName.includes('erc-20') ||
+          blockchainName.includes('erc20') ||
+          blockchainName.includes('ethereum');
+        if (!isErc20Usdc) {
+          continue;
+        }
+      }
       
       if (isUsdtVariant) {
         // Combine all USDT variants into single "USDT" entry

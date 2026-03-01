@@ -348,7 +348,21 @@ class CryptoSwapService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return virtualAccounts.map((account) => ({
+    const filteredAccounts = virtualAccounts.filter((account) => {
+      if ((account.currency || '').toUpperCase() !== 'USDC') return true;
+      const blockchain = (account.blockchain || '').toLowerCase();
+      const blockchainName = (account.walletCurrency?.blockchainName || '').toLowerCase();
+      return (
+        blockchain === 'ethereum' ||
+        blockchain === 'eth' ||
+        blockchain === 'erc20' ||
+        blockchainName.includes('erc-20') ||
+        blockchainName.includes('erc20') ||
+        blockchainName.includes('ethereum')
+      );
+    });
+
+    return filteredAccounts.map((account) => ({
       id: account.id,
       currency: account.currency,
       blockchain: account.blockchain,
