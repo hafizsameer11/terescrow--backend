@@ -10,6 +10,30 @@ import { randomUUID } from 'crypto';
 
 class VirtualAccountService {
   /**
+   * Keep only one USDC variant for frontend display: ERC-20 / Ethereum.
+   */
+  private isAllowedUsdcAccount(account: {
+    currency: string;
+    blockchain: string;
+    walletCurrency?: { blockchainName?: string | null } | null;
+  }) {
+    const currency = (account.currency || '').toUpperCase();
+    if (currency !== 'USDC') return true;
+
+    const blockchain = (account.blockchain || '').toLowerCase();
+    const blockchainName = (account.walletCurrency?.blockchainName || '').toLowerCase();
+
+    return (
+      blockchain === 'ethereum' ||
+      blockchain === 'eth' ||
+      blockchain === 'erc20' ||
+      blockchainName.includes('erc-20') ||
+      blockchainName.includes('erc20') ||
+      blockchainName.includes('ethereum')
+    );
+  }
+
+  /**
    * Create virtual accounts for a user (all supported currencies)
    */
   async createVirtualAccountsForUser(userId: number) {
@@ -84,7 +108,7 @@ class VirtualAccountService {
    * Get user's virtual accounts
    */
   async getUserVirtualAccounts(userId: number) {
-    return await prisma.virtualAccount.findMany({
+    const accounts = await prisma.virtualAccount.findMany({
       where: { userId },
       include: {
         walletCurrency: true,
@@ -99,6 +123,8 @@ class VirtualAccountService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return accounts.filter((account) => this.isAllowedUsdcAccount(account));
   }
 
   /**

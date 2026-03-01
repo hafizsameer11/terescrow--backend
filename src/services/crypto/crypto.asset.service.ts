@@ -9,6 +9,30 @@ import { Decimal } from '@prisma/client/runtime/library';
 
 class CryptoAssetService {
   /**
+   * Keep only one USDC variant for frontend display: ERC-20 / Ethereum.
+   */
+  private isAllowedUsdcAccount(account: {
+    currency: string;
+    blockchain: string;
+    walletCurrency?: { blockchainName?: string | null } | null;
+  }) {
+    const currency = (account.currency || '').toUpperCase();
+    if (currency !== 'USDC') return true;
+
+    const blockchain = (account.blockchain || '').toLowerCase();
+    const blockchainName = (account.walletCurrency?.blockchainName || '').toLowerCase();
+
+    return (
+      blockchain === 'ethereum' ||
+      blockchain === 'eth' ||
+      blockchain === 'erc20' ||
+      blockchainName.includes('erc-20') ||
+      blockchainName.includes('erc20') ||
+      blockchainName.includes('ethereum')
+    );
+  }
+
+  /**
    * Get all user assets (virtual accounts) with balances in USD and Naira
    * 
    * Note: Transaction history is not included yet. This will be added when
@@ -36,9 +60,13 @@ class CryptoAssetService {
         orderBy: { createdAt: 'desc' },
       });
 
+      const filteredAccounts = virtualAccounts.filter((account) =>
+        this.isAllowedUsdcAccount(account)
+      );
+
       // Transform to asset format with USD and Naira conversion
       // Use balances from virtual_account table (database)
-      const assets = virtualAccounts.map((account) => {
+      const assets = filteredAccounts.map((account) => {
         // Use balance from virtual_account table
         const balance = new Decimal(account.availableBalance || '0');
         const usdPrice = account.walletCurrency?.price 
@@ -339,6 +367,10 @@ class CryptoAssetService {
         },
       });
 
+      const filteredAccounts = virtualAccounts.filter((account) =>
+        this.isAllowedUsdcAccount(account)
+      );
+
       // Calculate totals
       let totalUsd = new Decimal('0');
       let totalNaira = new Decimal('0');
@@ -350,7 +382,7 @@ class CryptoAssetService {
         balanceNaira: string;
       }> = [];
 
-      virtualAccounts.forEach((account) => {
+      filteredAccounts.forEach((account) => {
         const balance = new Decimal(account.availableBalance || '0');
         const usdPrice = account.walletCurrency?.price 
           ? new Decimal(account.walletCurrency.price.toString())
@@ -385,7 +417,7 @@ class CryptoAssetService {
       return {
         totalBalanceUsd: totalUsd.toString(),
         totalBalanceNaira: totalNaira.toString(),
-        currencyCount: virtualAccounts.length,
+        currencyCount: filteredAccounts.length,
         balances: balancesByCurrency,
       };
     } catch (error: any) {

@@ -538,13 +538,19 @@ export const updateWalletCurrencyPricesController = async (
   try {
     const apiKey = 'cedec018-8d93-4a8f-b42e-29252a40c621';
 
-    const apiSymbols = ['BTC', 'ETH', 'BNB', 'TRX', 'LTC'];
-    const symbolMap: Record<string, string> = {
-      BTC: 'btc',
-      ETH: 'eth',
-      BNB: 'bsc',
-      TRX: 'tron',
-      LTC: 'ltc',
+    const apiSymbols = ['BTC', 'ETH', 'BNB', 'TRX', 'LTC', 'USDT', 'USDC', 'SOL', 'XRP', 'DOGE', 'MATIC'];
+    const symbolMap: Record<string, string[]> = {
+      BTC: ['btc'],
+      ETH: ['eth'],
+      BNB: ['bnb', 'bsc'],
+      TRX: ['trx', 'tron'],
+      LTC: ['ltc'],
+      USDT: ['usdt'],
+      USDC: ['usdc'],
+      SOL: ['sol'],
+      XRP: ['xrp'],
+      DOGE: ['doge', 'dogecoin'],
+      MATIC: ['matic', 'polygon'],
     };
 
     const response = await axios.get(
@@ -562,34 +568,40 @@ export const updateWalletCurrencyPricesController = async (
     );
 
     const data = response?.data?.data || {};
-    const updates: Array<{ symbol: string; dbCurrency: string; price: number; updatedRows: number }> = [];
-    const skipped: Array<{ symbol: string; dbCurrency: string; reason: string }> = [];
+    const updates: Array<{ symbol: string; targets: string[]; price: number; updatedRows: number }> = [];
+    const skipped: Array<{ symbol: string; targets: string[]; reason: string }> = [];
 
-    for (const [apiSymbol, dbCurrency] of Object.entries(symbolMap)) {
+    for (const [apiSymbol, aliases] of Object.entries(symbolMap)) {
       const rawPrice = data?.[apiSymbol]?.quote?.USD?.price;
       if (rawPrice === undefined || rawPrice === null) {
-        skipped.push({ symbol: apiSymbol, dbCurrency, reason: 'Price missing in CoinMarketCap response' });
+        skipped.push({ symbol: apiSymbol, targets: aliases, reason: 'Price missing in CoinMarketCap response' });
         continue;
       }
 
       const price = Number(Number(rawPrice).toFixed(6));
+      const upperAliases = aliases.map((v) => v.toUpperCase());
+      const titleAliases = aliases.map((v) => v.charAt(0).toUpperCase() + v.slice(1).toLowerCase());
 
       const result = await prisma.walletCurrency.updateMany({
         where: {
-          OR: [{ currency: dbCurrency }, { currency: dbCurrency.toUpperCase() }],
+          OR: [
+            { symbol: apiSymbol },
+            { symbol: apiSymbol.toLowerCase() },
+            { currency: { in: [...aliases, ...upperAliases, ...titleAliases] } },
+          ],
         },
         data: { price },
       });
 
       updates.push({
         symbol: apiSymbol,
-        dbCurrency,
+        targets: aliases,
         price,
         updatedRows: result.count,
       });
 
       if (result.count === 0) {
-        skipped.push({ symbol: apiSymbol, dbCurrency, reason: 'No wallet_currencies rows matched currency' });
+        skipped.push({ symbol: apiSymbol, targets: aliases, reason: 'No wallet_currencies rows matched symbol/currency' });
       }
     }
 
