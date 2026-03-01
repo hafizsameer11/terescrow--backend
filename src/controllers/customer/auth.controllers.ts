@@ -51,6 +51,8 @@ const registerCustomerController = async (
       country,
       means,
       referralCodeInput,
+      referralCode: referralCodeFromBody,
+      referral_code: referralCodeSnakeCase,
     } = req.body;
     console.log(req.body)
     const profilePicture = req.file ? req.file.filename : '';
@@ -90,17 +92,25 @@ const registerCustomerController = async (
     const referralCode = username;
 
     let referrerId: number | null = null;
-    if (referralCodeInput) {
-      const codeToLookup = referralCodeInput.toString().trim();
-      const referrer = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { referralCode: codeToLookup },
-            { username: codeToLookup },
-          ],
-        },
+    const providedReferralCode =
+      referralCodeInput || referralCodeFromBody || referralCodeSnakeCase;
+
+    if (providedReferralCode) {
+      const codeToLookup = providedReferralCode.toString().trim();
+
+      // Match by username first (as requested), fallback to referralCode.
+      let referrer = await prisma.user.findFirst({
+        where: { username: codeToLookup },
         select: { id: true },
       });
+
+      if (!referrer) {
+        referrer = await prisma.user.findFirst({
+          where: { referralCode: codeToLookup },
+          select: { id: true },
+        });
+      }
+
       if (referrer) {
         referrerId = referrer.id;
       }
