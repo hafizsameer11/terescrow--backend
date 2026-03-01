@@ -18,7 +18,8 @@ class VirtualAccountService {
     walletCurrency?: { blockchainName?: string | null } | null;
   }) {
     const currency = (account.currency || '').toUpperCase();
-    if (currency !== 'USDC') return true;
+    const isUsdc = currency === 'USDC' || currency.startsWith('USDC_');
+    if (!isUsdc) return true;
 
     const blockchain = (account.blockchain || '').toLowerCase();
     const blockchainName = (account.walletCurrency?.blockchainName || '').toLowerCase();

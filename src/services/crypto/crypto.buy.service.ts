@@ -1099,7 +1099,9 @@ class CryptoBuyService {
     });
 
     const filteredCurrencies = currencies.filter((c) => {
-      if ((c.currency || '').toUpperCase() !== 'USDC') return true;
+      const currency = (c.currency || '').toUpperCase();
+      const isUsdc = currency === 'USDC' || currency.startsWith('USDC_');
+      if (!isUsdc) return true;
       const blockchain = (c.blockchain || '').toLowerCase();
       const blockchainName = (c.blockchainName || '').toLowerCase();
       return (

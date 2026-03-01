@@ -349,7 +349,9 @@ class CryptoSwapService {
     });
 
     const filteredAccounts = virtualAccounts.filter((account) => {
-      if ((account.currency || '').toUpperCase() !== 'USDC') return true;
+      const currency = (account.currency || '').toUpperCase();
+      const isUsdc = currency === 'USDC' || currency.startsWith('USDC_');
+      if (!isUsdc) return true;
       const blockchain = (account.blockchain || '').toLowerCase();
       const blockchainName = (account.walletCurrency?.blockchainName || '').toLowerCase();
       return (
