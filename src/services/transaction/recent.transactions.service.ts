@@ -157,16 +157,46 @@ class RecentTransactionsService {
       id: payment.transactionId,
       type: 'BILL_PAYMENT' as const,
       status: payment.status,
-      amount: payment.amount.toString(),
-      currency: payment.currency,
-      description: `${payment.sceneCode} - ${payment.billerId} (${payment.rechargeAccount})`,
+      amount: payment.amount.toString(), // Always NGN
+      currency: payment.currency,       // e.g. NGN
+      description: `${payment.sceneCode} - ${payment.billerName || payment.billerId} (${payment.rechargeAccount})`,
       createdAt: payment.createdAt,
       updatedAt: payment.updatedAt,
       metadata: {
+        // High-level identifiers
+        billPaymentId: payment.id,
+        walletId: payment.walletId,
+        transactionId: payment.transactionId,
+
+        // Provider / routing
+        provider: payment.provider,
         sceneCode: payment.sceneCode,
+        billType: payment.billType,
+
+        // Biller info
         billerId: payment.billerId,
+        billerName: payment.billerName,
+        itemId: payment.itemId,
+        itemName: payment.itemName,
+
+        // Target account / number
         rechargeAccount: payment.rechargeAccount,
-        orderNo: payment.palmpayOrderNo,
+
+        // Status + references
+        palmpayOrderId: payment.palmpayOrderId,
+        palmpayOrderNo: payment.palmpayOrderNo,
+        palmpayStatus: payment.palmpayStatus,
+        billReference: payment.billReference,
+        errorMessage: payment.errorMessage,
+        refunded: payment.refunded,
+        refundedAt: payment.refundedAt,
+        refundReason: payment.refundReason,
+
+        // Raw provider response (if frontend wants to inspect)
+        providerResponse: payment.providerResponse,
+
+        // Completion timestamp
+        completedAt: payment.completedAt,
       },
     }));
   }
