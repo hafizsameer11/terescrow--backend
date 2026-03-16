@@ -69,8 +69,12 @@ export async function processReloadlyUtilityStatusJob(
     console.log('[RELOADLY UTILITY STATUS] Reloadly response:', JSON.stringify(reloadlyStatus, null, 2));
 
     // Handle different response structures
-    // ReloadlyUtilityTransactionResponse can have transaction.status or status directly
-    const reloadlyStatusString = reloadlyStatus.transaction?.status || reloadlyStatus.status || 'PROCESSING';
+    // ReloadlyUtilityTransactionResponse can have transaction.status or (in some responses) top-level status.
+    // TypeScript doesn't know about the top-level status field, so we use a safe any-cast for that part.
+    const reloadlyStatusString =
+      reloadlyStatus.transaction?.status ||
+      (reloadlyStatus as any).status ||
+      'PROCESSING';
 
     // Map Reloadly status to our format
     const statusMap: Record<string, string> = {
