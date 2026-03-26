@@ -249,6 +249,7 @@ app.use('/api/admin/user-balances', userBalancesRouter);
 app.use('/api/admin/vendors', vendorsRouter);
 app.use('/api/admin/daily-report', dailyReportRouter);
 app.use('/api/admin/transaction-tracking', transactionTrackingRouter);
+app.use('/api/admin/changenow', changenowAdminRouter);
 app.use('/api/admin/referrals', referralsAdminRouter);
 app.use('/api/admin/support', supportAdminRouter);
 app.use('/api/admin/customers', customersFreezeRouter);
