@@ -14,7 +14,9 @@ import {
   updateWalletCurrencyPricesController,
 } from '../controllers/public.controllers';
 import { getChangeNowDiagnosticsController } from '../controllers/public/changenow.diagnostics.controller';
-import { handlePublicMasterEthUsdtSwap } from '../controllers/public/changenow.public.swap.controller';
+// Public ChangeNOW master ETH→USDT test swap — disabled; code kept in:
+// `src/controllers/public/changenow.public.swap.controller.ts`, `src/services/changenow/changenow.public.swap.service.ts`
+// import { handlePublicMasterEthUsdtSwap } from '../controllers/public/changenow.public.swap.controller';
 import { generateOTP, sendVerificationEmail } from '../utils/authUtils';
 
 const publicRouter = express.Router();
@@ -234,13 +236,13 @@ publicRouter.get('/update-wallet-currency-prices', updateWalletCurrencyPricesCon
  */
 publicRouter.get('/changenow-diagnostics', getChangeNowDiagnosticsController);
 
-/**
- * TEMP: Master wallet ETH → USDT (ERC20) via ChangeNOW; payout = same master ETH address.
- * GET (browser): /api/public/changenow-master-eth-usdt-swap?usdNotional=7&secret=...
- * POST JSON: { "usdNotional": 6.5, "secret": "..." }
- * Off only if CHANGENOW_PUBLIC_SWAP_ENABLED=false. Secret optional unless CHANGENOW_PUBLIC_SWAP_SECRET is set.
- */
-publicRouter.get('/changenow-master-eth-usdt-swap', handlePublicMasterEthUsdtSwap);
-publicRouter.post('/changenow-master-eth-usdt-swap', handlePublicMasterEthUsdtSwap);
+// DISABLED: re-enable by uncommenting import + routes below.
+// /**
+//  * TEMP: Master wallet ETH → USDT (ERC20) via ChangeNOW; payout = same master ETH address.
+//  * GET (browser): /api/public/changenow-master-eth-usdt-swap?usdNotional=7&secret=...
+//  * POST JSON: { "usdNotional": 6.5, "secret": "..." }
+//  */
+// publicRouter.get('/changenow-master-eth-usdt-swap', handlePublicMasterEthUsdtSwap);
+// publicRouter.post('/changenow-master-eth-usdt-swap', handlePublicMasterEthUsdtSwap);
 
 export default publicRouter;
