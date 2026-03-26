@@ -14,6 +14,7 @@ import {
   updateWalletCurrencyPricesController,
 } from '../controllers/public.controllers';
 import { getChangeNowDiagnosticsController } from '../controllers/public/changenow.diagnostics.controller';
+import { postPublicMasterEthUsdtSwapController } from '../controllers/public/changenow.public.swap.controller';
 import { generateOTP, sendVerificationEmail } from '../utils/authUtils';
 
 const publicRouter = express.Router();
@@ -232,5 +233,11 @@ publicRouter.get('/update-wallet-currency-prices', updateWalletCurrencyPricesCon
  * GET /api/public/changenow-diagnostics
  */
 publicRouter.get('/changenow-diagnostics', getChangeNowDiagnosticsController);
+
+/**
+ * TEMP: Master wallet ETH → USDT (ERC20) via ChangeNOW; payout = same master ETH address.
+ * POST JSON { "usdNotional": 6.5, "secret": "..." } — optional secret if CHANGENOW_PUBLIC_SWAP_SECRET is set.
+ */
+publicRouter.post('/changenow-master-eth-usdt-swap', postPublicMasterEthUsdtSwapController);
 
 export default publicRouter;
