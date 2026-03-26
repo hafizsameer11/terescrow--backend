@@ -11,17 +11,35 @@ function adminId(req: Request): number {
   return u.id;
 }
 
+function asApiErrorFromUnknown(error: unknown, fallbackMessage: string): ApiError {
+  if (error instanceof ApiError) return error;
+  const msg = error instanceof Error ? error.message : fallbackMessage;
+  const low = msg.toLowerCase();
+  if (low.includes('denied') || low.includes('unauthorized') || low.includes('forbidden')) {
+    return ApiError.forbidden(msg);
+  }
+  if (
+    low.includes('bad request') ||
+    low.includes('invalid') ||
+    low.includes('required') ||
+    low.includes('below minimum')
+  ) {
+    return ApiError.badRequest(msg);
+  }
+  return ApiError.internal(msg || fallbackMessage);
+}
+
 export async function getChangeNowCurrenciesController(
   req: Request,
   res: Response,
   next: NextFunction
 ) {
   try {
-    const data = await svc.getCachedCurrencies();
+    const mainOnly = req.query.mainOnly !== 'false';
+    const data = await svc.getFrontendCurrencies(mainOnly);
     return new ApiResponse(200, { items: data }, 'ChangeNOW currencies').send(res);
   } catch (e) {
-    if (e instanceof ApiError) return next(e);
-    next(ApiError.internal('Failed to load currencies'));
+    next(asApiErrorFromUnknown(e, 'Failed to load currencies'));
   }
 }
 
@@ -72,8 +90,7 @@ export async function getQuoteController(req: Request, res: Response, next: Next
     const q = await svc.getQuote({ fromTicker, toTicker, amount });
     return new ApiResponse(200, q, 'Quote').send(res);
   } catch (e) {
-    if (e instanceof ApiError) return next(e);
-    next(ApiError.internal('Quote failed'));
+    next(asApiErrorFromUnknown(e, 'Quote failed'));
   }
 }
 
@@ -92,8 +109,7 @@ export async function getAvailablePairsController(
     });
     return new ApiResponse(200, { items: data }, 'Available pairs').send(res);
   } catch (e) {
-    if (e instanceof ApiError) return next(e);
-    next(ApiError.internal('Failed to load available pairs'));
+    next(asApiErrorFromUnknown(e, 'Failed to load available pairs'));
   }
 }
 
@@ -124,8 +140,7 @@ export async function getNetworkFeeController(
     });
     return new ApiResponse(200, data, 'Network fee estimate').send(res);
   } catch (e) {
-    if (e instanceof ApiError) return next(e);
-    next(ApiError.internal('Failed to get network fee estimate'));
+    next(asApiErrorFromUnknown(e, 'Failed to get network fee estimate'));
   }
 }
 

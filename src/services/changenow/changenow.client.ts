@@ -31,6 +31,7 @@ export interface ChangeNowCurrency {
   tokenContract?: string | null;
   buy?: boolean;
   sell?: boolean;
+  featured?: boolean;
   legacyTicker?: string;
 }
 
@@ -163,7 +164,16 @@ export async function getAvailablePairs(opts?: {
     headers: { ...changeNowAuthHeaders() },
   });
   if (res.status !== 200 || !Array.isArray(res.data)) {
-    throw new Error(`ChangeNOW available-pairs failed: HTTP ${res.status}`);
+    const msg =
+      typeof res.data === 'string'
+        ? res.data
+        : ((res.data as any)?.message || (res.data as any)?.error || JSON.stringify(res.data));
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        `ChangeNOW denied /v2/exchange/available-pairs access for this API key (HTTP ${res.status}). Ask ChangeNOW to enable available-pairs for your account.`
+      );
+    }
+    throw new Error(`ChangeNOW available-pairs failed: HTTP ${res.status} ${msg}`);
   }
   return res.data;
 }
@@ -358,7 +368,16 @@ export async function getNetworkFeeEstimate(params: {
     headers: { ...changeNowAuthHeaders() },
   });
   if (res.status !== 200) {
-    throw new Error(`ChangeNOW network-fee failed: HTTP ${res.status}`);
+    const msg =
+      typeof res.data === 'string'
+        ? res.data
+        : ((res.data as any)?.message || (res.data as any)?.error || JSON.stringify(res.data));
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        `ChangeNOW denied /v2/exchange/network-fee access for this API key (HTTP ${res.status}). Ask ChangeNOW to enable network-fee endpoint for your account.`
+      );
+    }
+    throw new Error(`ChangeNOW network-fee failed: HTTP ${res.status} ${msg}`);
   }
   return res.data;
 }

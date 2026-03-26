@@ -24,6 +24,35 @@ export async function getCachedCurrencies(): Promise<cn.ChangeNowCurrency[]> {
   return data;
 }
 
+function normalizeCurrencyRows(rows: cn.ChangeNowCurrency[]): cn.ChangeNowCurrency[] {
+  // Deduplicate by ticker+network so frontend dropdowns stay clean.
+  const seen = new Set<string>();
+  const out: cn.ChangeNowCurrency[] = [];
+  for (const r of rows) {
+    const key = `${String(r.ticker || '').toLowerCase()}::${String(r.network || '').toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
+/**
+ * Returns filtered currencies for frontend:
+ * - mainOnly=true (default): featured + tradable (buy/sell) when available
+ * - if featured flags are absent, fallback to tradable list
+ */
+export async function getFrontendCurrencies(mainOnly = true): Promise<cn.ChangeNowCurrency[]> {
+  const all = normalizeCurrencyRows(await getCachedCurrencies());
+  if (!mainOnly) return all;
+
+  const featured = all.filter((c) => c.featured === true && c.buy !== false && c.sell !== false);
+  if (featured.length > 0) return featured;
+
+  const tradable = all.filter((c) => c.buy !== false && c.sell !== false);
+  return tradable.length > 0 ? tradable : all;
+}
+
 export async function getQuote(input: {
   fromTicker: string;
   toTicker: string;
