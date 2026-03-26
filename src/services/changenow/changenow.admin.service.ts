@@ -58,14 +58,20 @@ export async function getQuote(input: {
   toTicker: string;
   amount: string;
 }) {
+  const norm = cn.normalizeLegacyTickersForV2(input.fromTicker, input.toTicker);
+  const fromCurrency = norm.fromCurrency;
+  const toCurrency = norm.toCurrency;
+
   const currencies = await getCachedCurrencies();
-  const guessed = cn.resolveNetworksForTickers(input.fromTicker, input.toTicker, currencies);
+  const guessed = cn.resolveNetworksForTickers(fromCurrency, toCurrency, currencies);
   let pairNet = { fromNetwork: guessed.fromNetwork, toNetwork: guessed.toNetwork };
+  if (norm.fromNetworkHint) pairNet.fromNetwork = norm.fromNetworkHint;
+  if (norm.toNetworkHint) pairNet.toNetwork = norm.toNetworkHint;
   try {
     // Prefer deterministic pair/network discovery when account has access.
     const pairs = await cn.getAvailablePairs({
-      fromCurrency: input.fromTicker,
-      toCurrency: input.toTicker,
+      fromCurrency: fromCurrency,
+      toCurrency: toCurrency,
       flow: 'standard',
     });
     if (pairs.length > 0) {
@@ -77,15 +83,18 @@ export async function getQuote(input: {
   } catch {
     // Some accounts do not have access to available-pairs; fallback to best-effort guess.
   }
-  const min = await cn.getMinAmount(input.fromTicker, input.toTicker, 'standard', {
+  if (norm.fromNetworkHint) pairNet.fromNetwork = norm.fromNetworkHint;
+  if (norm.toNetworkHint) pairNet.toNetwork = norm.toNetworkHint;
+
+  const min = await cn.getMinAmount(fromCurrency, toCurrency, 'standard', {
     fromNetwork: pairNet.fromNetwork,
     toNetwork: pairNet.toNetwork,
   });
   const fromNet = min.fromNetwork ?? pairNet.fromNetwork;
   const toNet = min.toNetwork ?? pairNet.toNetwork;
   const est = await cn.getEstimatedAmount({
-    fromCurrency: input.fromTicker,
-    toCurrency: input.toTicker,
+    fromCurrency: fromCurrency,
+    toCurrency: toCurrency,
     fromAmount: input.amount,
     flow: 'standard',
     fromNetwork: fromNet,
@@ -94,7 +103,7 @@ export async function getQuote(input: {
   const amt = new Decimal(input.amount);
   if (amt.lt(min.minAmount)) {
     throw ApiError.badRequest(
-      `Amount below minimum for this pair: min ${min.minAmount} ${input.fromTicker}`
+      `Amount below minimum for this pair: min ${min.minAmount} ${fromCurrency}`
     );
   }
   const estimatedRaw =
@@ -104,8 +113,8 @@ export async function getQuote(input: {
     estimatedRaw !== undefined ? new Decimal(String(estimatedRaw)) : null;
   return {
     minAmount: min.minAmount,
-    fromTicker: input.fromTicker,
-    toTicker: input.toTicker,
+    fromTicker: fromCurrency,
+    toTicker: toCurrency,
     amountFrom: input.amount,
     fromNetwork: fromNet ?? null,
     toNetwork: toNet ?? null,
@@ -300,21 +309,21 @@ export async function createSwapOrder(input: {
     const curList = await getCachedCurrencies();
     if (!fromNet) {
       const row = curList.find(
-        (c) => c.ticker.toLowerCase() === resolvedFromTicker.toLowerCase()
+        (c) => c.ticker.toLowerCase() === quote.fromTicker.toLowerCase()
       );
       fromNet = (row?.network ?? '').trim();
     }
     if (!toNet) {
       const row = curList.find(
-        (c) => c.ticker.toLowerCase() === input.toTicker.trim().toLowerCase()
+        (c) => c.ticker.toLowerCase() === quote.toTicker.toLowerCase()
       );
       toNet = (row?.network ?? '').trim();
     }
   }
 
   const createPayload: Parameters<typeof cn.createExchange>[0] = {
-    fromCurrency: resolvedFromTicker,
-    toCurrency: input.toTicker.trim(),
+    fromCurrency: quote.fromTicker,
+    toCurrency: quote.toTicker,
     fromAmount: input.amountFrom,
     address: payout.address.trim(),
     flow: 'standard',
@@ -341,8 +350,8 @@ export async function createSwapOrder(input: {
       masterWalletBlockchain: masterBc,
       payoutAddressId: payout.id,
       changenowId,
-      fromTicker: resolvedFromTicker,
-      toTicker: input.toTicker.trim(),
+      fromTicker: quote.fromTicker,
+      toTicker: quote.toTicker,
       flow: 'standard',
       amountFrom: amountDec,
       expectedAmountTo: expectedTo,

@@ -38,7 +38,8 @@ export function fallbackChangeNowTicker(wc: {
   if (chain === 'polygon' && cur === 'MATIC' && !wc.isToken) return 'maticmainnet';
   if (chain === 'tron' && (cur === 'TRX' || cur === 'TRON') && !wc.isToken) return 'trx';
 
-  if (ca === ERC20_USDT && chain === 'ethereum') return 'usdterc20';
+  // v2 API expects `usdt` + network `eth` (see normalizeLegacyTickersForV2); avoid legacy `usdterc20` ticker.
+  if (ca === ERC20_USDT && chain === 'ethereum') return 'usdt';
   if (ca === ERC20_USDC && chain === 'ethereum') return 'usdc';
   if (ca === BEP20_USDT && chain === 'bsc') return 'usdtbsc';
   if (wc.contractAddress && wc.contractAddress.toUpperCase() === TRON_USDT && chain === 'tron')

@@ -136,6 +136,37 @@ export function resolveNetworksForTickers(
   };
 }
 
+/**
+ * ChangeNOW v2 `min-amount` / `estimated-amount` use ticker `usdt` + `toNetwork` (e.g. `eth`), not legacy ids like `usdterc20`.
+ */
+export function normalizeLegacyTickersForV2(
+  fromTicker: string,
+  toTicker: string
+): {
+  fromCurrency: string;
+  toCurrency: string;
+  fromNetworkHint?: string;
+  toNetworkHint?: string;
+} {
+  const legacy: Record<string, { currency: string; network: string }> = {
+    usdterc20: { currency: 'usdt', network: 'eth' },
+    usdtbsc: { currency: 'usdt', network: 'bsc' },
+    usdttrc20: { currency: 'usdt', network: 'trx' },
+  };
+  const f = fromTicker.trim();
+  const t = toTicker.trim();
+  const fl = f.toLowerCase();
+  const tl = t.toLowerCase();
+  const fm = legacy[fl];
+  const tm = legacy[tl];
+  return {
+    fromCurrency: fm?.currency ?? f,
+    toCurrency: tm?.currency ?? t,
+    fromNetworkHint: fm?.network,
+    toNetworkHint: tm?.network,
+  };
+}
+
 export async function listCurrencies(): Promise<ChangeNowCurrency[]> {
   const res = await client.get<ChangeNowCurrency[]>('/v2/exchange/currencies');
   if (res.status !== 200 || !Array.isArray(res.data)) {
