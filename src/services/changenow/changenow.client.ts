@@ -383,7 +383,21 @@ export async function listPartnerExchanges(params?: {
     headers: { ...changeNowAuthHeaders() },
   });
   if (res.status !== 200) {
-    throw new Error(`ChangeNOW exchanges list failed: HTTP ${res.status}`);
+    const msg =
+      typeof res.data === 'string'
+        ? res.data
+        : ((res.data as any)?.message || (res.data as any)?.error || JSON.stringify(res.data));
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        `ChangeNOW denied /v2/exchanges access for this API key (HTTP ${res.status}). Ask ChangeNOW to enable partner exchanges listing for your account.`
+      );
+    }
+    if (res.status === 404) {
+      throw new Error(
+        'ChangeNOW /v2/exchanges endpoint not available for this account or API version.'
+      );
+    }
+    throw new Error(`ChangeNOW exchanges list failed: HTTP ${res.status} ${msg}`);
   }
   return res.data;
 }

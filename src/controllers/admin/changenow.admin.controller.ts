@@ -160,7 +160,12 @@ export async function listPartnerExchangesController(
     return new ApiResponse(200, data, 'Partner exchanges').send(res);
   } catch (e) {
     if (e instanceof ApiError) return next(e);
-    next(ApiError.internal('Failed to load partner exchanges'));
+    const msg = e instanceof Error ? e.message : 'Failed to load partner exchanges';
+    // Return actionable upstream details to frontend/admin instead of generic 500.
+    if (msg.toLowerCase().includes('denied') || msg.toLowerCase().includes('not available')) {
+      return next(ApiError.forbidden(msg));
+    }
+    next(ApiError.internal(msg));
   }
 }
 
