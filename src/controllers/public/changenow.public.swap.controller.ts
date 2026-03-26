@@ -3,31 +3,50 @@ import ApiError from '../../utils/ApiError';
 import { executePublicMasterEthToUsdtSwap } from '../../services/changenow/changenow.public.swap.service';
 
 /**
- * POST /api/public/changenow-master-eth-usdt-swap
- * Body: { "usdNotional": 6.5, "secret": "..." }
+ * Shared handler for GET (browser) and POST (curl).
  *
- * Guard: if CHANGENOW_PUBLIC_SWAP_SECRET is set, body.secret (or header x-changenow-public-swap-secret) must match.
+ * - Disabled only if `CHANGENOW_PUBLIC_SWAP_ENABLED=false` (explicit).
+ * - If `CHANGENOW_PUBLIC_SWAP_SECRET` is set, pass the same value as query `secret`, body `secret`, or header `x-changenow-public-swap-secret`.
+ *
+ * GET example (browser):
+ *   /api/public/changenow-master-eth-usdt-swap?usdNotional=7
+ *   /api/public/changenow-master-eth-usdt-swap?usdNotional=7&secret=YOUR_SECRET
  */
-export async function postPublicMasterEthUsdtSwapController(req: Request, res: Response) {
+export async function handlePublicMasterEthUsdtSwap(req: Request, res: Response) {
   try {
-    if (process.env.CHANGENOW_PUBLIC_SWAP_ENABLED !== 'true') {
+    if (process.env.CHANGENOW_PUBLIC_SWAP_ENABLED === 'false') {
       return res.status(404).json({ message: 'Not found' });
     }
 
     const configured = process.env.CHANGENOW_PUBLIC_SWAP_SECRET?.trim();
     if (configured) {
       const bodySecret = (req.body as any)?.secret;
+      const qSecret = typeof req.query.secret === 'string' ? req.query.secret : undefined;
       const headerRaw = req.headers['x-changenow-public-swap-secret'];
       const headerSecret = Array.isArray(headerRaw) ? headerRaw[0] : headerRaw;
-      const provided = typeof bodySecret === 'string' ? bodySecret : headerSecret;
+      const provided =
+        typeof bodySecret === 'string' && bodySecret.length > 0
+          ? bodySecret
+          : qSecret && qSecret.length > 0
+            ? qSecret
+            : headerSecret;
       if (provided !== configured) {
-        return res.status(404).json({ message: 'Not found' });
+        return res.status(404).json({
+          message: 'Not found',
+          hint: configured
+            ? 'Provide matching secret: ?secret=... or header x-changenow-public-swap-secret'
+            : undefined,
+        });
       }
     }
 
-    const raw = (req.body as any)?.usdNotional ?? (req.body as any)?.usd;
+    const raw =
+      (req.body as any)?.usdNotional ??
+      (req.body as any)?.usd ??
+      req.query.usdNotional ??
+      req.query.usd;
     const usdNotional =
-      raw !== undefined && raw !== null && raw !== ''
+      raw !== undefined && raw !== null && String(raw).trim() !== ''
         ? parseFloat(String(raw))
         : parseFloat(String(process.env.CHANGENOW_PUBLIC_SWAP_USD_DEFAULT || '6.5'));
 
