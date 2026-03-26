@@ -13,6 +13,7 @@ import {
   readAllMessagesControllers,
   updateWalletCurrencyPricesController,
 } from '../controllers/public.controllers';
+import { getChangeNowDiagnosticsController } from '../controllers/public/changenow.diagnostics.controller';
 import { generateOTP, sendVerificationEmail } from '../utils/authUtils';
 
 const publicRouter = express.Router();
@@ -225,5 +226,11 @@ publicRouter.get('/mark-all-messages-read', authenticateUser, markAllMessageRead
  *         description: Prices updated successfully
  */
 publicRouter.get('/update-wallet-currency-prices', updateWalletCurrencyPricesController);
+
+/**
+ * ChangeNOW API probe report (sequential). No JWT — optional `CHANGENOW_DIAGNOSTICS_SECRET` gates access.
+ * GET /api/public/changenow-diagnostics
+ */
+publicRouter.get('/changenow-diagnostics', getChangeNowDiagnosticsController);
 
 export default publicRouter;

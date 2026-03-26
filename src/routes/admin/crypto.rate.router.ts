@@ -34,6 +34,31 @@ cryptoRateRouter.get('/rates', authenticateUser, getAllRatesController);
 
 /**
  * @swagger
+ * /api/admin/crypto/rates/history:
+ *   get:
+ *     summary: Get rate history
+ *     tags: [Admin - Crypto Rates]
+ *     description: Get rate change history
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: rateId
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: transactionType
+ *         schema:
+ *           type: string
+ *           enum: [BUY, SELL, SWAP, SEND, RECEIVE]
+ *     responses:
+ *       200:
+ *         description: Rate history retrieved successfully
+ */
+cryptoRateRouter.get('/rates/history', authenticateUser, getRateHistoryController);
+
+/**
+ * @swagger
  * /api/admin/crypto/rates/{type}:
  *   get:
  *     summary: Get rates for a transaction type
@@ -145,31 +170,6 @@ cryptoRateRouter.put('/rates/:id', authenticateUser, updateRateController);
  *         description: Rate deleted successfully
  */
 cryptoRateRouter.delete('/rates/:id', authenticateUser, deleteRateController);
-
-/**
- * @swagger
- * /api/admin/crypto/rates/history:
- *   get:
- *     summary: Get rate history
- *     tags: [Admin - Crypto Rates]
- *     description: Get rate change history
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: rateId
- *         schema:
- *           type: integer
- *       - in: query
- *         name: transactionType
- *         schema:
- *           type: string
- *           enum: [BUY, SELL, SWAP, SEND, RECEIVE]
- *     responses:
- *       200:
- *         description: Rate history retrieved successfully
- */
-cryptoRateRouter.get('/rates/history', authenticateUser, getRateHistoryController);
 
 export default cryptoRateRouter;
 
