@@ -3,6 +3,7 @@ enum HttpStatusCodes {
   UNAUTHORIZED = 401,
   FORBIDDEN = 403,
   NOT_FOUND = 404,
+  CONFLICT = 409,
   INTERNAL_SERVER_ERROR = 500,
 }
 
@@ -37,6 +38,10 @@ class ApiError extends Error {
 
   static notFound(message: string, data?: any) {
     return new ApiError(HttpStatusCodes.NOT_FOUND, message, data);
+  }
+
+  static conflict(message: string, data?: any) {
+    return new ApiError(HttpStatusCodes.CONFLICT, message, data);
   }
 }
 

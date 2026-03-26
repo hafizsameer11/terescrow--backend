@@ -13,6 +13,7 @@ export interface TrackingListItem {
   amount: string;
   amountUsd: string;
   amountNaira: string;
+  /** Same as VirtualAccount.currency at receive creation (not inferred from tx amount). */
   currency: string;
   blockchain: string;
   fromAddress: string;
@@ -20,6 +21,13 @@ export interface TrackingListItem {
   confirmations: number;
   blockNumber: string | null;
   date: string;
+  /** From linked wallet_currencies — helps distinguish USDT vs ETH on same chain. */
+  walletCurrency: {
+    symbol: string | null;
+    name: string | null;
+    isToken: boolean | null;
+    tokenType: string | null;
+  } | null;
 }
 
 export interface TrackingStep {
@@ -27,6 +35,22 @@ export interface TrackingStep {
   status: string;
   date: string;
   details: Record<string, string | number | null>;
+}
+
+export interface TrackingDisbursementItem {
+  id: number;
+  disbursementType: string;
+  status: string;
+  amount: string;
+  amountUsd: string | null;
+  currency: string;
+  blockchain: string;
+  toAddress: string;
+  txHash: string | null;
+  vendor: { id: number; name: string; walletAddress: string } | null;
+  adminUserId: number;
+  networkFee: string | null;
+  createdAt: string;
 }
 
 export interface TrackingDetails {
@@ -58,6 +82,21 @@ export interface TrackingDetails {
     reference: string | null;
     index: number | null;
     transactionDate: string | null;
+  } | null;
+  /** Ledger moves from the customer deposit (not MasterWalletTransaction). */
+  disbursements: TrackingDisbursementItem[];
+  /** Virtual account + catalog row for what asset this receive was credited to. */
+  virtualAccount: {
+    id: number;
+    accountId: string;
+    currency: string;
+    blockchain: string;
+    walletCurrency: {
+      symbol: string | null;
+      name: string | null;
+      isToken: boolean | null;
+      tokenType: string | null;
+    } | null;
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -118,6 +157,18 @@ export async function getTransactionTrackingList(filters: {
           },
         },
         cryptoReceive: true,
+        virtualAccount: {
+          include: {
+            walletCurrency: {
+              select: {
+                symbol: true,
+                name: true,
+                isToken: true,
+                tokenType: true,
+              },
+            },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
       skip,
@@ -165,6 +216,14 @@ export async function getTransactionTrackingList(filters: {
       confirmations: recv.confirmations ?? 0,
       blockNumber: recv.blockNumber?.toString() ?? null,
       date: tx.createdAt.toISOString(),
+      walletCurrency: tx.virtualAccount?.walletCurrency
+        ? {
+            symbol: tx.virtualAccount.walletCurrency.symbol,
+            name: tx.virtualAccount.walletCurrency.name,
+            isToken: tx.virtualAccount.walletCurrency.isToken,
+            tokenType: tx.virtualAccount.walletCurrency.tokenType,
+          }
+        : null,
     };
   });
 
@@ -228,14 +287,52 @@ export async function getTrackingSteps(txId: string): Promise<TrackingStep[]> {
   });
 
   const masterStatus = receivedAsset?.status ?? 'unknown';
+  const masterStepState =
+    masterStatus === 'transferredToMaster'
+      ? 'completed'
+      : masterStatus === 'sentToVendor'
+        ? 'skipped'
+        : 'pending';
+
   steps.push({
     title: 'Transfer to master wallet',
-    status: masterStatus === 'transferredToMaster' ? 'completed' : 'pending',
+    status: masterStepState,
     date: receivedAsset?.updatedAt?.toISOString() ?? tx.updatedAt.toISOString(),
     details: {
       masterWalletStatus: masterStatus,
+      note:
+        masterStatus === 'sentToVendor'
+          ? 'Not used — funds were sent to a vendor from the customer deposit address (see vendor disbursement step).'
+          : null,
     },
   });
+
+  const disbursements = await prisma.receivedAssetDisbursement.findMany({
+    where: { cryptoTransactionId: tx.id },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  for (const d of disbursements) {
+    const done = d.status === 'successful';
+    const failed = d.status === 'failed';
+    steps.push({
+      title:
+        d.disbursementType === 'vendor'
+          ? 'Vendor disbursement (from customer deposit, not master wallet)'
+          : `Received-asset disbursement (${d.disbursementType})`,
+      status: done ? 'completed' : failed ? 'failed' : 'pending',
+      date: d.updatedAt.toISOString(),
+      details: {
+        disbursementId: d.id,
+        disbursementType: d.disbursementType,
+        toAddress: d.toAddress,
+        amount: d.amount.toString(),
+        currency: d.currency,
+        txHash: d.txHash,
+        ledger: 'received_asset_disbursement',
+      },
+    });
+  }
 
   return steps;
 }
@@ -255,6 +352,22 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
           profilePicture: true,
         },
       },
+      virtualAccount: {
+        select: {
+          id: true,
+          accountId: true,
+          currency: true,
+          blockchain: true,
+          walletCurrency: {
+            select: {
+              symbol: true,
+              name: true,
+              isToken: true,
+              tokenType: true,
+            },
+          },
+        },
+      },
     },
   });
   if (!tx || !tx.cryptoReceive) return null;
@@ -263,6 +376,14 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
 
   const receivedAsset = await prisma.receivedAsset.findFirst({
     where: { txId: recv.txHash },
+  });
+
+  const disbursements = await prisma.receivedAssetDisbursement.findMany({
+    where: { cryptoTransactionId: tx.id },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      vendor: { select: { id: true, name: true, walletAddress: true } },
+    },
   });
 
   return {
@@ -297,6 +418,43 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
           reference: receivedAsset.reference,
           index: receivedAsset.index,
           transactionDate: receivedAsset.transactionDate?.toISOString() ?? null,
+        }
+      : null,
+    disbursements: disbursements.map((d) => ({
+      id: d.id,
+      disbursementType: d.disbursementType,
+      status: d.status,
+      amount: d.amount.toString(),
+      amountUsd: d.amountUsd?.toString() ?? null,
+      currency: d.currency,
+      blockchain: d.blockchain,
+      toAddress: d.toAddress,
+      txHash: d.txHash,
+      vendor: d.vendor
+        ? {
+            id: d.vendor.id,
+            name: d.vendor.name,
+            walletAddress: d.vendor.walletAddress,
+          }
+        : null,
+      adminUserId: d.adminUserId,
+      networkFee: d.networkFee?.toString() ?? null,
+      createdAt: d.createdAt.toISOString(),
+    })),
+    virtualAccount: tx.virtualAccount
+      ? {
+          id: tx.virtualAccount.id,
+          accountId: tx.virtualAccount.accountId,
+          currency: tx.virtualAccount.currency,
+          blockchain: tx.virtualAccount.blockchain,
+          walletCurrency: tx.virtualAccount.walletCurrency
+            ? {
+                symbol: tx.virtualAccount.walletCurrency.symbol,
+                name: tx.virtualAccount.walletCurrency.name,
+                isToken: tx.virtualAccount.walletCurrency.isToken,
+                tokenType: tx.virtualAccount.walletCurrency.tokenType,
+              }
+            : null,
         }
       : null,
     createdAt: tx.createdAt.toISOString(),

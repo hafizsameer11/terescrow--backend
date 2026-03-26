@@ -5,13 +5,17 @@ import {
   getTransactionTrackingController,
   getTrackingStepsController,
   getTrackingDetailsController,
+  sendReceivedAssetToVendorController,
+  bulkSendReceivedAssetsToVendorController,
 } from '../../controllers/admin/transaction.tracking.controller';
 
 const router = express.Router();
 const adminOnly = [authenticateUser, authenticateAdmin];
 
 router.get('/', ...adminOnly, getTransactionTrackingController);
+router.post('/bulk-send-to-vendor', ...adminOnly, bulkSendReceivedAssetsToVendorController);
 router.get('/:txId/steps', ...adminOnly, getTrackingStepsController);
 router.get('/:txId/details', ...adminOnly, getTrackingDetailsController);
+router.post('/:txId/send-to-vendor', ...adminOnly, sendReceivedAssetToVendorController);
 
 export default router;

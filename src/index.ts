@@ -72,6 +72,7 @@ import userBalancesRouter from './routes/admin/user.balances.router';
 import vendorsRouter from './routes/admin/vendors.router';
 import dailyReportRouter from './routes/admin/daily.report.router';
 import transactionTrackingRouter from './routes/admin/transaction.tracking.router';
+import changenowAdminRouter from './routes/admin/changenow.router';
 import referralsAdminRouter from './routes/admin/referrals.admin.router';
 import supportAdminRouter from './routes/admin/support.admin.router';
 import customersFreezeRouter from './routes/admin/customers.freeze.router';
@@ -110,6 +111,7 @@ const bodyParser = require('body-parser')
 // Schedulers
 // ============================================
 import { startReloadlyUtilityStatusScheduler } from './schedulers/reloadly.utility.status.scheduler';
+import { startChangeNowSwapStatusScheduler } from './schedulers/changenow.swap.status.scheduler';
 
 const port = process.env.PORT || 5000;
 
@@ -482,6 +484,7 @@ httpServer.listen(port, () => {
   
   // Start schedulers
   startReloadlyUtilityStatusScheduler();
+  startChangeNowSwapStatusScheduler();
 });
 
 app.get('/.well-known/pki-validation/E9D0BCFADE508ECB66F1A9236CF3AB96.txt', (req, res) => {

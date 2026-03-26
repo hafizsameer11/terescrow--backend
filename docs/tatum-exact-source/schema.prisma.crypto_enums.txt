@@ -1,0 +1,15 @@
+enum CryptoTxType {
+  BUY
+  SELL
+  SEND
+  RECEIVE
+  SWAP
+}
+
+enum CryptoTxStatus {
+  pending
+  processing
+  successful
+  failed
+  cancelled
+}

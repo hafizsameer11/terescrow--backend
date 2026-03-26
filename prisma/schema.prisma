@@ -53,6 +53,7 @@ model User {
   assignedSupportChats SupportChat[]       @relation("AssignedSupportChats")
   virtualAccounts      VirtualAccount[]
   receivedAssets       ReceivedAsset[]     @relation("ReceivedAssets")
+  adminReceivedAssetDisbursements ReceivedAssetDisbursement[] @relation("AdminReceivedAssetDisbursements")
   cryptoTransactions   CryptoTransaction[]
   userWallets          UserWallet[]
   bankAccounts         UserBankAccount[]
@@ -69,6 +70,8 @@ model User {
   referralEarnings     ReferralEarning[]      @relation("ReferralEarnings")
   referralEarningSources ReferralEarning[]    @relation("ReferralEarningsSources")
   referralWithdrawals  ReferralWithdrawal[]
+  adminExchangePayoutAddresses AdminExchangePayoutAddress[]
+  changeNowSwapOrders          ChangeNowSwapOrder[]          @relation("AdminChangeNowSwaps")
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
@@ -837,6 +840,7 @@ model Vendor {
   notes        String?  @db.Text
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  receivedAssetDisbursements ReceivedAssetDisbursement[]
 
   @@index([currency])
   @@map("vendors")
@@ -1091,6 +1095,20 @@ enum SupportChatSenderType {
   support
 }
 
+enum ChangeNowSwapSourceType {
+  received_asset
+  master_wallet
+}
+
+enum ChangeNowSwapOrderStatus {
+  awaiting_payin
+  payin_broadcast
+  exchanging
+  completed
+  failed
+  refunded
+}
+
 model MasterWallet {
   id         Int      @id @default(autoincrement())
   blockchain String   @db.VarChar(255)
@@ -1118,6 +1136,8 @@ model MasterWalletTransaction {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
+  changeNowSwapOrders ChangeNowSwapOrder[]
+
   @@index([walletId])
   @@index([assetSymbol])
   @@index([createdAt])
@@ -1140,6 +1160,7 @@ model WalletCurrency {
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
   virtualAccounts VirtualAccount[]
+  changeNowTicker WalletCurrencyChangeNowTicker?
 
   @@map("wallet_currencies")
 }
@@ -1289,11 +1310,127 @@ model ReceivedAsset {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
   user             User?     @relation("ReceivedAssets", fields: [userId], references: [id])
+  disbursements    ReceivedAssetDisbursement[]
+  changeNowSwapOrders ChangeNowSwapOrder[]
 
   @@index([accountId])
   @@index([reference])
   @@index([userId])
   @@map("received_assets")
+}
+
+/// Admin outbound move from a user's deposit (received-asset) — not master-wallet ledger (MasterWalletTransaction).
+model ReceivedAssetDisbursement {
+  id                    Int       @id @default(autoincrement())
+  cryptoTransactionId   Int       @map("crypto_transaction_id")
+  receivedAssetId       Int?      @map("received_asset_id")
+  sourceDepositTxHash   String    @map("source_deposit_tx_hash") @db.VarChar(255)
+  disbursementType      String    @map("disbursement_type") @db.VarChar(50)
+  vendorId              Int?      @map("vendor_id")
+  toAddress             String    @map("to_address") @db.VarChar(255)
+  amount                Decimal   @db.Decimal(20, 8)
+  currency              String    @db.VarChar(50)
+  blockchain            String    @db.VarChar(255)
+  amountUsd             Decimal?  @map("amount_usd") @db.Decimal(20, 8)
+  txHash                String?   @map("tx_hash") @db.VarChar(255)
+  status                String    @default("pending") @db.VarChar(50)
+  adminUserId           Int       @map("admin_user_id")
+  notes                 String?   @db.Text
+  networkFee            Decimal?  @map("network_fee") @db.Decimal(20, 8)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  cryptoTransaction CryptoTransaction @relation(fields: [cryptoTransactionId], references: [id], onDelete: Cascade)
+  receivedAsset     ReceivedAsset?    @relation(fields: [receivedAssetId], references: [id], onDelete: SetNull)
+  vendor            Vendor?           @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  admin             User              @relation("AdminReceivedAssetDisbursements", fields: [adminUserId], references: [id])
+  changeNowSwapOrder ChangeNowSwapOrder?
+
+  @@index([cryptoTransactionId])
+  @@index([sourceDepositTxHash])
+  @@index([vendorId])
+  @@index([status])
+  @@index([adminUserId])
+  @@map("received_asset_disbursements")
+}
+
+/// Admin-managed payout address for ChangeNOW swaps (where exchanged funds are sent).
+model AdminExchangePayoutAddress {
+  id              Int      @id @default(autoincrement())
+  adminUserId     Int      @map("admin_user_id")
+  label           String?  @db.VarChar(255)
+  address         String   @db.VarChar(255)
+  extraId         String?  @map("extra_id") @db.VarChar(255)
+  toNetworkHint   String?  @map("to_network_hint") @db.VarChar(100)
+  isDefault       Boolean  @default(false) @map("is_default")
+  archived        Boolean  @default(false)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  admin   User                 @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  swapOrders ChangeNowSwapOrder[]
+
+  @@index([adminUserId])
+  @@map("admin_exchange_payout_addresses")
+}
+
+/// Maps internal WalletCurrency row to ChangeNOW `ticker` (per /v2/exchange/currencies).
+model WalletCurrencyChangeNowTicker {
+  id                Int            @id @default(autoincrement())
+  walletCurrencyId  Int            @unique @map("wallet_currency_id")
+  changenowTicker   String         @map("changenow_ticker") @db.VarChar(80)
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  walletCurrency WalletCurrency @relation(fields: [walletCurrencyId], references: [id], onDelete: Cascade)
+
+  @@map("wallet_currency_changenow_tickers")
+}
+
+model ChangeNowSwapOrder {
+  id                       Int                       @id @default(autoincrement())
+  adminUserId              Int                       @map("admin_user_id")
+  sourceType               ChangeNowSwapSourceType   @map("source_type")
+  status                   ChangeNowSwapOrderStatus  @default(awaiting_payin)
+  receivedAssetId          Int?                      @map("received_asset_id")
+  cryptoTransactionId      Int?                      @map("crypto_transaction_id")
+  masterWalletBlockchain   String?                   @map("master_wallet_blockchain") @db.VarChar(255)
+  payoutAddressId          Int?                      @map("payout_address_id")
+  changenowId              String                    @map("changenow_id") @db.VarChar(255)
+  fromTicker               String                    @map("from_ticker") @db.VarChar(80)
+  toTicker                 String                    @map("to_ticker") @db.VarChar(80)
+  flow                     String                    @default("standard") @db.VarChar(50)
+  amountFrom               Decimal                   @map("amount_from") @db.Decimal(30, 18)
+  expectedAmountTo         Decimal?                  @map("expected_amount_to") @db.Decimal(30, 18)
+  payinAddress             String                    @map("payin_address") @db.VarChar(255)
+  payinExtraId             String?                   @map("payin_extra_id") @db.VarChar(255)
+  payoutAddress            String                    @map("payout_address") @db.VarChar(255)
+  payoutExtraId            String?                   @map("payout_extra_id") @db.VarChar(255)
+  refundAddress            String?                   @map("refund_address") @db.VarChar(255)
+  outboundTxHash           String?                   @map("outbound_tx_hash") @db.VarChar(255)
+  payinHash                String?                   @map("payin_hash") @db.VarChar(255)
+  payoutHash               String?                   @map("payout_hash") @db.VarChar(255)
+  changenowStatus          String?                   @map("changenow_status") @db.VarChar(80)
+  amountReceive            Decimal?                  @map("amount_receive") @db.Decimal(30, 18)
+  errorMessage             String?                   @map("error_message") @db.Text
+  masterWalletTxId         Int?                      @map("master_wallet_tx_id")
+  receivedAssetDisbursementId Int?                   @unique @map("received_asset_disbursement_id")
+  lastPolledAt             DateTime?                 @map("last_polled_at")
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+
+  admin                    User                       @relation("AdminChangeNowSwaps", fields: [adminUserId], references: [id], onDelete: Cascade)
+  receivedAsset            ReceivedAsset?             @relation(fields: [receivedAssetId], references: [id], onDelete: SetNull)
+  cryptoTransaction        CryptoTransaction?         @relation(fields: [cryptoTransactionId], references: [id], onDelete: SetNull)
+  payoutProfile            AdminExchangePayoutAddress?  @relation(fields: [payoutAddressId], references: [id], onDelete: SetNull)
+  masterWalletTransaction  MasterWalletTransaction?   @relation(fields: [masterWalletTxId], references: [id], onDelete: SetNull)
+  receivedAssetDisbursement ReceivedAssetDisbursement? @relation(fields: [receivedAssetDisbursementId], references: [id], onDelete: SetNull)
+
+  @@index([adminUserId])
+  @@index([status])
+  @@index([changenowId])
+  @@index([createdAt])
+  @@map("change_now_swap_orders")
 }
 
 model ReceiveTransaction {
@@ -1375,6 +1512,8 @@ model CryptoTransaction {
   cryptoSend    CryptoSend?
   cryptoReceive CryptoReceive?
   cryptoSwap    CryptoSwap?
+  receivedAssetDisbursements ReceivedAssetDisbursement[]
+  changeNowSwapOrders        ChangeNowSwapOrder[]
 
   // Relations
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)

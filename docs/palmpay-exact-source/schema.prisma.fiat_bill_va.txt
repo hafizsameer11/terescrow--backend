@@ -1,0 +1,167 @@
+model FiatWallet {
+  id           String            @id @default(uuid())
+  userId       Int
+  currency     String            @db.VarChar(10)
+  balance      Decimal           @default(0.00) @db.Decimal(15, 2)
+  isPrimary    Boolean           @default(false)
+  status       String            @default("active")
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  transactions         FiatTransaction[]
+  billPayments         BillPayment[]
+  referralWithdrawals  ReferralWithdrawal[]
+  user                 User              @relation(fields: [userId], references: [id])
+
+  @@unique([userId, currency])
+  @@index([userId])
+  @@index([currency])
+}
+
+model FiatTransaction {
+  id               String       @id @default(uuid())
+  userId           Int
+  walletId         String
+  type             String
+  status           String       @default("pending")
+  currency         String       @db.VarChar(10)
+  amount           Decimal      @db.Decimal(15, 2)
+  fees             Decimal      @default(0.00) @db.Decimal(15, 2)
+  totalAmount      Decimal      @db.Decimal(15, 2)
+  balanceBefore    Decimal?     @db.Decimal(15, 2)
+  balanceAfter     Decimal?     @db.Decimal(15, 2)
+  palmpayOrderId   String?
+  palmpayOrderNo   String?      @unique
+  palmpayStatus    String?
+  palmpaySessionId String?
+  checkoutUrl      String?      @db.Text
+  redirectUrl      String?      @db.Text
+  payeeName        String?      @db.VarChar(200)
+  payeeBankCode    String?      @db.VarChar(50)
+  payeeBankAccNo   String?      @db.VarChar(50)
+  payeePhoneNo     String?      @db.VarChar(50)
+  billType         String?
+  billProvider     String?
+  billAccount      String?
+  billAmount       Decimal?     @db.Decimal(15, 2)
+  billReference    String?
+  description      String?      @db.VarChar(500)
+  metadata         String?      @db.LongText
+  errorMessage     String?      @db.Text
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  completedAt      DateTime?
+  user             User         @relation(fields: [userId], references: [id])
+  wallet           FiatWallet   @relation(fields: [walletId], references: [id])
+  billPayment      BillPayment?
+
+  @@index([userId])
+  @@index([walletId])
+  @@index([palmpayOrderNo])
+  @@index([palmpayOrderId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model BillPayment {
+  id               String          @id @default(uuid())
+  userId           Int
+  walletId         String
+  transactionId    String          @unique
+  provider         String          @default("palmpay") @db.VarChar(20) // "palmpay" or "vtpass"
+  sceneCode        String          @db.VarChar(20)
+  billType         String          @db.VarChar(50)
+  billerId         String          @db.VarChar(100)
+  billerName       String?         @db.VarChar(200)
+  itemId           String          @db.VarChar(100)
+  itemName         String?         @db.VarChar(200)
+  rechargeAccount  String          @db.VarChar(50)
+  amount           Decimal         @db.Decimal(15, 2)
+  currency         String          @default("NGN") @db.VarChar(10)
+  status           String          @default("pending")
+  palmpayOrderId   String?         @unique // Also used for VTpass request_id
+  palmpayOrderNo   String?         @unique // Also used for VTpass transactionId
+  palmpayStatus    String?         // Also used for VTpass status (delivered, pending, failed)
+  billReference    String?         @db.VarChar(200)
+  providerResponse String?         @db.LongText
+  errorMessage     String?         @db.Text
+  retryCount       Int             @default(0)
+  refunded         Boolean         @default(false) // Idempotency flag to prevent double refunds
+  refundedAt       DateTime?
+  refundReason     String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  completedAt      DateTime?
+  user             User            @relation(fields: [userId], references: [id])
+  wallet           FiatWallet      @relation(fields: [walletId], references: [id])
+  transaction      FiatTransaction @relation(fields: [transactionId], references: [id])
+
+  @@index([userId])
+  @@index([walletId])
+  @@index([transactionId])
+  @@index([palmpayOrderId])
+  @@index([palmpayOrderNo])
+  @@index([status])
+  @@index([sceneCode])
+  @@index([billType])
+  @@index([billerId])
+  @@index([provider])
+  @@index([createdAt])
+  @@map("BillPayment")
+}
+
+model PalmPayConfig {
+  id          Int      @id @default(autoincrement())
+  environment String   @unique @default("sandbox")
+  apiKey      String   @db.VarChar(255)
+  apiSecret   String   @db.VarChar(255)
+  merchantId  String?  @db.VarChar(255)
+  appId       String?  @db.VarChar(255)
+  publicKey   String?  @db.Text
+  baseUrl     String   @db.VarChar(500)
+  countryCode String   @default("NG") @db.VarChar(10)
+  version     String   @default("V1.1") @db.VarChar(10)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PalmPayUserVirtualAccount {
+  id                 Int       @id @default(autoincrement())
+  userId             Int
+  merchantOrderId    String    @unique @map("merchant_order_id") @db.VarChar(32)
+  palmpayOrderNo     String?   @unique @map("palmpay_order_no") @db.VarChar(50)
+  amount             Decimal   @db.Decimal(15, 2)
+  currency           String    @default("NGN") @db.VarChar(10)
+  orderStatus        Int       @default(1) @map("order_status")
+  title              String?   @db.VarChar(100)
+  description        String?   @db.VarChar(200)
+  payerAccountType   String?   @map("payer_account_type") @db.VarChar(50)
+  payerAccountId     String?   @map("payer_account_id") @db.VarChar(200)
+  payerBankName      String?   @map("payer_bank_name") @db.VarChar(200)
+  payerAccountName   String?   @map("payer_account_name") @db.VarChar(200)
+  payerVirtualAccNo  String?   @unique @map("payer_virtual_acc_no") @db.VarChar(200)
+  checkoutUrl        String?   @map("checkout_url") @db.Text
+  sdkSessionId       String?   @map("sdk_session_id") @db.VarChar(50)
+  sdkSignKey         String?   @map("sdk_sign_key") @db.VarChar(50)
+  payMethod          String?   @map("pay_method") @db.VarChar(50)
+  productType        String?   @map("product_type") @db.VarChar(50)
+  notifyUrl          String?   @map("notify_url") @db.VarChar(200)
+  callBackUrl        String?   @map("call_back_url") @db.VarChar(200)
+  remark             String?   @db.VarChar(200)
+  fiatTransactionId  String?   @map("fiat_transaction_id") @db.VarChar(255)
+  metadata           String?   @db.LongText
+  errorMessage       String?   @map("error_message") @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  completedAt        DateTime? @map("completed_at")
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([merchantOrderId])
+  @@index([palmpayOrderNo])
+  @@index([payerVirtualAccNo])
+  @@index([orderStatus])
+  @@index([createdAt])
+  @@map("PalmPayUserVirtualAccount")
+}

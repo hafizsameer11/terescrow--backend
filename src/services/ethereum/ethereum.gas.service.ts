@@ -156,6 +156,70 @@ class EthereumGasService {
   }
 
   /**
+   * Gas estimate for EVM chains (Ethereum, BSC, Polygon) via Tatum v4.
+   */
+  async estimateGasFeeForChain(
+    chain: 'ETH' | 'BSC' | 'MATIC',
+    from: string,
+    to: string,
+    amount: string,
+    testnet: boolean = false
+  ): Promise<GasFeeEstimateResponse> {
+    try {
+      const cleanFrom = from.startsWith('0x') ? from : `0x${from}`;
+      const cleanTo = to.startsWith('0x') ? to : `0x${to}`;
+
+      let chainParam: string;
+      if (testnet) {
+        if (chain === 'ETH') chainParam = 'ETH_SEPOLIA';
+        else if (chain === 'BSC') chainParam = 'BSC_TESTNET';
+        else chainParam = 'MATIC_AMOY';
+      } else {
+        chainParam = chain;
+      }
+
+      const response = await axios.post<GasFeeEstimateResponse>(
+        `${this.baseUrl}/blockchainOperations/gas`,
+        {
+          chain: chainParam,
+          from: cleanFrom,
+          to: cleanTo,
+          amount: amount.toString(),
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': this.apiKey,
+          },
+        }
+      );
+
+      const result = response.data;
+      cryptoLogger.gasEstimate({
+        type: 'gasEstimate',
+        chain: chainParam,
+        from,
+        to,
+        amount: amount.toString(),
+        testnet,
+        gasLimit: result.gasLimit,
+        gasPrice: result.gasPrice,
+      });
+      return result;
+    } catch (error: any) {
+      cryptoLogger.exception('Estimate gas fee (chain)', error, {
+        chain,
+        from,
+        to,
+        amount: amount.toString(),
+        testnet,
+        apiResponse: error.response?.data,
+      });
+      throw new Error(`Failed to estimate gas fee: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  /**
    * Convert wei to Gwei
    */
   weiToGwei(wei: string): string {
