@@ -68,6 +68,19 @@ function extractErrorDetail(status: number, data: unknown): string {
   return `HTTP ${status}: ${summarizeBody(data)}`;
 }
 
+/** Stable probe pair — matches ChangeNOW v2 examples (USDT on Ethereum). */
+const DIAG_PAIR = {
+  fromCurrency: 'btc',
+  toCurrency: 'usdt',
+  fromNetwork: 'btc',
+  toNetwork: 'eth',
+  flow: 'standard',
+  sampleFromAmount: '0.01',
+} as const;
+
+/** Valid UUID v4 shape for by-id probe (non-existent exchange → expect 404, not 400 invalid format). */
+const DIAG_BY_ID_PLACEHOLDER = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+
 function classifyHttpStatus(status: number): 'ok' | 'warning' | 'error' {
   if (status >= 200 && status < 300) return 'ok';
   if (status === 401 || status === 403) return 'error';
@@ -81,7 +94,8 @@ async function probe(
   name: string,
   method: 'GET' | 'POST',
   path: string,
-  config?: { params?: Record<string, string>; data?: Record<string, unknown> }
+  config?: { params?: Record<string, string>; data?: Record<string, unknown> },
+  opts?: { treat404AsOk?: boolean }
 ): Promise<ChangeNowProbeResult> {
   const query = config?.params
     ? new URLSearchParams(config.params).toString()
@@ -103,12 +117,34 @@ async function probe(
           });
 
     const durationMs = Date.now() - start;
+
+    if (opts?.treat404AsOk && res.status === 404) {
+      return {
+        name,
+        method,
+        path,
+        query,
+        httpStatus: res.status,
+        status: 'ok',
+        durationMs,
+        detail: `OK — no exchange for this id (404 expected): ${extractErrorDetail(res.status, res.data)}`,
+      };
+    }
+
     const tier = classifyHttpStatus(res.status);
 
     if (tier === 'ok') {
       let detail = '2xx response';
       if (path === '/v2/exchange/currencies' && Array.isArray(res.data)) {
         detail = `${res.data.length} currencies returned`;
+      } else if (path === '/v2/exchange/min-amount' && res.data && typeof res.data === 'object') {
+        const m = (res.data as any).minAmount;
+        detail = m != null ? `minAmount=${m}` : summarizeBody(res.data, 200);
+      } else if (path === '/v2/exchange/range' && res.data && typeof res.data === 'object') {
+        const d = res.data as any;
+        detail = [d.minAmount, d.maxAmount].some((x: unknown) => x != null)
+          ? `min=${d.minAmount ?? '—'} max=${d.maxAmount ?? '—'}`
+          : summarizeBody(res.data, 200);
       } else if (path === '/v2/exchange/available-pairs' && Array.isArray(res.data)) {
         detail = `${res.data.length} pair(s) returned`;
       } else if (path === '/v2/exchanges' && res.data && typeof res.data === 'object') {
@@ -170,7 +206,7 @@ async function probe(
 
 /**
  * Runs ChangeNOW API checks one after another (same order every time).
- * Does not create real exchanges; POST /v2/exchange is probed with an intentionally invalid body to verify reachability only.
+ * Does not POST /v2/exchange (a valid body can create a live order). Pair uses btc→usdt on eth per ChangeNOW v2 docs.
  */
 export async function runChangeNowDiagnostics(): Promise<ChangeNowDiagnosticsReport> {
   const client = buildRawClient();
@@ -180,23 +216,22 @@ export async function runChangeNowDiagnostics(): Promise<ChangeNowDiagnosticsRep
   // 1) Public-style currencies (no key required for many partners, but we send key if present)
   checks.push(await probe(client, 'List currencies', 'GET', '/v2/exchange/currencies'));
 
-  // 2–3) Min amount & range (common pair)
+  // 2–3) Min amount & range — multichain assets need fromNetwork / toNetwork (see changenow.md)
+  const pairParams = {
+    fromCurrency: DIAG_PAIR.fromCurrency,
+    toCurrency: DIAG_PAIR.toCurrency,
+    fromNetwork: DIAG_PAIR.fromNetwork,
+    toNetwork: DIAG_PAIR.toNetwork,
+    flow: DIAG_PAIR.flow,
+  };
   checks.push(
-    await probe(client, 'Min amount (btc → usdt)', 'GET', '/v2/exchange/min-amount', {
-      params: {
-        fromCurrency: 'btc',
-        toCurrency: 'usdt',
-        flow: 'standard',
-      },
+    await probe(client, 'Min amount (btc → usdt erc20)', 'GET', '/v2/exchange/min-amount', {
+      params: pairParams,
     })
   );
   checks.push(
-    await probe(client, 'Range (btc → usdt)', 'GET', '/v2/exchange/range', {
-      params: {
-        fromCurrency: 'btc',
-        toCurrency: 'usdt',
-        flow: 'standard',
-      },
+    await probe(client, 'Range (btc → usdt erc20)', 'GET', '/v2/exchange/range', {
+      params: pairParams,
     })
   );
 
@@ -247,7 +282,7 @@ export async function runChangeNowDiagnostics(): Promise<ChangeNowDiagnosticsRep
       detail: 'Skipped — CHANGENOW_API_KEY not set',
     });
     checks.push({
-      name: 'Create exchange (invalid body — reachability)',
+      name: 'Create exchange (POST)',
       method: 'POST',
       path: '/v2/exchange',
       status: 'skipped',
@@ -257,23 +292,26 @@ export async function runChangeNowDiagnostics(): Promise<ChangeNowDiagnosticsRep
     });
   } else {
     checks.push(
-      await probe(client, 'Available pairs (btc → usdt)', 'GET', '/v2/exchange/available-pairs', {
+      await probe(client, 'Available pairs (btc → usdt erc20)', 'GET', '/v2/exchange/available-pairs', {
         params: {
-          fromCurrency: 'btc',
-          toCurrency: 'usdt',
+          fromCurrency: DIAG_PAIR.fromCurrency,
+          toCurrency: DIAG_PAIR.toCurrency,
+          fromNetwork: DIAG_PAIR.fromNetwork,
+          toNetwork: DIAG_PAIR.toNetwork,
+          flow: DIAG_PAIR.flow,
         },
       })
     );
 
     checks.push(
-      await probe(client, 'Estimated amount (btc → usdt)', 'GET', '/v2/exchange/estimated-amount', {
+      await probe(client, 'Estimated amount (btc → usdt erc20)', 'GET', '/v2/exchange/estimated-amount', {
         params: {
-          fromCurrency: 'btc',
-          toCurrency: 'usdt',
-          fromAmount: '0.01',
-          flow: 'standard',
-          fromNetwork: 'btc',
-          toNetwork: 'eth',
+          fromCurrency: DIAG_PAIR.fromCurrency,
+          toCurrency: DIAG_PAIR.toCurrency,
+          fromAmount: DIAG_PAIR.sampleFromAmount,
+          flow: DIAG_PAIR.flow,
+          fromNetwork: DIAG_PAIR.fromNetwork,
+          toNetwork: DIAG_PAIR.toNetwork,
         },
       })
     );
@@ -281,84 +319,42 @@ export async function runChangeNowDiagnostics(): Promise<ChangeNowDiagnosticsRep
     checks.push(
       await probe(client, 'Network fee estimate', 'GET', '/v2/exchange/network-fee', {
         params: {
-          fromCurrency: 'btc',
-          toCurrency: 'usdt',
-          fromAmount: '0.01',
-          fromNetwork: 'btc',
-          toNetwork: 'eth',
+          fromCurrency: DIAG_PAIR.fromCurrency,
+          toCurrency: DIAG_PAIR.toCurrency,
+          fromAmount: DIAG_PAIR.sampleFromAmount,
+          fromNetwork: DIAG_PAIR.fromNetwork,
+          toNetwork: DIAG_PAIR.toNetwork,
         },
       })
     );
 
     checks.push(
-      await probe(client, 'Exchange by id (invalid id)', 'GET', '/v2/exchange/by-id', {
-        params: { id: '00000000-0000-0000-0000-000000000000' },
-      })
+      await probe(
+        client,
+        'Exchange by id (unknown id)',
+        'GET',
+        '/v2/exchange/by-id',
+        {
+          params: { id: DIAG_BY_ID_PLACEHOLDER },
+        },
+        { treat404AsOk: true }
+      )
     );
 
     checks.push(await probe(client, 'Partner exchanges list', 'GET', '/v2/exchanges', { params: { limit: '5' } }));
 
-    // Intentionally invalid create — expect 4xx; proves route + auth accepted
-    const start = Date.now();
-    try {
-      const res = await client.post(
-        '/v2/exchange',
-        {
-          fromCurrency: 'btc',
-          toCurrency: 'usdt',
-          fromNetwork: 'btc',
-          toNetwork: 'eth',
-          fromAmount: '0',
-          toAmount: '',
-          address: '',
-          extraId: '',
-          refundAddress: '',
-          refundExtraId: '',
-          userId: '',
-          payload: '',
-          contactEmail: '',
-          source: '',
-          flow: 'standard',
-          type: 'direct',
-          rateId: '',
-        },
-        {
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            ...changeNowAuthHeaders(),
-          },
-          validateStatus: () => true,
-        }
-      );
-      const durationMs = Date.now() - start;
-      const tier = classifyHttpStatus(res.status);
-      const status: ProbeStatus = tier === 'ok' ? 'ok' : tier === 'warning' ? 'warning' : 'error';
-      checks.push({
-        name: 'Create exchange (invalid body — reachability)',
-        method: 'POST',
-        path: '/v2/exchange',
-        httpStatus: res.status,
-        status,
-        durationMs,
-        detail:
-          tier === 'warning'
-            ? `Reachable — ${extractErrorDetail(res.status, res.data)}`
-            : tier === 'ok'
-              ? summarizeBody(res.data, 300)
-              : extractErrorDetail(res.status, res.data),
-      });
-    } catch (err: any) {
-      checks.push({
-        name: 'Create exchange (invalid body — reachability)',
-        method: 'POST',
-        path: '/v2/exchange',
-        status: 'error',
-        httpStatus: null,
-        durationMs: Date.now() - start,
-        detail: err?.message || String(err),
-      });
-    }
+    // Intentionally no POST /v2/exchange probe: a well-formed body can create a real exchange (pay-in address).
+    // Use admin "create swap" or ChangeNOW dashboard to verify POST; GET probes cover read + validation paths.
+    checks.push({
+      name: 'Create exchange (POST)',
+      method: 'POST',
+      path: '/v2/exchange',
+      status: 'skipped',
+      httpStatus: null,
+      durationMs: 0,
+      detail:
+        'Skipped — POST can create a live order; test manually or via /api/admin/changenow/swaps after other checks pass',
+    });
   }
 
   const ok = checks.filter((c) => c.status === 'ok').length;
