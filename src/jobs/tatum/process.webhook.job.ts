@@ -142,10 +142,16 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
           },
         });
         
-        // Case-insensitive contract address matching
-        const walletCurrency = walletCurrencies.find(
+        // Match by on-chain contract address (EVM hex, Tron base58, etc.)
+        let walletCurrency = walletCurrencies.find(
           wc => wc.contractAddress?.toLowerCase() === contractAddress.toLowerCase()
         );
+        // Tatum often sends an asset symbol in contractAddress for Tron (e.g. USDT_TRON) instead of the TRC-20 address
+        if (!walletCurrency) {
+          walletCurrency = walletCurrencies.find(
+            wc => wc.currency.toUpperCase() === contractAddress.toUpperCase()
+          );
+        }
         
         if (walletCurrency) {
           detectedCurrency = walletCurrency.currency;
