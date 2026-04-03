@@ -51,21 +51,27 @@ export interface BulkDisbursementItemResult {
 const SUPPORTED_BASE = new Set(['ETH', 'USDT', 'BNB', 'TRX', 'MATIC', 'BTC']);
 const BULK_MAX_ITEMS = 100;
 
-/**
- * Sends crypto from the customer's deposit address (received-asset / virtual account),
- * not from the master wallet. Recorded in ReceivedAssetDisbursement, not MasterWalletTransaction.
- *
- * `amount` may be omitted: the full receive amount from `CryptoReceive` is used (recommended for UI bulk actions).
- */
-export async function sendReceivedAssetToVendor(input: {
-  receiveTransactionId: string;
-  adminUserId: number;
-  vendorId: number;
-  /** If omitted, uses the full on-book receive amount for this deposit. */
-  amount?: string;
-}): Promise<SendReceivedAssetToVendorResult> {
-  const { receiveTransactionId, adminUserId, vendorId, amount: amountInput } = input;
+export type ReceiveOutboundContext = {
+  tx: any;
+  recv: any;
+  recvAmount: Decimal;
+  amountDecimal: Decimal;
+  chainNorm: string;
+  baseSymbol: string;
+  receivedAsset: any;
+  virtualAccount: any;
+  walletCurrency: any;
+  isNative: boolean;
+};
 
+/**
+ * Shared load + validation for outbound moves from the user's deposit (vendor or master wallet).
+ * At most one successful outbound disbursement per receive (any type).
+ */
+export async function loadReceiveDisbursementForOutbound(
+  receiveTransactionId: string,
+  amountInput?: string
+): Promise<ReceiveOutboundContext> {
   const tx = await prisma.cryptoTransaction.findFirst({
     where: {
       transactionId: receiveTransactionId,
@@ -107,13 +113,13 @@ export async function sendReceivedAssetToVendor(input: {
 
   if (!SUPPORTED_BASE.has(baseSymbol)) {
     throw ApiError.badRequest(
-      `Unsupported asset for vendor disbursement: ${baseSymbol}. Supported: BTC, ETH, USDT, BNB, TRX, MATIC.`
+      `Unsupported asset for disbursement: ${baseSymbol}. Supported: BTC, ETH, USDT, BNB, TRX, MATIC.`
     );
   }
 
   const supportedChains = ['ethereum', 'bsc', 'tron', 'polygon', 'bitcoin'];
   if (!supportedChains.includes(chainNorm)) {
-    throw ApiError.badRequest(`Unsupported blockchain for vendor disbursement: ${tx.blockchain}`);
+    throw ApiError.badRequest(`Unsupported blockchain for disbursement: ${tx.blockchain}`);
   }
 
   if (baseSymbol === 'BNB' && chainNorm !== 'bsc') {
@@ -140,22 +146,7 @@ export async function sendReceivedAssetToVendor(input: {
     throw ApiError.conflict('These funds were already marked as transferred to the master wallet');
   }
   if (receivedAsset?.status === 'sentToVendor') {
-    throw ApiError.conflict('This deposit is already fully disbursed to a vendor');
-  }
-
-  const existingVendorSum = await prisma.receivedAssetDisbursement.aggregate({
-    where: {
-      cryptoTransactionId: tx.id,
-      status: 'successful',
-      disbursementType: 'vendor',
-    },
-    _sum: { amount: true },
-  });
-  const prevVendor = new Decimal(existingVendorSum._sum.amount?.toString() ?? '0');
-  if (prevVendor.greaterThan(0)) {
-    throw ApiError.conflict(
-      'A vendor disbursement already exists for this receive; use a single full transfer or contact engineering for partial flows'
-    );
+    throw ApiError.conflict('This deposit is already fully disbursed (vendor or outbound)');
   }
 
   const existingChangeNow = await prisma.receivedAssetDisbursement.findFirst({
@@ -167,39 +158,20 @@ export async function sendReceivedAssetToVendor(input: {
   });
   if (existingChangeNow) {
     throw ApiError.conflict(
-      'This deposit was already used for a ChangeNOW swap; cannot send to vendor on the same receive'
+      'This deposit was already used for a ChangeNOW swap; cannot disburse on the same receive'
     );
   }
 
-  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
-  if (!vendor) {
-    throw ApiError.notFound('Vendor not found');
-  }
-
-  if (extractBaseSymbol(vendor.currency) !== baseSymbol) {
-    throw ApiError.badRequest(
-      `Vendor currency (${vendor.currency}) does not match receive asset (${tx.currency} → ${baseSymbol})`
+  const anySuccessfulOutbound = await prisma.receivedAssetDisbursement.findFirst({
+    where: {
+      cryptoTransactionId: tx.id,
+      status: 'successful',
+    },
+  });
+  if (anySuccessfulOutbound) {
+    throw ApiError.conflict(
+      `This deposit already has a successful outbound disbursement (${anySuccessfulOutbound.disbursementType}).`
     );
-  }
-  if (!vendorNetworkMatchesBlockchain(vendor.network, tx.blockchain)) {
-    throw ApiError.badRequest(
-      `Vendor network (${vendor.network}) does not match transaction blockchain (${tx.blockchain})`
-    );
-  }
-
-  const toAddr = vendor.walletAddress.trim();
-  if (chainNorm === 'ethereum' || chainNorm === 'bsc' || chainNorm === 'polygon') {
-    if (!isValidEvmAddress(toAddr)) {
-      throw ApiError.badRequest('Vendor wallet must be a valid EVM address (0x + 40 hex).');
-    }
-  } else if (chainNorm === 'tron') {
-    if (!isValidTronAddress(toAddr)) {
-      throw ApiError.badRequest('Vendor wallet must be a valid Tron address (base58, starting with T).');
-    }
-  } else if (chainNorm === 'bitcoin') {
-    if (!isValidBitcoinAddress(toAddr)) {
-      throw ApiError.badRequest('Vendor wallet must be a valid Bitcoin address.');
-    }
   }
 
   let virtualAccount = tx.virtualAccount;
@@ -233,6 +205,79 @@ export async function sendReceivedAssetToVendor(input: {
 
   const walletCurrency = virtualAccount.walletCurrency;
   const isNative = isNativeAssetForChain(baseSymbol, chainNorm, walletCurrency?.isToken);
+
+  return {
+    tx,
+    recv,
+    recvAmount,
+    amountDecimal,
+    chainNorm,
+    baseSymbol,
+    receivedAsset,
+    virtualAccount,
+    walletCurrency,
+    isNative,
+  };
+}
+
+/**
+ * Sends crypto from the customer's deposit address (received-asset / virtual account),
+ * not from the master wallet. Recorded in ReceivedAssetDisbursement, not MasterWalletTransaction.
+ *
+ * `amount` may be omitted: the full receive amount from `CryptoReceive` is used (recommended for UI bulk actions).
+ */
+export async function sendReceivedAssetToVendor(input: {
+  receiveTransactionId: string;
+  adminUserId: number;
+  vendorId: number;
+  /** If omitted, uses the full on-book receive amount for this deposit. */
+  amount?: string;
+}): Promise<SendReceivedAssetToVendorResult> {
+  const { receiveTransactionId, adminUserId, vendorId, amount: amountInput } = input;
+
+  const ctx = await loadReceiveDisbursementForOutbound(receiveTransactionId, amountInput);
+  const {
+    tx,
+    recv,
+    receivedAsset,
+    recvAmount,
+    chainNorm,
+    baseSymbol,
+    virtualAccount,
+    walletCurrency,
+    isNative,
+  } = ctx;
+
+  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+  if (!vendor) {
+    throw ApiError.notFound('Vendor not found');
+  }
+
+  if (extractBaseSymbol(vendor.currency) !== baseSymbol) {
+    throw ApiError.badRequest(
+      `Vendor currency (${vendor.currency}) does not match receive asset (${tx.currency} → ${baseSymbol})`
+    );
+  }
+  if (!vendorNetworkMatchesBlockchain(vendor.network, tx.blockchain)) {
+    throw ApiError.badRequest(
+      `Vendor network (${vendor.network}) does not match transaction blockchain (${tx.blockchain})`
+    );
+  }
+
+  const toAddr = vendor.walletAddress.trim();
+  if (chainNorm === 'ethereum' || chainNorm === 'bsc' || chainNorm === 'polygon') {
+    if (!isValidEvmAddress(toAddr)) {
+      throw ApiError.badRequest('Vendor wallet must be a valid EVM address (0x + 40 hex).');
+    }
+  } else if (chainNorm === 'tron') {
+    if (!isValidTronAddress(toAddr)) {
+      throw ApiError.badRequest('Vendor wallet must be a valid Tron address (base58, starting with T).');
+    }
+  } else if (chainNorm === 'bitcoin') {
+    if (!isValidBitcoinAddress(toAddr)) {
+      throw ApiError.badRequest('Vendor wallet must be a valid Bitcoin address.');
+    }
+  }
 
   const decrypt: DecryptFn = decryptPrivateKey;
 
@@ -327,6 +372,168 @@ export async function sendReceivedAssetToVendor(input: {
       receiveTransactionId,
       decryptPrivateKey: decrypt,
       isNativeAsset: isNative,
+    });
+  }
+
+  throw ApiError.badRequest(`Unsupported chain: ${chainNorm}`);
+}
+
+/**
+ * Admin-triggered: send the full received amount from the user's deposit address to the
+ * configured MasterWallet address for this chain (same on-chain mechanics as vendor disbursement).
+ * `ReceivedAsset` status becomes `transferredToMaster`; ledger row uses `disbursementType` = `master_wallet`.
+ */
+export async function sendReceivedAssetToMasterWallet(input: {
+  receiveTransactionId: string;
+  adminUserId: number;
+  amount?: string;
+}): Promise<SendReceivedAssetToVendorResult> {
+  const { receiveTransactionId, adminUserId, amount: amountInput } = input;
+
+  const ctx = await loadReceiveDisbursementForOutbound(receiveTransactionId, amountInput);
+  const {
+    tx,
+    recv,
+    receivedAsset,
+    recvAmount,
+    chainNorm,
+    baseSymbol,
+    virtualAccount,
+    walletCurrency,
+    isNative,
+  } = ctx;
+
+  const masterWallet = await prisma.masterWallet.findUnique({
+    where: { blockchain: chainNorm },
+  });
+  const toAddr = masterWallet?.address?.trim();
+  if (!toAddr) {
+    throw ApiError.badRequest(
+      `Master wallet address is not configured for blockchain "${chainNorm}". Create/update the row in MasterWallet.`
+    );
+  }
+
+  if (chainNorm === 'ethereum' || chainNorm === 'bsc' || chainNorm === 'polygon') {
+    if (!isValidEvmAddress(toAddr)) {
+      throw ApiError.badRequest('Master wallet address must be a valid EVM address (0x + 40 hex).');
+    }
+  } else if (chainNorm === 'tron') {
+    if (!isValidTronAddress(toAddr)) {
+      throw ApiError.badRequest('Master wallet address must be a valid Tron address.');
+    }
+  } else if (chainNorm === 'bitcoin') {
+    if (!isValidBitcoinAddress(toAddr)) {
+      throw ApiError.badRequest('Master wallet address must be a valid Bitcoin address.');
+    }
+  }
+
+  const masterAsRecipient = { id: null as number | null, walletAddress: toAddr };
+  const decrypt: DecryptFn = decryptPrivateKey;
+
+  if (chainNorm === 'bitcoin') {
+    if (!isNative || baseSymbol !== 'BTC') {
+      throw ApiError.badRequest('Only native BTC disbursement is supported on Bitcoin.');
+    }
+    return executeBtcVendorDisbursement({
+      tx,
+      recv,
+      receivedAsset,
+      vendor: masterAsRecipient,
+      virtualAccount,
+      recvAmount,
+      baseSymbol,
+      adminUserId,
+      receiveTransactionId,
+      decryptPrivateKey: decrypt,
+      disbursementType: 'master_wallet',
+      receivedAssetNextStatus: 'transferredToMaster',
+    });
+  }
+
+  if (chainNorm === 'ethereum') {
+    return executeEvmVendorDisbursement({
+      evmPath: 'ethereum',
+      gasChain: 'ETH',
+      nativeCurrencySymbol: 'ETH',
+      tx,
+      recv,
+      receivedAsset,
+      vendor: masterAsRecipient,
+      virtualAccount,
+      recvAmount,
+      baseSymbol,
+      walletCurrency,
+      adminUserId,
+      receiveTransactionId,
+      decryptPrivateKey: decrypt,
+      isNativeAsset: isNative,
+      disbursementType: 'master_wallet',
+      disbursementNotes: 'Outbound to MasterWallet',
+      receivedAssetStatusOnSuccess: 'transferredToMaster',
+    });
+  }
+
+  if (chainNorm === 'bsc') {
+    return executeEvmVendorDisbursement({
+      evmPath: 'bsc',
+      gasChain: 'BSC',
+      nativeCurrencySymbol: 'BNB',
+      tx,
+      recv,
+      receivedAsset,
+      vendor: masterAsRecipient,
+      virtualAccount,
+      recvAmount,
+      baseSymbol,
+      walletCurrency,
+      adminUserId,
+      receiveTransactionId,
+      decryptPrivateKey: decrypt,
+      isNativeAsset: isNative,
+      disbursementType: 'master_wallet',
+      disbursementNotes: 'Outbound to MasterWallet',
+      receivedAssetStatusOnSuccess: 'transferredToMaster',
+    });
+  }
+
+  if (chainNorm === 'polygon') {
+    return executeEvmVendorDisbursement({
+      evmPath: 'polygon',
+      gasChain: 'MATIC',
+      nativeCurrencySymbol: 'MATIC',
+      tx,
+      recv,
+      receivedAsset,
+      vendor: masterAsRecipient,
+      virtualAccount,
+      recvAmount,
+      baseSymbol,
+      walletCurrency,
+      adminUserId,
+      receiveTransactionId,
+      decryptPrivateKey: decrypt,
+      isNativeAsset: isNative,
+      disbursementType: 'master_wallet',
+      disbursementNotes: 'Outbound to MasterWallet',
+      receivedAssetStatusOnSuccess: 'transferredToMaster',
+    });
+  }
+
+  if (chainNorm === 'tron') {
+    return executeTronVendorDisbursement({
+      tx,
+      recv,
+      receivedAsset,
+      vendor: masterAsRecipient,
+      virtualAccount,
+      recvAmount,
+      baseSymbol,
+      adminUserId,
+      receiveTransactionId,
+      decryptPrivateKey: decrypt,
+      isNativeAsset: isNative,
+      disbursementType: 'master_wallet',
+      receivedAssetNextStatus: 'transferredToMaster',
     });
   }
 

@@ -13,20 +13,22 @@ export async function executeBtcVendorDisbursement(params: {
   tx: any;
   recv: any;
   receivedAsset: { id: number } | null;
-  vendor: { id: number; walletAddress: string };
+  vendor: { id: number | null; walletAddress: string };
   virtualAccount: any;
   recvAmount: Decimal;
   baseSymbol: string;
   adminUserId: number;
   receiveTransactionId: string;
   decryptPrivateKey: DecryptFn;
+  disbursementType?: string;
+  receivedAssetNextStatus?: string;
 }): Promise<{
   disbursementId: number;
   txHash: string;
   amount: string;
   amountUsd: string;
   toAddress: string;
-  vendorId: number;
+  vendorId: number | null;
   networkFee: string;
 }> {
   const {
@@ -40,6 +42,8 @@ export async function executeBtcVendorDisbursement(params: {
     adminUserId,
     receiveTransactionId,
     decryptPrivateKey,
+    disbursementType = 'vendor',
+    receivedAssetNextStatus = 'sentToVendor',
   } = params;
 
   const toAddress = vendor.walletAddress.trim();
@@ -82,8 +86,8 @@ export async function executeBtcVendorDisbursement(params: {
       cryptoTransactionId: tx.id,
       receivedAssetId: receivedAsset?.id ?? null,
       sourceDepositTxHash: recv.txHash,
-      disbursementType: 'vendor',
-      vendorId: vendor.id,
+      disbursementType,
+      vendorId: vendor.id ?? null,
       toAddress,
       amount: netToVendor,
       currency: baseSymbol,
@@ -135,7 +139,7 @@ export async function executeBtcVendorDisbursement(params: {
       if (receivedAsset) {
         await db.receivedAsset.update({
           where: { id: receivedAsset.id },
-          data: { status: 'sentToVendor' },
+          data: { status: receivedAssetNextStatus },
         });
       }
     });
@@ -148,7 +152,7 @@ export async function executeBtcVendorDisbursement(params: {
     receiveTransactionId,
     disbursementId: pending.id,
     adminUserId,
-    vendorId: vendor.id,
+    vendorId: vendor.id ?? null,
     txHash,
     amount: netToVendor.toString(),
     chain: 'bitcoin',
@@ -160,7 +164,7 @@ export async function executeBtcVendorDisbursement(params: {
     amount: netToVendor.toString(),
     amountUsd: amountUsd.toString(),
     toAddress,
-    vendorId: vendor.id,
+    vendorId: vendor.id ?? null,
     networkFee: totalFee.toString(),
   };
 }

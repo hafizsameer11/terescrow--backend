@@ -6,6 +6,7 @@ import {
   getTrackingStepsController,
   getTrackingDetailsController,
   sendReceivedAssetToVendorController,
+  sendReceivedAssetToMasterWalletController,
   bulkSendReceivedAssetsToVendorController,
 } from '../../controllers/admin/transaction.tracking.controller';
 
@@ -17,5 +18,6 @@ router.post('/bulk-send-to-vendor', ...adminOnly, bulkSendReceivedAssetsToVendor
 router.get('/:txId/steps', ...adminOnly, getTrackingStepsController);
 router.get('/:txId/details', ...adminOnly, getTrackingDetailsController);
 router.post('/:txId/send-to-vendor', ...adminOnly, sendReceivedAssetToVendorController);
+router.post('/:txId/send-to-master-wallet', ...adminOnly, sendReceivedAssetToMasterWalletController);
 
 export default router;

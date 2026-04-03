@@ -93,6 +93,37 @@ export async function sendReceivedAssetToVendorController(
   }
 }
 
+export async function sendReceivedAssetToMasterWalletController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const txId = req.params.txId;
+    if (!txId) return next(ApiError.badRequest('txId required'));
+    const adminUser = (req as any).user;
+    if (!adminUser?.id) return next(ApiError.unauthorized('Admin required'));
+
+    const amountRaw = req.body?.amount;
+    const amount =
+      amountRaw != null && String(amountRaw).trim() !== '' ? String(amountRaw).trim() : undefined;
+
+    const result = await receivedAssetDisbursementService.sendReceivedAssetToMasterWallet({
+      receiveTransactionId: txId,
+      adminUserId: adminUser.id,
+      amount,
+    });
+    return new ApiResponse(
+      200,
+      result,
+      'Sent from customer deposit to configured master wallet address; recorded as received-asset disbursement'
+    ).send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to send deposit to master wallet'));
+  }
+}
+
 export async function bulkSendReceivedAssetsToVendorController(
   req: Request,
   res: Response,

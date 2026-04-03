@@ -319,7 +319,9 @@ export async function getTrackingSteps(txId: string): Promise<TrackingStep[]> {
       title:
         d.disbursementType === 'vendor'
           ? 'Vendor disbursement (from customer deposit, not master wallet)'
-          : `Received-asset disbursement (${d.disbursementType})`,
+          : d.disbursementType === 'master_wallet'
+            ? 'Master wallet disbursement (from customer deposit to configured MasterWallet address)'
+            : `Received-asset disbursement (${d.disbursementType})`,
       status: done ? 'completed' : failed ? 'failed' : 'pending',
       date: d.updatedAt.toISOString(),
       details: {

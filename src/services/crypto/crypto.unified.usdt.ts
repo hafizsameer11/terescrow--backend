@@ -81,6 +81,10 @@ export function primaryUsdtVirtualAccountId(
 /** Resolve DB currency for send: UI sends USDT + network; ledger uses USDT / USDT_TRON / USDT_BSC. */
 export function resolveSendStorageCurrency(normalizedCurrency: string, blockchain: string): string {
   const cur = normalizedCurrency.toUpperCase();
+  const b = blockchain.toLowerCase();
+  if (cur === 'USDT_TRON' || cur === 'USDT_BSC') return cur;
   if (cur === 'USDT') return usdtStorageCurrencyForBlockchain(blockchain);
+  if (b === 'tron' && cur === 'TRX') return 'TRON';
+  if (b === 'bsc' && (cur === 'BNB' || cur === 'BSC')) return 'BSC';
   return cur;
 }

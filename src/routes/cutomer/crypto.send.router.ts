@@ -29,22 +29,11 @@ const cryptoSendRouter = express.Router();
  *       Previews a cryptocurrency send transaction to an external address.
  *       Shows current balances, estimated gas fees, and transaction details.
  *       
- *       **Features:**
- *       - Validates user has sufficient crypto balance
- *       - Checks native ETH balance (for USDT transfers - required for gas)
- *       - Calculates gas fees (in ETH, USD, and NGN)
- *       - Shows balance before and after transaction
- *       - Validates recipient address format
- *       
- *       **For USDT transfers:**
- *       - Requires native ETH for gas fees
- *       - If insufficient ETH, returns error asking user to buy ETH first
- *       - Checks if user has enough ETH to cover gas fees
- *       
- *       **Supported:**
- *       - Ethereum blockchain only
- *       - ETH (native) and USDT (ERC-20) tokens
- *       
+ *       **Behaviour:**
+ *       - On-chain send is from **MasterWallet** (Tatum on server); user book vs hot-wallet liquidity checked.
+ *       - Networks include Ethereum, BSC, Polygon, Tron, Bitcoin, Dogecoin, Litecoin (see `docs/CLIENT_CRYPTO_SEND_API.md`).
+ *       - Returns `canProceed`, `hotWalletBalance`, `selectedNetworkMaxSend`, fee estimates.
+ *
  *       **Flow Step 1:** Preview before sending
  *     security:
  *       - bearerAuth: []
@@ -66,15 +55,15 @@ const cryptoSendRouter = express.Router();
  *                 example: 6
  *               currency:
  *                 type: string
- *                 description: Cryptocurrency to send (ETH or USDT)
+ *                 description: Ledger currency for the user's virtual account (e.g. ETH, USDT, USDT_TRON, BSC, BTC)
  *                 example: "USDT"
  *               blockchain:
  *                 type: string
- *                 description: Blockchain network (ethereum)
+ *                 description: Network (ethereum, bsc, tron, polygon, bitcoin, dogecoin, litecoin — aliases normalized)
  *                 example: "ethereum"
  *               toAddress:
  *                 type: string
- *                 description: Recipient Ethereum address (must start with 0x and be 42 characters)
+ *                 description: Recipient address (format depends on blockchain; EVM 0x+40 hex, Tron T…, etc.)
  *                 example: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
  *     responses:
  *       200:
@@ -195,26 +184,9 @@ cryptoSendRouter.post(
  *     tags: [V2 - Crypto - Send]
  *     x-order: 2
  *     description: |
- *       Sends cryptocurrency from user's wallet to an external address.
- *       Executes the actual blockchain transfer and debits the user's virtual account.
- *       
- *       **Process:**
- *       1. Validates user has sufficient crypto balance
- *       2. Checks native ETH balance (for USDT - required for gas)
- *       3. Calculates gas fees
- *       4. Executes blockchain transfer
- *       5. Debits virtual account
- *       6. Creates transaction record
- *       
- *       **For USDT transfers:**
- *       - Requires native ETH for gas fees
- *       - If insufficient ETH, transaction fails with error
- *       - User must buy ETH first before sending USDT
- *       
- *       **Supported:**
- *       - Ethereum blockchain only
- *       - ETH (native) and USDT (ERC-20) tokens
- *       
+ *       Broadcasts from **MasterWallet** (Tatum, server-side `TATUM_API_KEY`); debits the user's virtual account on success.
+ *       Same body as `/send/preview`. See `docs/CLIENT_CRYPTO_SEND_API.md` for chains, payloads, and errors.
+ *
  *       **Flow Step 2:** Execute the send after preview
  *     security:
  *       - bearerAuth: []
@@ -236,15 +208,15 @@ cryptoSendRouter.post(
  *                 example: 6
  *               currency:
  *                 type: string
- *                 description: Cryptocurrency to send (ETH or USDT)
+ *                 description: Ledger currency for the user's virtual account (e.g. ETH, USDT, USDT_TRON, BSC, BTC)
  *                 example: "USDT"
  *               blockchain:
  *                 type: string
- *                 description: Blockchain network (ethereum)
+ *                 description: Network (ethereum, bsc, tron, polygon, bitcoin, dogecoin, litecoin — aliases normalized)
  *                 example: "ethereum"
  *               toAddress:
  *                 type: string
- *                 description: Recipient Ethereum address (must start with 0x and be 42 characters)
+ *                 description: Recipient address (format depends on blockchain; EVM 0x+40 hex, Tron T…, etc.)
  *                 example: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
  *     responses:
  *       200:

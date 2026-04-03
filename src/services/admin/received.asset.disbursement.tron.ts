@@ -17,7 +17,10 @@ export async function executeTronVendorDisbursement(params: {
   tx: { id: number; userId: number; blockchain: string; currency: string };
   recv: { txHash: string };
   receivedAsset: { id: number } | null;
-  vendor: { id: number; walletAddress: string };
+  vendor: { id: number | null; walletAddress: string };
+  disbursementType?: string;
+  /** Default `sentToVendor`; use `transferredToMaster` for master-wallet destination. */
+  receivedAssetNextStatus?: string;
   virtualAccount: {
     id: number;
     depositAddresses: Array<{ address: string; privateKey: string | null }>;
@@ -39,7 +42,7 @@ export async function executeTronVendorDisbursement(params: {
   amount: string;
   amountUsd: string;
   toAddress: string;
-  vendorId: number;
+  vendorId: number | null;
   networkFee: string;
   gasFundingTxHash?: string;
 }> {
@@ -55,6 +58,8 @@ export async function executeTronVendorDisbursement(params: {
     receiveTransactionId,
     decryptPrivateKey,
     isNativeAsset,
+    disbursementType = 'vendor',
+    receivedAssetNextStatus = 'sentToVendor',
   } = params;
 
   const toAddress = vendor.walletAddress.trim();
@@ -99,8 +104,8 @@ export async function executeTronVendorDisbursement(params: {
         cryptoTransactionId: tx.id,
         receivedAssetId: receivedAsset?.id ?? null,
         sourceDepositTxHash: recv.txHash,
-        disbursementType: 'vendor',
-        vendorId: vendor.id,
+        disbursementType,
+        vendorId: vendor.id ?? null,
         toAddress,
         amount: netToVendor,
         currency: baseSymbol,
@@ -128,7 +133,15 @@ export async function executeTronVendorDisbursement(params: {
 
     const balanceAfter = trxBal.minus(recvAmount);
 
-    await finalizeTronDb(pending.id, txHash, gasReserve, virtualAccount.id, balanceAfter, receivedAsset?.id);
+    await finalizeTronDb(
+      pending.id,
+      txHash,
+      gasReserve,
+      virtualAccount.id,
+      balanceAfter,
+      receivedAsset?.id,
+      receivedAssetNextStatus
+    );
 
     return {
       disbursementId: pending.id,
@@ -136,7 +149,7 @@ export async function executeTronVendorDisbursement(params: {
       amount: netToVendor.toString(),
       amountUsd: amountUsd.toString(),
       toAddress,
-      vendorId: vendor.id,
+      vendorId: vendor.id ?? null,
       networkFee: gasReserve.toString(),
     };
   }
@@ -214,8 +227,8 @@ export async function executeTronVendorDisbursement(params: {
       cryptoTransactionId: tx.id,
       receivedAssetId: receivedAsset?.id ?? null,
       sourceDepositTxHash: recv.txHash,
-      disbursementType: 'vendor',
-      vendorId: vendor.id,
+      disbursementType,
+      vendorId: vendor.id ?? null,
       toAddress,
       amount: recvAmount,
       currency: baseSymbol,
@@ -245,12 +258,20 @@ export async function executeTronVendorDisbursement(params: {
 
   const balanceAfter = tokenBal.minus(recvAmount);
 
-  await finalizeTronDb(pending.id, txHash, feeReserve, virtualAccount.id, balanceAfter, receivedAsset?.id);
+  await finalizeTronDb(
+    pending.id,
+    txHash,
+    feeReserve,
+    virtualAccount.id,
+    balanceAfter,
+    receivedAsset?.id,
+    receivedAssetNextStatus
+  );
 
   cryptoLogger.transaction('ADMIN_RECEIVED_ASSET_VENDOR', {
     receiveTransactionId,
     disbursementId: pending.id,
-    vendorId: vendor.id,
+    vendorId: vendor.id ?? null,
     txHash,
     chain: 'tron',
   });
@@ -261,7 +282,7 @@ export async function executeTronVendorDisbursement(params: {
     amount: recvAmount.toString(),
     amountUsd: amountUsdFull.toString(),
     toAddress,
-    vendorId: vendor.id,
+    vendorId: vendor.id ?? null,
     networkFee: feeReserve.toString(),
     ...(gasFundingTxHash ? { gasFundingTxHash } : {}),
   };
@@ -273,7 +294,8 @@ async function finalizeTronDb(
   networkFee: Decimal,
   virtualAccountId: number,
   balanceAfter: Decimal,
-  receivedAssetId: number | null | undefined
+  receivedAssetId: number | null | undefined,
+  receivedAssetNextStatus: string = 'sentToVendor'
 ) {
   await prisma.$transaction(async (db) => {
     await db.receivedAssetDisbursement.update({
@@ -294,7 +316,7 @@ async function finalizeTronDb(
     if (receivedAssetId) {
       await db.receivedAsset.update({
         where: { id: receivedAssetId },
-        data: { status: 'sentToVendor' },
+        data: { status: receivedAssetNextStatus },
       });
     }
   });
