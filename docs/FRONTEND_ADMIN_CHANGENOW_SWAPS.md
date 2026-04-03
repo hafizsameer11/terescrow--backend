@@ -212,7 +212,7 @@ Use in quote panel as “est. network fee (already included in estimate)” note
 
 ### 4.7 Payout addresses (admin-managed destination wallets)
 
-#### `GET /payout-addresses`
+#### `GET /payout-addresses` 
 `data`:
 
 ```ts
