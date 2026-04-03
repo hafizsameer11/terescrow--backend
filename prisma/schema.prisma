@@ -1460,7 +1460,7 @@ model ReceiveTransaction {
 
 model CryptoRate {
   id              Int                 @id @default(autoincrement())
-  transactionType String              @map("transaction_type") @db.VarChar(50) // 'BUY', 'SELL', 'SWAP', 'SEND', 'RECEIVE'
+  transactionType String              @map("transaction_type") @db.VarChar(50) // BUY, SELL, SWAP, SEND, RECEIVE, GIFT_CARD_BUY
   minAmount       Decimal             @map("min_amount") @db.Decimal(20, 2) // Minimum USD amount for this rate tier
   maxAmount       Decimal?            @map("max_amount") @db.Decimal(20, 2) // Maximum USD amount (null for unlimited)
   rate            Decimal             @db.Decimal(20, 2) // Rate in Naira per $1

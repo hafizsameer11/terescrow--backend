@@ -7,6 +7,20 @@
 import { Request, Response } from 'express';
 import cryptoRateService, { TransactionType } from '../../services/crypto/crypto.rate.service';
 
+/** Allowed `transaction_type` values in `crypto_rates` (admin + customer utilities). */
+export const CRYPTO_RATE_TRANSACTION_TYPES = [
+  'BUY',
+  'SELL',
+  'SWAP',
+  'SEND',
+  'RECEIVE',
+  'GIFT_CARD_BUY',
+] as const;
+
+function isValidRateTransactionType(t: string): t is TransactionType {
+  return (CRYPTO_RATE_TRANSACTION_TYPES as readonly string[]).includes(t.toUpperCase());
+}
+
 /**
  * Get all rates (all transaction types)
  */
@@ -35,10 +49,10 @@ export async function getRatesByTypeController(req: Request, res: Response) {
   try {
     const { type } = req.params;
     
-    if (!['BUY', 'SELL', 'SWAP', 'SEND', 'RECEIVE'].includes(type.toUpperCase())) {
+    if (!isValidRateTransactionType(type)) {
       return res.status(400).json({
         status: 400,
-        message: 'Invalid transaction type. Must be BUY, SELL, SWAP, SEND, or RECEIVE',
+        message: `Invalid transaction type. Must be one of: ${CRYPTO_RATE_TRANSACTION_TYPES.join(', ')}`,
       });
     }
 
@@ -73,10 +87,10 @@ export async function createRateController(req: Request, res: Response) {
       });
     }
 
-    if (!['BUY', 'SELL', 'SWAP', 'SEND', 'RECEIVE'].includes(transactionType.toUpperCase())) {
+    if (!isValidRateTransactionType(transactionType)) {
       return res.status(400).json({
         status: 400,
-        message: 'Invalid transaction type',
+        message: `Invalid transaction type. Must be one of: ${CRYPTO_RATE_TRANSACTION_TYPES.join(', ')}`,
       });
     }
 

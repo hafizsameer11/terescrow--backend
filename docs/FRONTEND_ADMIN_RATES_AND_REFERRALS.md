@@ -21,7 +21,8 @@ It covers:
 - Rates are stored as **tiered rows** keyed by **`transactionType`** and a **USD notional range**.
 - **`rate`** = **Naira per 1 USD** (not “per coin” — the app resolves USD amount first, then applies the tier).
 - **`minAmount` / `maxAmount`**: bounds for the tier in **USD** (see `CryptoRate` model). `maxAmount` may be `null` for “no upper limit” on that tier.
-- **`transactionType`** must be one of: `BUY`, `SELL`, `SWAP`, `SEND`, `RECEIVE`.
+- **`transactionType`** must be one of: `BUY`, `SELL`, `SWAP`, `SEND`, `RECEIVE`, **`GIFT_CARD_BUY`**.
+- **`GIFT_CARD_BUY`**: same tier rules — **USD notional** = `unitPrice × quantity` for **USD-priced** Reloadly gift cards; customer is charged **`usdNotional × rate`** NGN from their fiat wallet before Reloadly is called. If Reloadly fails, NGN is refunded automatically.
 - **Delete** in admin is a **soft deactivate** (`isActive: false`).
 
 Backend selection logic for a quote amount uses the **highest matching `minAmount`** tier (`getRateForAmount` in `crypto.rate.service.ts`).
@@ -138,12 +139,13 @@ All paths are prefixed with **`/api/admin/crypto`**.
   SWAP: CryptoRateTier[];
   SEND: CryptoRateTier[];
   RECEIVE: CryptoRateTier[];
+  GIFT_CARD_BUY: CryptoRateTier[];
 }
 ```
 
 ### 4.2 `GET /rates/:type`
 
-**Path:** `type` = `BUY` | `SELL` | `SWAP` | `SEND` | `RECEIVE` (case-insensitive in practice; use uppercase).
+**Path:** `type` = `BUY` | `SELL` | `SWAP` | `SEND` | `RECEIVE` | `GIFT_CARD_BUY` (case-insensitive in practice; use uppercase).
 
 **Response `data`:** `CryptoRateTier[]`
 
@@ -166,7 +168,7 @@ All paths are prefixed with **`/api/admin/crypto`**.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `transactionType` | string | yes | `BUY` \| `SELL` \| `SWAP` \| `SEND` \| `RECEIVE` |
+| `transactionType` | string | yes | `BUY` \| `SELL` \| `SWAP` \| `SEND` \| `RECEIVE` \| `GIFT_CARD_BUY` |
 | `minAmount` | number | yes | USD lower bound |
 | `maxAmount` | number \| null | no | USD upper bound; omit or `null` for unlimited |
 | `rate` | number | yes | NGN per USD |
@@ -191,14 +193,14 @@ All paths are prefixed with **`/api/admin/crypto`**.
 
 ---
 
-## 5) Customer — read-only crypto rates (app parity)
+## 5) Customer — read-only rate tiers (app parity)
 
-For showing the same tiers end users see (e.g. buy/sell screens):
+For showing the same tiers end users see (crypto buy/sell, **gift card buy** NGN conversion, etc.):
 
 **`GET /api/customer/utilities/crypto-rates/:type`**
 
 - **Auth:** customer JWT (`authenticateUser`).
-- `:type` = `BUY` | `SELL` | `SWAP` | `SEND` | `RECEIVE`.
+- `:type` = `BUY` | `SELL` | `SWAP` | `SEND` | `RECEIVE` | **`GIFT_CARD_BUY`**.
 
 **Success (`ApiResponse`):**
 
@@ -324,7 +326,13 @@ Use these for dashboards; not required for “settings” screens only.
 ## 7) TypeScript contracts (copy-paste)
 
 ```ts
-export type TransactionType = 'BUY' | 'SELL' | 'SWAP' | 'SEND' | 'RECEIVE';
+export type TransactionType =
+  | 'BUY'
+  | 'SELL'
+  | 'SWAP'
+  | 'SEND'
+  | 'RECEIVE'
+  | 'GIFT_CARD_BUY';
 
 /** Raw API tier; Prisma Decimals may serialize as strings in JSON */
 export interface CryptoRateTier {
@@ -344,6 +352,7 @@ export interface AdminRatesGroupedResponse {
   SWAP: CryptoRateTier[];
   SEND: CryptoRateTier[];
   RECEIVE: CryptoRateTier[];
+  GIFT_CARD_BUY: CryptoRateTier[];
 }
 
 export type ReferralService =

@@ -10,6 +10,7 @@ export function extractBaseSymbol(currency: string): string {
   if (u.startsWith('BNB') || u === 'BNB') return 'BNB';
   if (u.startsWith('TRX') || u === 'TRX') return 'TRX';
   if (u.startsWith('BTC') || u === 'BTC') return 'BTC';
+  if (u.startsWith('LTC') || u === 'LTC') return 'LTC';
   return u.split(/[\s_]+/)[0] || u;
 }
 
@@ -19,6 +20,7 @@ export function normalizeBlockchain(blockchain: string): string {
   if (b === 'btc') return 'bitcoin';
   if (b === 'binance' || b === 'binancesmartchain') return 'bsc';
   if (b === 'trx') return 'tron';
+  if (b === 'ltc') return 'litecoin';
   return b;
 }
 
@@ -36,6 +38,9 @@ export function vendorNetworkMatchesBlockchain(vendorNetwork: string, blockchain
   }
   if (b === 'bitcoin' || b === 'btc') {
     return n.includes('btc') || n.includes('bitcoin');
+  }
+  if (b === 'litecoin' || b === 'ltc') {
+    return n.includes('ltc') || n.includes('litecoin');
   }
   return n.includes(b) || b.includes(n);
 }
@@ -61,6 +66,15 @@ export function isValidBitcoinAddress(addr: string): boolean {
   return false;
 }
 
+/** Legacy P2PKH/P2SH or bech32 (ltc1) — aligned with customer send validation. */
+export function isValidLitecoinAddress(addr: string): boolean {
+  const a = addr.trim();
+  if (a.length < 26 || a.length > 95) return false;
+  if (/^ltc1[a-z0-9]{20,100}$/i.test(a)) return true;
+  if (/^[LM3][a-km-zA-HJ-NP-Z1-9]{25,40}$/.test(a)) return true;
+  return false;
+}
+
 export function isNativeAssetForChain(
   baseSymbol: string,
   chainNorm: string,
@@ -72,5 +86,6 @@ export function isNativeAssetForChain(
   if (chainNorm === 'bsc' && baseSymbol === 'BNB') return true;
   if (chainNorm === 'tron' && baseSymbol === 'TRX') return true;
   if (chainNorm === 'bitcoin' && baseSymbol === 'BTC') return true;
+  if (chainNorm === 'litecoin' && baseSymbol === 'LTC') return true;
   return false;
 }

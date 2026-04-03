@@ -1,14 +1,19 @@
 /**
  * Crypto Rate Service
- * 
- * Handles crypto trade rates management (buy, sell, swap, send, receive)
- * with USD amount-based tiers and history logging
+ *
+ * Tiered NGN-per-USD rates by `transactionType` (crypto flows + gift card buy).
  */
 
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 
-export type TransactionType = 'BUY' | 'SELL' | 'SWAP' | 'SEND' | 'RECEIVE';
+export type TransactionType =
+  | 'BUY'
+  | 'SELL'
+  | 'SWAP'
+  | 'SEND'
+  | 'RECEIVE'
+  | 'GIFT_CARD_BUY';
 
 export interface CreateCryptoRateInput {
   transactionType: TransactionType;
@@ -41,7 +46,7 @@ class CryptoRateService {
    * Get all rates (all transaction types)
    */
   async getAllRates() {
-    const types: TransactionType[] = ['BUY', 'SELL', 'SWAP', 'SEND', 'RECEIVE'];
+    const types: TransactionType[] = ['BUY', 'SELL', 'SWAP', 'SEND', 'RECEIVE', 'GIFT_CARD_BUY'];
     const rates: { [key: string]: any[] } = {};
 
     for (const type of types) {

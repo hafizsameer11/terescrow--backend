@@ -94,7 +94,7 @@ customerUtilityrouter.post('/sve-fcm-token', authenticateUser, saveFcmTokenContr
  *         required: true
  *         schema:
  *           type: string
- *           enum: [BUY, SELL, SWAP, SEND, RECEIVE]
+ *           enum: [BUY, SELL, SWAP, SEND, RECEIVE, GIFT_CARD_BUY]
  *         description: Transaction type
  *     responses:
  *       200:

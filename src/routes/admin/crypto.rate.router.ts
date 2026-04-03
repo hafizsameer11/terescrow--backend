@@ -23,7 +23,7 @@ const cryptoRateRouter = express.Router();
  *   get:
  *     summary: Get all crypto rates
  *     tags: [Admin - Crypto Rates]
- *     description: Get all rates for all transaction types (BUY, SELL, SWAP, SEND, RECEIVE)
+ *     description: Get all rates for all transaction types (BUY, SELL, SWAP, SEND, RECEIVE, GIFT_CARD_BUY)
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -50,7 +50,7 @@ cryptoRateRouter.get('/rates', authenticateUser, getAllRatesController);
  *         name: transactionType
  *         schema:
  *           type: string
- *           enum: [BUY, SELL, SWAP, SEND, RECEIVE]
+ *           enum: [BUY, SELL, SWAP, SEND, RECEIVE, GIFT_CARD_BUY]
  *     responses:
  *       200:
  *         description: Rate history retrieved successfully
@@ -72,7 +72,7 @@ cryptoRateRouter.get('/rates/history', authenticateUser, getRateHistoryControlle
  *         required: true
  *         schema:
  *           type: string
- *           enum: [BUY, SELL, SWAP, SEND, RECEIVE]
+ *           enum: [BUY, SELL, SWAP, SEND, RECEIVE, GIFT_CARD_BUY]
  *     responses:
  *       200:
  *         description: Rates retrieved successfully
@@ -101,7 +101,7 @@ cryptoRateRouter.get('/rates/:type', authenticateUser, getRatesByTypeController)
  *             properties:
  *               transactionType:
  *                 type: string
- *                 enum: [BUY, SELL, SWAP, SEND, RECEIVE]
+ *                 enum: [BUY, SELL, SWAP, SEND, RECEIVE, GIFT_CARD_BUY]
  *               minAmount:
  *                 type: number
  *                 description: Minimum USD amount for this tier

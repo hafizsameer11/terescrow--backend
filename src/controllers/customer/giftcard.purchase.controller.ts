@@ -15,8 +15,13 @@ import ApiResponse from '../../utils/ApiResponse';
 import { reloadlyOrdersService } from '../../services/reloadly/reloadly.orders.service';
 import { creditReferralCommission, ReferralService } from '../../services/referral/referral.commission.service';
 import { reloadlyProductsService } from '../../services/reloadly/reloadly.products.service';
+import { Decimal } from '@prisma/client/runtime/library';
 import { ReloadlyOrderRequest, ReloadlyOrderResponse } from '../../types/reloadly.types';
 import { sendGiftCardOrderEmail } from '../../utils/authUtils';
+import {
+  debitWalletForGiftCardPurchase,
+  refundGiftCardWalletDebit,
+} from '../../services/giftcard/giftcard.purchase.wallet.service';
 
 /**
  * Process gift card purchase
@@ -132,6 +137,9 @@ export const purchaseController = async (
       }
     }
     
+    const unitPriceNum = typeof unitPrice === 'number' ? unitPrice : parseFloat(String(unitPrice));
+    const quantityNum = typeof quantity === 'number' ? quantity : parseInt(String(quantity), 10);
+
     const dbProduct = await prisma.giftCardProduct.upsert({
       where: { reloadlyProductId: product.productId },
       update: {
@@ -209,14 +217,30 @@ export const purchaseController = async (
     // Log the complete request object before sending to Reloadly
     console.log('[GIFT CARD PURCHASE] Complete Reloadly Order Request:', JSON.stringify(reloadlyOrderRequest, null, 2));
 
-    // Create order in Reloadly
+    // Debit NGN wallet using admin-configured GIFT_CARD_BUY tiers (NGN per USD of face value)
+    const walletDebit = await debitWalletForGiftCardPurchase({
+      userId,
+      unitPrice: unitPriceNum,
+      quantity: quantityNum,
+      productCurrencyCode: product.currencyCode || 'USD',
+      productName: product.productName,
+    });
+
     let reloadlyOrder: ReloadlyOrderResponse;
     try {
       reloadlyOrder = await reloadlyOrdersService.createOrder(reloadlyOrderRequest);
     } catch (error: any) {
-      throw ApiError.internal(
-        `Failed to create order with Reloadly: ${error.message || 'Unknown error'}`
+      const msg = error?.message || 'Unknown error';
+      await refundGiftCardWalletDebit({
+        userId,
+        walletId: walletDebit.walletId,
+        amountNgn: walletDebit.amountNgn,
+        originalFiatTxId: walletDebit.fiatTransactionId,
+        errorMessage: msg,
+      }).catch((refundErr) =>
+        console.error('[GIFT CARD PURCHASE] Refund after Reloadly failure failed:', refundErr)
       );
+      return next(ApiError.internal(`Failed to create order with Reloadly: ${msg}`));
     }
 
     // Store order in database for tracking
@@ -229,8 +253,10 @@ export const purchaseController = async (
         faceValue: reloadlyOrder.product.unitPrice,
         totalAmount: reloadlyOrder.amount,
         fees: reloadlyOrder.fee,
-        paymentMethod: 'wallet', // TODO: Get from request if payment method is passed
-        paymentStatus: 'completed', // TODO: Update based on actual payment processing
+        exchangeRate: new Decimal(walletDebit.ngnPerUsd),
+        paymentMethod: 'wallet',
+        paymentStatus: 'completed',
+        paymentTransactionId: walletDebit.fiatTransactionId,
         status: reloadlyOrder.status === 'SUCCESSFUL' ? 'completed' : 'pending',
         recipientEmail: reloadlyOrder.recipientEmail,
         senderName: reloadlyOrderRequest.senderName,
@@ -239,7 +265,15 @@ export const purchaseController = async (
         reloadlyOrderId: String(reloadlyOrder.transactionId),
         reloadlyTransactionId: String(reloadlyOrder.transactionId),
         reloadlyStatus: reloadlyOrder.status,
-        metadata: JSON.stringify(reloadlyOrder),
+        metadata: JSON.stringify({
+          reloadly: reloadlyOrder,
+          billing: {
+            fiatTransactionId: walletDebit.fiatTransactionId,
+            chargedNgn: walletDebit.amountNgn,
+            usdNotional: walletDebit.usdNotional,
+            ngnPerUsd: walletDebit.ngnPerUsd,
+          },
+        }),
         completedAt: reloadlyOrder.status === 'SUCCESSFUL' ? new Date() : null,
       },
     });
@@ -335,6 +369,10 @@ export const purchaseController = async (
       preOrdered: reloadlyOrder.preOrdered,
       balanceInfo: reloadlyOrder.balanceInfo,
       orderId: order.id, // Our internal order ID
+      chargedNgn: walletDebit.amountNgn,
+      usdNotionalBilled: walletDebit.usdNotional,
+      ngnPerUsdApplied: walletDebit.ngnPerUsd,
+      fiatTransactionId: walletDebit.fiatTransactionId,
     }, 'Gift card order created successfully').send(res);
   } catch (error) {
     if (error instanceof ApiError) {

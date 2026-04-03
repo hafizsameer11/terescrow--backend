@@ -188,7 +188,7 @@ export const getTransactionBydepartment = async (req: Request, res: Response, ne
  * "best" (most attractive) rate — the tier reserved for the highest trade amounts.
  *
  * GET /api/customer/utilities/crypto-rates/:type
- * :type = BUY | SELL | SWAP | SEND | RECEIVE
+ * :type = BUY | SELL | SWAP | SEND | RECEIVE | GIFT_CARD_BUY
  */
 export const getCryptoRatesByType = async (
   req: Request,
@@ -199,11 +199,18 @@ export const getCryptoRatesByType = async (
     const { type } = req.params;
     const upperType = type?.toUpperCase();
 
-    const validTypes: TransactionType[] = ['BUY', 'SELL', 'SWAP', 'SEND', 'RECEIVE'];
+    const validTypes: TransactionType[] = [
+      'BUY',
+      'SELL',
+      'SWAP',
+      'SEND',
+      'RECEIVE',
+      'GIFT_CARD_BUY',
+    ];
     if (!validTypes.includes(upperType as TransactionType)) {
       return next(
         ApiError.badRequest(
-          'Invalid transaction type. Must be one of: BUY, SELL, SWAP, SEND, RECEIVE'
+          'Invalid transaction type. Must be one of: BUY, SELL, SWAP, SEND, RECEIVE, GIFT_CARD_BUY'
         )
       );
     }
