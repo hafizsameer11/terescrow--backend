@@ -118,8 +118,6 @@ export async function executeSolVendorDisbursement(params: {
     throw ApiError.internal(e?.message || 'Solana transfer failed');
   }
 
-  const balanceAfter = Decimal.max(onChain.minus(recvAmount), new Decimal(0));
-
   try {
     await prisma.$transaction(async (db) => {
       await db.receivedAssetDisbursement.update({
@@ -128,13 +126,6 @@ export async function executeSolVendorDisbursement(params: {
           status: 'successful',
           txHash,
           networkFee: totalFee,
-        },
-      });
-      await db.virtualAccount.update({
-        where: { id: virtualAccount.id },
-        data: {
-          availableBalance: balanceAfter.toString(),
-          accountBalance: balanceAfter.toString(),
         },
       });
       if (receivedAsset) {

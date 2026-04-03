@@ -121,8 +121,6 @@ export async function executeDogeVendorDisbursement(params: {
     throw ApiError.internal(e?.message || 'Dogecoin transfer failed');
   }
 
-  const balanceAfter = onChain.minus(recvAmount);
-
   try {
     await prisma.$transaction(async (db) => {
       await db.receivedAssetDisbursement.update({
@@ -131,13 +129,6 @@ export async function executeDogeVendorDisbursement(params: {
           status: 'successful',
           txHash,
           networkFee: totalFee,
-        },
-      });
-      await db.virtualAccount.update({
-        where: { id: virtualAccount.id },
-        data: {
-          availableBalance: balanceAfter.toString(),
-          accountBalance: balanceAfter.toString(),
         },
       });
       if (receivedAsset) {

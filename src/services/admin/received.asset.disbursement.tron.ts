@@ -131,14 +131,10 @@ export async function executeTronVendorDisbursement(params: {
       throw ApiError.internal(e?.message || 'Tron transfer failed');
     }
 
-    const balanceAfter = trxBal.minus(recvAmount);
-
     await finalizeTronDb(
       pending.id,
       txHash,
       gasReserve,
-      virtualAccount.id,
-      balanceAfter,
       receivedAsset?.id,
       receivedAssetNextStatus
     );
@@ -256,14 +252,10 @@ export async function executeTronVendorDisbursement(params: {
     throw ApiError.internal(e?.message || 'Tron TRC20 transfer failed');
   }
 
-  const balanceAfter = tokenBal.minus(recvAmount);
-
   await finalizeTronDb(
     pending.id,
     txHash,
     feeReserve,
-    virtualAccount.id,
-    balanceAfter,
     receivedAsset?.id,
     receivedAssetNextStatus
   );
@@ -292,8 +284,6 @@ async function finalizeTronDb(
   pendingId: number,
   txHash: string,
   networkFee: Decimal,
-  virtualAccountId: number,
-  balanceAfter: Decimal,
   receivedAssetId: number | null | undefined,
   receivedAssetNextStatus: string = 'sentToVendor'
 ) {
@@ -304,13 +294,6 @@ async function finalizeTronDb(
         status: 'successful',
         txHash,
         networkFee: networkFee.gt(0) ? networkFee : null,
-      },
-    });
-    await db.virtualAccount.update({
-      where: { id: virtualAccountId },
-      data: {
-        availableBalance: balanceAfter.toString(),
-        accountBalance: balanceAfter.toString(),
       },
     });
     if (receivedAssetId) {

@@ -86,8 +86,6 @@ export async function executeEvmVendorDisbursement(params: {
   let amountSentToVendor: Decimal;
   let gasFeeForLedger: Decimal;
   let onChainBalanceBefore: Decimal;
-  let tokenBalanceAfter: Decimal | null = null;
-
   if (isNativeAsset) {
     const nativeBalStr = await getEvmNativeBalance(evmPath, depositAddress, false);
     onChainBalanceBefore = new Decimal(nativeBalStr);
@@ -163,14 +161,10 @@ export async function executeEvmVendorDisbursement(params: {
       throw ApiError.internal(e?.message || 'Blockchain transfer failed');
     }
 
-    const balanceAfter = onChainBalanceBefore.minus(recvAmount);
-
     await finalizeDisbursementDb({
       pendingId: pending.id,
       txHash,
       networkFee: gasFeeForLedger,
-      virtualAccountId: virtualAccount.id,
-      balanceAfter,
       receivedAssetId: receivedAsset?.id ?? null,
       receivedAssetNextStatus:
         receivedAssetStatusOnSuccess === undefined ? 'sentToVendor' : receivedAssetStatusOnSuccess,
@@ -377,14 +371,11 @@ export async function executeEvmVendorDisbursement(params: {
   }
 
   amountSentToVendor = recvAmount;
-  tokenBalanceAfter = onChainBalanceBefore.minus(recvAmount);
 
   await finalizeDisbursementDb({
     pendingId: pending.id,
     txHash,
     networkFee: gasFeeForLedger,
-    virtualAccountId: virtualAccount.id,
-    balanceAfter: tokenBalanceAfter,
     receivedAssetId: receivedAsset?.id ?? null,
     receivedAssetNextStatus:
       receivedAssetStatusOnSuccess === undefined ? 'sentToVendor' : receivedAssetStatusOnSuccess,
@@ -419,21 +410,11 @@ async function finalizeDisbursementDb(params: {
   pendingId: number;
   txHash: string;
   networkFee: Decimal;
-  virtualAccountId: number;
-  balanceAfter: Decimal;
   receivedAssetId: number | null;
   /** `null` = do not update ReceivedAsset row */
   receivedAssetNextStatus?: string | null;
 }) {
-  const {
-    pendingId,
-    txHash,
-    networkFee,
-    virtualAccountId,
-    balanceAfter,
-    receivedAssetId,
-    receivedAssetNextStatus,
-  } = params;
+  const { pendingId, txHash, networkFee, receivedAssetId, receivedAssetNextStatus } = params;
   const nextRaStatus =
     receivedAssetNextStatus === undefined ? 'sentToVendor' : receivedAssetNextStatus;
   try {
@@ -444,14 +425,6 @@ async function finalizeDisbursementDb(params: {
           status: 'successful',
           txHash,
           networkFee,
-        },
-      });
-
-      await db.virtualAccount.update({
-        where: { id: virtualAccountId },
-        data: {
-          availableBalance: balanceAfter.toString(),
-          accountBalance: balanceAfter.toString(),
         },
       });
 
