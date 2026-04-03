@@ -17,6 +17,7 @@ import cryptoLogger from '../../utils/crypto.logger';
 import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
 import { creditReferralCommission, ReferralService } from '../referral/referral.commission.service';
+import { getDefaultUsdtBlockchain, isUsdtFamilyCurrency } from './crypto.unified.usdt';
 
 export interface BuyCryptoInput {
   userId: number;
@@ -1114,19 +1115,47 @@ class CryptoBuyService {
       );
     });
 
-    return filteredCurrencies.map((c) => ({
-      id: c.id,
-      currency: c.currency,
-      blockchain: c.blockchain,
-      name: c.name,
-      symbol: c.symbol,
-      price: c.price?.toString() || '0',
-      nairaPrice: c.nairaPrice?.toString() || '0',
-      isToken: c.isToken,
-      tokenType: c.tokenType,
-      blockchainName: c.blockchainName,
-      displayName: `${c.currency}${c.isToken ? ` (${c.blockchainName || c.blockchain})` : ''}`,
-    }));
+    const defUsdtChain = getDefaultUsdtBlockchain();
+    const usdtWalletRows = filteredCurrencies.filter((c) => isUsdtFamilyCurrency(c.currency));
+    const nonUsdtRows = filteredCurrencies.filter((c) => !isUsdtFamilyCurrency(c.currency));
+
+    const primaryUsdtRow =
+      usdtWalletRows.find((c) => (c.blockchain || '').toLowerCase() === defUsdtChain) ||
+      usdtWalletRows[0];
+
+    const out = [
+      ...nonUsdtRows.map((c) => ({
+        id: c.id,
+        currency: c.currency,
+        blockchain: c.blockchain,
+        name: c.name,
+        symbol: c.symbol,
+        price: c.price?.toString() || '0',
+        nairaPrice: c.nairaPrice?.toString() || '0',
+        isToken: c.isToken,
+        tokenType: c.tokenType,
+        blockchainName: c.blockchainName,
+        displayName: `${c.currency}${c.isToken ? ` (${c.blockchainName || c.blockchain})` : ''}`,
+      })),
+    ];
+
+    if (primaryUsdtRow) {
+      out.push({
+        id: primaryUsdtRow.id,
+        currency: 'USDT',
+        blockchain: defUsdtChain,
+        name: 'USDT',
+        symbol: primaryUsdtRow.symbol,
+        price: primaryUsdtRow.price?.toString() || '0',
+        nairaPrice: primaryUsdtRow.nairaPrice?.toString() || '0',
+        isToken: true,
+        tokenType: primaryUsdtRow.tokenType,
+        blockchainName: primaryUsdtRow.blockchainName,
+        displayName: 'USDT',
+      });
+    }
+
+    return out;
   }
 }
 

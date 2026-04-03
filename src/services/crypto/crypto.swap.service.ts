@@ -15,6 +15,12 @@ import cryptoTransactionService from './crypto.transaction.service';
 import cryptoLogger from '../../utils/crypto.logger';
 import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
+import {
+  buildUsdtNetworkBalances,
+  isUsdtFamilyCurrency,
+  primaryUsdtVirtualAccountId,
+  sumUsdtBalances,
+} from './crypto.unified.usdt';
 
 export interface SwapCryptoInput {
   userId: number;
@@ -364,7 +370,10 @@ class CryptoSwapService {
       );
     });
 
-    return filteredAccounts.map((account) => ({
+    const usdtVas = filteredAccounts.filter((a) => isUsdtFamilyCurrency(a.currency));
+    const otherVas = filteredAccounts.filter((a) => !isUsdtFamilyCurrency(a.currency));
+
+    const rows = otherVas.map((account) => ({
       id: account.id,
       currency: account.currency,
       blockchain: account.blockchain,
@@ -379,6 +388,30 @@ class CryptoSwapService {
       virtualAccountId: account.id,
       displayName: `${account.currency} (${account.blockchain})`,
     }));
+
+    const usdtTotal = sumUsdtBalances(usdtVas);
+    if (usdtVas.length > 0 && usdtTotal.gt(0)) {
+      const ref = usdtVas[0];
+      rows.push({
+        id: primaryUsdtVirtualAccountId(usdtVas) ?? ref.id,
+        currency: 'USDT',
+        blockchain: 'multi',
+        name: 'USDT',
+        symbol: ref.walletCurrency?.symbol || null,
+        price: ref.walletCurrency?.price?.toString() || '0',
+        nairaPrice: ref.walletCurrency?.nairaPrice?.toString() || '0',
+        isToken: true,
+        tokenType: ref.walletCurrency?.tokenType,
+        blockchainName: 'Multi-Chain',
+        availableBalance: usdtTotal.toString(),
+        virtualAccountId: primaryUsdtVirtualAccountId(usdtVas) ?? ref.id,
+        displayName: 'USDT',
+        isUnifiedUsdt: true,
+        networkBalances: buildUsdtNetworkBalances(usdtVas),
+      });
+    }
+
+    return rows;
   }
 
   /**

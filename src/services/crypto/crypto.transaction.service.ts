@@ -6,6 +6,7 @@
 
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
+import { isUsdtFamilyCurrency } from './crypto.unified.usdt';
 
 export type CryptoTxType = 'BUY' | 'SELL' | 'SEND' | 'RECEIVE' | 'SWAP';
 export type CryptoTxStatus = 'pending' | 'processing' | 'successful' | 'failed' | 'cancelled';
@@ -426,11 +427,27 @@ class CryptoTransactionService {
     limit: number = 50,
     offset: number = 0
   ) {
+    const va = await prisma.virtualAccount.findFirst({
+      where: { id: virtualAccountId, userId },
+    });
+
+    let virtualAccountIds = [virtualAccountId];
+    if (va && isUsdtFamilyCurrency(va.currency)) {
+      const family = await prisma.virtualAccount.findMany({
+        where: {
+          userId,
+          OR: [{ currency: 'USDT' }, { currency: { startsWith: 'USDT_' } }],
+        },
+        select: { id: true },
+      });
+      virtualAccountIds = family.map((f) => f.id);
+    }
+
     const [transactions, total] = await Promise.all([
       prisma.cryptoTransaction.findMany({
         where: {
           userId,
-          virtualAccountId,
+          virtualAccountId: { in: virtualAccountIds },
         },
         include: {
           cryptoBuy: true,
@@ -451,7 +468,7 @@ class CryptoTransactionService {
       prisma.cryptoTransaction.count({
         where: {
           userId,
-          virtualAccountId,
+          virtualAccountId: { in: virtualAccountIds },
         },
       }),
     ]);

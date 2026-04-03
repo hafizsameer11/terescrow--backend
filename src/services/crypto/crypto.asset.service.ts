@@ -6,6 +6,13 @@
 
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
+import {
+  buildUsdtNetworkBalances,
+  fetchUsdtFamilyVirtualAccounts,
+  isUsdtFamilyCurrency,
+  primaryUsdtVirtualAccountId,
+  sumUsdtBalances,
+} from './crypto.unified.usdt';
 
 class CryptoAssetService {
   /**
@@ -65,29 +72,24 @@ class CryptoAssetService {
         this.isAllowedUsdcAccount(account)
       );
 
-      // Transform to asset format with USD and Naira conversion
-      // Use balances from virtual_account table (database)
-      const assets = filteredAccounts.map((account) => {
-        // Use balance from virtual_account table
+      const usdtAccounts = filteredAccounts.filter((a) => isUsdtFamilyCurrency(a.currency));
+      const nonUsdtAccounts = filteredAccounts.filter((a) => !isUsdtFamilyCurrency(a.currency));
+
+      const mapAccountToAsset = (account: (typeof filteredAccounts)[0]) => {
         const balance = new Decimal(account.availableBalance || '0');
-        const usdPrice = account.walletCurrency?.price 
+        const usdPrice = account.walletCurrency?.price
           ? new Decimal(account.walletCurrency.price.toString())
           : new Decimal('0');
-        const nairaPrice = account.walletCurrency?.nairaPrice 
+        const nairaPrice = account.walletCurrency?.nairaPrice
           ? new Decimal(account.walletCurrency.nairaPrice.toString())
           : new Decimal('0');
-
-        // Calculate USD value
         const usdValue = balance.mul(usdPrice);
-
-        // Calculate Naira value
         let nairaValue: Decimal;
         if (nairaPrice.gt(0)) {
           nairaValue = balance.mul(nairaPrice);
         } else {
           nairaValue = new Decimal('0');
         }
-
         return {
           id: account.id,
           currency: account.currency,
@@ -102,9 +104,40 @@ class CryptoAssetService {
           depositAddress: account.depositAddresses[0]?.address || null,
           active: account.active,
           frozen: account.frozen,
-          // Note: Transaction history will be added here later when crypto transaction models are created
         };
-      });
+      };
+
+      const assets = nonUsdtAccounts.map(mapAccountToAsset);
+
+      if (usdtAccounts.length > 0) {
+        const totalBalance = sumUsdtBalances(usdtAccounts);
+        const ref = usdtAccounts[0];
+        const usdPrice = ref.walletCurrency?.price
+          ? new Decimal(ref.walletCurrency.price.toString())
+          : new Decimal('1');
+        const nairaPrice = ref.walletCurrency?.nairaPrice
+          ? new Decimal(ref.walletCurrency.nairaPrice.toString())
+          : new Decimal('0');
+        const usdValue = totalBalance.mul(usdPrice);
+        const nairaValue = nairaPrice.gt(0) ? totalBalance.mul(nairaPrice) : new Decimal('0');
+        assets.push({
+          id: primaryUsdtVirtualAccountId(usdtAccounts) ?? ref.id,
+          currency: 'USDT',
+          blockchain: 'multi',
+          symbol: ref.walletCurrency?.symbol || null,
+          name: 'USDT',
+          balance: totalBalance.toString(),
+          balanceUsd: usdValue.toString(),
+          balanceNaira: nairaValue.toString(),
+          price: usdPrice.toString(),
+          nairaPrice: nairaPrice.toString(),
+          depositAddress: ref.depositAddresses[0]?.address || null,
+          active: usdtAccounts.every((a) => a.active),
+          frozen: usdtAccounts.some((a) => a.frozen),
+          isUnifiedUsdt: true as const,
+          networkBalances: buildUsdtNetworkBalances(usdtAccounts),
+        });
+      }
 
       // Calculate totals
       const totalUsd = assets.reduce(
@@ -162,7 +195,75 @@ class CryptoAssetService {
         throw new Error('Asset not found');
       }
 
-      // Use balance from virtual_account table (database)
+      if (isUsdtFamilyCurrency(account.currency)) {
+        const family = await fetchUsdtFamilyVirtualAccounts(userId);
+        const balance = sumUsdtBalances(family);
+        const accountBalance = family.reduce(
+          (s, a) => s.plus(new Decimal(a.accountBalance || '0')),
+          new Decimal(0)
+        );
+        const ref = family[0];
+        const usdPrice = ref?.walletCurrency?.price
+          ? new Decimal(ref.walletCurrency.price.toString())
+          : new Decimal('1');
+        const nairaPrice = ref?.walletCurrency?.nairaPrice
+          ? new Decimal(ref.walletCurrency.nairaPrice.toString())
+          : new Decimal('0');
+        const availableBalanceUsd = balance.mul(usdPrice);
+        const accountBalanceUsd = accountBalance.mul(usdPrice);
+        const availableBalanceNaira = nairaPrice.gt(0) ? balance.mul(nairaPrice) : new Decimal('0');
+        const accountBalanceNaira = nairaPrice.gt(0) ? accountBalance.mul(nairaPrice) : new Decimal('0');
+        const depositAddresses = family.flatMap((a) => a.depositAddresses);
+        const primaryId = primaryUsdtVirtualAccountId(family) ?? account.id;
+
+        let transactions: any[] = [];
+        try {
+          const transactionHistory = await this.getAssetTransactionHistory(userId, primaryId, 50, 0);
+          transactions = transactionHistory.transactions || [];
+        } catch (error: any) {
+          console.error(`Error fetching transaction history:`, error.message);
+        }
+
+        return {
+          id: primaryId,
+          currency: 'USDT',
+          blockchain: 'multi',
+          symbol: ref?.walletCurrency?.symbol || null,
+          name: 'USDT',
+          accountCode: ref?.accountCode ?? account.accountCode,
+          customerId: ref?.customerId ?? account.customerId,
+          accountId: ref?.accountId ?? account.accountId,
+          availableBalance: balance.toString(),
+          accountBalance: accountBalance.toString(),
+          availableBalanceUsd: availableBalanceUsd.toString(),
+          accountBalanceUsd: accountBalanceUsd.toString(),
+          availableBalanceNaira: availableBalanceNaira.toString(),
+          accountBalanceNaira: accountBalanceNaira.toString(),
+          price: usdPrice.toString(),
+          nairaPrice: nairaPrice.toString(),
+          active: family.every((a) => a.active),
+          frozen: family.some((a) => a.frozen),
+          depositAddresses,
+          primaryDepositAddress: depositAddresses[0]?.address || null,
+          transactions,
+          transactionCount: transactions.length,
+          walletCurrency: ref?.walletCurrency
+            ? {
+                id: ref.walletCurrency.id,
+                tokenType: ref.walletCurrency.tokenType,
+                contractAddress: ref.walletCurrency.contractAddress,
+                decimals: ref.walletCurrency.decimals,
+                isToken: ref.walletCurrency.isToken,
+                blockchainName: ref.walletCurrency.blockchainName,
+              }
+            : null,
+          createdAt: ref?.createdAt ?? account.createdAt,
+          updatedAt: ref?.updatedAt ?? account.updatedAt,
+          isUnifiedUsdt: true as const,
+          networkBalances: buildUsdtNetworkBalances(family),
+        };
+      }
+
       const balance = new Decimal(account.availableBalance || '0');
       const accountBalance = new Decimal(account.accountBalance || '0');
       const usdPrice = account.walletCurrency?.price 
@@ -172,11 +273,9 @@ class CryptoAssetService {
         ? new Decimal(account.walletCurrency.nairaPrice.toString())
         : new Decimal('0');
 
-      // Calculate USD values
       const availableBalanceUsd = balance.mul(usdPrice);
       const accountBalanceUsd = accountBalance.mul(usdPrice);
 
-      // Calculate Naira values
       let availableBalanceNaira: Decimal;
       let accountBalanceNaira: Decimal;
       if (nairaPrice.gt(0)) {
@@ -187,45 +286,37 @@ class CryptoAssetService {
         accountBalanceNaira = new Decimal('0');
       }
 
-      // Get transaction history for this virtual account
       let transactions: any[] = [];
       try {
         const transactionHistory = await this.getAssetTransactionHistory(userId, account.id, 50, 0);
         transactions = transactionHistory.transactions || [];
       } catch (error: any) {
         console.error(`Error fetching transaction history:`, error.message);
-        // Continue without transactions if there's an error
       }
 
       return {
         id: account.id,
         currency: account.currency,
         blockchain: account.blockchain,
-        symbol: account.walletCurrency?.symbol || null, // Icon path: wallet_symbols/xxx.png
+        symbol: account.walletCurrency?.symbol || null,
         name: account.walletCurrency?.name || account.currency,
         accountCode: account.accountCode,
         customerId: account.customerId,
         accountId: account.accountId,
-        // Balances (from virtual_account table)
         availableBalance: balance.toString(),
         accountBalance: accountBalance.toString(),
         availableBalanceUsd: availableBalanceUsd.toString(),
         accountBalanceUsd: accountBalanceUsd.toString(),
         availableBalanceNaira: availableBalanceNaira.toString(),
         accountBalanceNaira: accountBalanceNaira.toString(),
-        // Prices
         price: usdPrice.toString(),
         nairaPrice: nairaPrice.toString(),
-        // Status
         active: account.active,
         frozen: account.frozen,
-        // Deposit addresses
         depositAddresses: account.depositAddresses,
         primaryDepositAddress: account.depositAddresses[0]?.address || null,
-        // Transaction history
         transactions: transactions,
         transactionCount: transactions.length,
-        // Wallet currency details
         walletCurrency: account.walletCurrency ? {
           id: account.walletCurrency.id,
           tokenType: account.walletCurrency.tokenType,
@@ -234,7 +325,6 @@ class CryptoAssetService {
           isToken: account.walletCurrency.isToken,
           blockchainName: account.walletCurrency.blockchainName,
         } : null,
-        // Timestamps
         createdAt: account.createdAt,
         updatedAt: account.updatedAt,
       };
@@ -372,7 +462,9 @@ class CryptoAssetService {
         this.isAllowedUsdcAccount(account)
       );
 
-      // Calculate totals
+      const usdtGroup = filteredAccounts.filter((a) => isUsdtFamilyCurrency(a.currency));
+      const nonUsdt = filteredAccounts.filter((a) => !isUsdtFamilyCurrency(a.currency));
+
       let totalUsd = new Decimal('0');
       let totalNaira = new Decimal('0');
       const balancesByCurrency: Array<{
@@ -381,9 +473,10 @@ class CryptoAssetService {
         balance: string;
         balanceUsd: string;
         balanceNaira: string;
+        networkBalances?: ReturnType<typeof buildUsdtNetworkBalances>;
       }> = [];
 
-      filteredAccounts.forEach((account) => {
+      nonUsdt.forEach((account) => {
         const balance = new Decimal(account.availableBalance || '0');
         const usdPrice = account.walletCurrency?.price 
           ? new Decimal(account.walletCurrency.price.toString())
@@ -391,12 +484,8 @@ class CryptoAssetService {
         const nairaPrice = account.walletCurrency?.nairaPrice 
           ? new Decimal(account.walletCurrency.nairaPrice.toString())
           : new Decimal('0');
-
-        // Calculate USD value
         const usdValue = balance.mul(usdPrice);
         totalUsd = totalUsd.plus(usdValue);
-
-        // Calculate Naira value
         let nairaValue: Decimal;
         if (nairaPrice.gt(0)) {
           nairaValue = balance.mul(nairaPrice);
@@ -404,8 +493,6 @@ class CryptoAssetService {
         } else {
           nairaValue = new Decimal('0');
         }
-
-        // Add to breakdown
         balancesByCurrency.push({
           currency: account.currency,
           blockchain: account.blockchain,
@@ -415,10 +502,33 @@ class CryptoAssetService {
         });
       });
 
+      if (usdtGroup.length > 0) {
+        const balance = sumUsdtBalances(usdtGroup);
+        const ref = usdtGroup[0];
+        const usdPrice = ref.walletCurrency?.price
+          ? new Decimal(ref.walletCurrency.price.toString())
+          : new Decimal('1');
+        const nairaPrice = ref.walletCurrency?.nairaPrice
+          ? new Decimal(ref.walletCurrency.nairaPrice.toString())
+          : new Decimal('0');
+        const usdValue = balance.mul(usdPrice);
+        totalUsd = totalUsd.plus(usdValue);
+        const nairaValue = nairaPrice.gt(0) ? balance.mul(nairaPrice) : new Decimal('0');
+        totalNaira = totalNaira.plus(nairaValue);
+        balancesByCurrency.push({
+          currency: 'USDT',
+          blockchain: 'multi',
+          balance: balance.toString(),
+          balanceUsd: usdValue.toString(),
+          balanceNaira: nairaValue.toString(),
+          networkBalances: buildUsdtNetworkBalances(usdtGroup),
+        });
+      }
+
       return {
         totalBalanceUsd: totalUsd.toString(),
         totalBalanceNaira: totalNaira.toString(),
-        currencyCount: filteredAccounts.length,
+        currencyCount: nonUsdt.length + (usdtGroup.length > 0 ? 1 : 0),
         balances: balancesByCurrency,
       };
     } catch (error: any) {

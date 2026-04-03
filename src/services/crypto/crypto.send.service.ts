@@ -12,6 +12,12 @@
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import cryptoTransactionService from './crypto.transaction.service';
+import {
+  buildUsdtNetworkBalances,
+  fetchUsdtFamilyVirtualAccounts,
+  resolveSendStorageCurrency,
+  sumUsdtBalances,
+} from './crypto.unified.usdt';
 import cryptoLogger from '../../utils/crypto.logger';
 import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
@@ -82,11 +88,11 @@ class CryptoSendService {
     console.log('To Address:', toAddress);
     console.log('========================================\n');
 
-    // Get user's virtual account for this crypto with deposit address
+    const storageCurrency = resolveSendStorageCurrency(currencyCode, blockchain);
     const virtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
-        currency: currencyCode,
+        currency: storageCurrency,
         blockchain: blockchain.toLowerCase(),
       },
       include: {
@@ -99,7 +105,7 @@ class CryptoSendService {
     });
 
     if (!virtualAccount) {
-      throw new Error(`Virtual account not found for ${currency} on ${blockchain}`);
+      throw new Error(`Virtual account not found for ${currency} on ${blockchain} (ledger currency ${storageCurrency})`);
     }
 
     const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
@@ -472,11 +478,11 @@ class CryptoSendService {
       throw new Error(`Crypto send for ${currency} on ${blockchain} is not active yet. Only ETH and USDT on Ethereum are currently supported.`);
     }
 
-    // Get user's virtual account for this crypto with deposit address
+    const storageCurrency = resolveSendStorageCurrency(currencyCode, blockchain);
     const virtualAccount = await prisma.virtualAccount.findFirst({
       where: {
         userId,
-        currency: currencyCode,
+        currency: storageCurrency,
         blockchain: blockchain.toLowerCase(),
       },
       include: {
@@ -489,13 +495,19 @@ class CryptoSendService {
     });
 
     if (!virtualAccount) {
-      throw new Error(`Virtual account not found for ${currencyCode} on ${blockchain}`);
+      throw new Error(`Virtual account not found for ${currencyCode} on ${blockchain} (ledger currency ${storageCurrency})`);
     }
 
     const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
     if (!depositAddress) {
       throw new Error(`Deposit address not found for ${currencyCode} on ${blockchain}. Please contact support.`);
     }
+
+    const usdtFamily = currencyCode === 'USDT' ? await fetchUsdtFamilyVirtualAccounts(userId) : [];
+    const unifiedUsdtTotalBalance =
+      currencyCode === 'USDT' ? sumUsdtBalances(usdtFamily).toString() : undefined;
+    const unifiedUsdtNetworkBalances =
+      currencyCode === 'USDT' ? buildUsdtNetworkBalances(usdtFamily) : undefined;
 
     // Get wallet currency for price and contract address
     const walletCurrency = virtualAccount.walletCurrency;
@@ -673,6 +685,9 @@ class CryptoSendService {
     const balanceBefore = onChainBalance;
     const balanceAfter = balanceBefore.minus(amountCryptoDecimal);
 
+    const hasSufficientBalance = onChainBalance.greaterThanOrEqualTo(amountCryptoDecimal);
+    const canProceed = hasSufficientBalance && hasSufficientEth;
+
     return {
       currency: currencyCode,
       blockchain: blockchain.toLowerCase(),
@@ -691,8 +706,11 @@ class CryptoSendService {
       hasSufficientEth,
       cryptoBalanceBefore: balanceBefore.toString(),
       cryptoBalanceAfter: balanceAfter.toString(),
-      hasSufficientBalance: true,
-      canProceed: hasSufficientEth, // Can only proceed if has sufficient ETH for gas (for USDT)
+      hasSufficientBalance,
+      selectedNetworkMaxSend: balanceBefore.toString(),
+      unifiedUsdtTotalBalance,
+      unifiedUsdtNetworkBalances,
+      canProceed,
       virtualAccountId: virtualAccount.id,
     };
   }
