@@ -3,8 +3,9 @@
  *
  * Customer withdraws: the **on-chain** transaction is signed with the **master wallet** (gas
  * and funds come from hot wallet liquidity). The user's **virtual account** is debited by the
- * send amount after a successful broadcast. User deposit balances may be used only to reconcile
- * the book balance before send.
+ * send amount after a successful broadcast. The user's **ledger** (`virtualAccount` balances) is the
+ * source of truth here — we do **not** call Tatum (or any RPC) for the **user deposit address** during
+ * preview/send. Hot-wallet and fee checks in **preview** still read the **master** address via Tatum.
  */
 
 import { prisma } from '../../utils/prisma';
@@ -53,9 +54,8 @@ export interface SendCryptoResult {
   balanceAfter: string;
 }
 
-/** Include for send/preview queries. */
+/** Include for send/preview queries (no depositAddresses — avoid Tatum on user deposit in this flow). */
 const VIRTUAL_ACCOUNT_FOR_SEND_INCLUDE = {
-  depositAddresses: { take: 1, orderBy: { createdAt: 'desc' as const } },
   walletCurrency: true,
 };
 
@@ -70,7 +70,6 @@ type VirtualAccountForSend = {
   blockchain: string;
   availableBalance: string;
   accountBalance: string;
-  depositAddresses: { address: string }[];
   walletCurrency: {
     price: { toString(): string } | null;
     contractAddress: string | null;
@@ -101,7 +100,7 @@ class CryptoSendService {
     }) as Promise<VirtualAccountForSend | null>;
   }
 
-  /** On-chain asset balance at any address (user deposit or master). */
+  /** On-chain asset balance at an address (used for **master** wallet in preview only). */
   private async readAssetBalanceAt(
     chainNorm: string,
     address: string,
@@ -164,8 +163,6 @@ class CryptoSendService {
       throw new Error(`Virtual account not found for ${currency} on ${blockchain} (ledger currency ${storageCurrency})`);
     }
 
-    const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
-
     const walletCurrency = virtualAccount.walletCurrency;
     if (!walletCurrency || !walletCurrency.price) {
       throw new Error(`Currency ${currency} price not set`);
@@ -174,36 +171,6 @@ class CryptoSendService {
     const cryptoPrice = new Decimal(walletCurrency.price.toString());
     const amountCryptoDecimal = new Decimal(amount);
     const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
-
-    console.log('[CRYPTO SEND] Reconcile virtual account from user deposit (if present)');
-    if (depositAddress) {
-      try {
-        const depOnChain = await this.readAssetBalanceAt(
-          chainNorm,
-          depositAddress,
-          walletCurrency,
-          currencyCode
-        );
-        const virtualBalance = new Decimal(virtualAccount.availableBalance || '0');
-        if (!depOnChain.equals(virtualBalance)) {
-          console.log('[CRYPTO SEND] Syncing book balance to deposit on-chain balance', {
-            virtualBalance: virtualBalance.toString(),
-            depOnChain: depOnChain.toString(),
-          });
-          await prisma.virtualAccount.update({
-            where: { id: virtualAccount.id },
-            data: {
-              availableBalance: depOnChain.toString(),
-              accountBalance: depOnChain.toString(),
-            },
-          });
-          const updated = await prisma.virtualAccount.findUnique({ where: { id: virtualAccount.id } });
-          if (updated) Object.assign(virtualAccount, updated);
-        }
-      } catch (e: any) {
-        console.warn('[CRYPTO SEND] Deposit sync skipped:', e?.message || e);
-      }
-    }
 
     const userBookBalance = new Decimal(virtualAccount.availableBalance || '0');
     if (userBookBalance.lessThan(amountCryptoDecimal)) {
@@ -415,8 +382,6 @@ class CryptoSendService {
       throw new Error(`Virtual account not found for ${currencyCode} on ${blockchain} (ledger currency ${storageCurrency})`);
     }
 
-    const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
-
     const masterWalletPreview = await findMasterWalletForChain(chainNorm);
     if (!masterWalletPreview?.address?.trim()) {
       throw new Error(`Master wallet not configured for "${chainNorm}".`);
@@ -438,32 +403,6 @@ class CryptoSendService {
     const cryptoPrice = new Decimal(walletCurrency.price.toString());
     const amountCryptoDecimal = new Decimal(amount);
     const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
-
-    console.log('[CRYPTO SEND PREVIEW] Sync book from deposit (if present)');
-    if (depositAddress) {
-      try {
-        const depOnChain = await this.readAssetBalanceAt(
-          chainNorm,
-          depositAddress,
-          walletCurrency,
-          currencyCode
-        );
-        const virtualBalance = new Decimal(virtualAccount.availableBalance || '0');
-        if (!depOnChain.equals(virtualBalance)) {
-          await prisma.virtualAccount.update({
-            where: { id: virtualAccount.id },
-            data: {
-              availableBalance: depOnChain.toString(),
-              accountBalance: depOnChain.toString(),
-            },
-          });
-          const updated = await prisma.virtualAccount.findUnique({ where: { id: virtualAccount.id } });
-          if (updated) Object.assign(virtualAccount, updated);
-        }
-      } catch (error: any) {
-        console.warn('[CRYPTO SEND PREVIEW] Deposit sync skipped:', error?.message);
-      }
-    }
 
     const userBookBalance = new Decimal(virtualAccount.availableBalance || '0');
 
