@@ -20,6 +20,7 @@ import {
   isUsdtFamilyCurrency,
   primaryUsdtVirtualAccountId,
   sumUsdtBalances,
+  type UsdtNetworkBalance,
 } from './crypto.unified.usdt';
 
 export interface SwapCryptoInput {
@@ -373,7 +374,25 @@ class CryptoSwapService {
     const usdtVas = filteredAccounts.filter((a) => isUsdtFamilyCurrency(a.currency));
     const otherVas = filteredAccounts.filter((a) => !isUsdtFamilyCurrency(a.currency));
 
-    const rows = otherVas.map((account) => ({
+    type SwapCurrencyRow = {
+      id: number;
+      currency: string;
+      blockchain: string;
+      name: string;
+      symbol: string | null;
+      price: string;
+      nairaPrice: string;
+      isToken: boolean;
+      tokenType: string | null | undefined;
+      blockchainName: string | null | undefined;
+      availableBalance: string;
+      virtualAccountId: number;
+      displayName: string;
+      isUnifiedUsdt?: boolean;
+      networkBalances?: UsdtNetworkBalance[];
+    };
+
+    const rows: SwapCurrencyRow[] = otherVas.map((account) => ({
       id: account.id,
       currency: account.currency,
       blockchain: account.blockchain,

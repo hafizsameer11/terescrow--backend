@@ -89,6 +89,7 @@ export const decryptSignerPrivateKey = decryptDepositPrivateKey;
 
 export async function findMasterWalletForChain(chainNorm: string) {
   return prisma.masterWallet.findFirst({
-    where: { blockchain: { equals: chainNorm, mode: 'insensitive' } },
+    // `chainNorm` is lowercase; MySQL `StringFilter` has no `mode: 'insensitive'`.
+    where: { blockchain: chainNorm },
   });
 }

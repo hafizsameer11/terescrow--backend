@@ -12,6 +12,7 @@ import {
   isUsdtFamilyCurrency,
   primaryUsdtVirtualAccountId,
   sumUsdtBalances,
+  type UsdtNetworkBalance,
 } from './crypto.unified.usdt';
 
 class CryptoAssetService {
@@ -107,7 +108,10 @@ class CryptoAssetService {
         };
       };
 
-      const assets = nonUsdtAccounts.map(mapAccountToAsset);
+      type ListedCryptoAsset = ReturnType<typeof mapAccountToAsset> &
+        Partial<{ isUnifiedUsdt: true; networkBalances: UsdtNetworkBalance[] }>;
+
+      const assets: ListedCryptoAsset[] = nonUsdtAccounts.map(mapAccountToAsset);
 
       if (usdtAccounts.length > 0) {
         const totalBalance = sumUsdtBalances(usdtAccounts);

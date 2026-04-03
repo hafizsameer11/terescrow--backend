@@ -1,3 +1,16 @@
+/**
+ * Legacy FCM helper (implementation commented out). Exported so imports stay valid; use `pushService` for Expo pushes.
+ */
+export async function sendPushNotification(
+  _fcmToken: string,
+  _title: string,
+  _body: string,
+  _userId: string,
+  _badgeCount?: number
+): Promise<{ skipped: true; reason: string }> {
+  return { skipped: true, reason: 'firebaseNotificationService is a stub; FCM code is disabled in this file' };
+}
+
 // import { GoogleAuth } from 'google-auth-library';
 // import axios from 'axios';
 // import path from 'path';

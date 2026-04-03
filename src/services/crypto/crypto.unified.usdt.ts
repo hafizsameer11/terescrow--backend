@@ -51,6 +51,27 @@ export async function fetchUsdtFamilyVirtualAccounts(userId: number) {
   });
 }
 
+/**
+ * Any virtual-account row that can feed unified USDT helpers (full `findMany` include or a slim `walletCurrency`-only query).
+ */
+export type UsdtVirtualAccountLike = {
+  id: number;
+  blockchain: string;
+  currency: string;
+  availableBalance?: unknown;
+  active?: boolean;
+  frozen?: boolean;
+  depositAddresses?: { address: string }[];
+  walletCurrency?: {
+    price?: unknown;
+    nairaPrice?: unknown;
+    symbol?: string | null;
+    name?: string;
+    tokenType?: string | null;
+    blockchainName?: string | null;
+  } | null;
+};
+
 export function sumUsdtBalances(accounts: { availableBalance?: unknown }[]): Decimal {
   return accounts.reduce(
     (s, a) => s.plus(decimalFromBalance(a.availableBalance)),
@@ -66,22 +87,18 @@ export type UsdtNetworkBalance = {
   depositAddress: string | null;
 };
 
-export function buildUsdtNetworkBalances(
-  accounts: Awaited<ReturnType<typeof fetchUsdtFamilyVirtualAccounts>>
-): UsdtNetworkBalance[] {
+export function buildUsdtNetworkBalances(accounts: UsdtVirtualAccountLike[]): UsdtNetworkBalance[] {
   return accounts.map((a) => ({
     blockchain: a.blockchain,
     storageCurrency: a.currency,
     virtualAccountId: a.id,
     balance: decimalFromBalance(a.availableBalance).toString(),
-    depositAddress: a.depositAddresses[0]?.address ?? null,
+    depositAddress: a.depositAddresses?.[0]?.address ?? null,
   }));
 }
 
 /** Representative VA id for unified USDT row (default chain, else first). */
-export function primaryUsdtVirtualAccountId(
-  accounts: Awaited<ReturnType<typeof fetchUsdtFamilyVirtualAccounts>>
-): number | null {
+export function primaryUsdtVirtualAccountId(accounts: UsdtVirtualAccountLike[]): number | null {
   if (!accounts.length) return null;
   const def = getDefaultUsdtBlockchain();
   const preferred = accounts.find((a) => a.blockchain.toLowerCase() === def);
