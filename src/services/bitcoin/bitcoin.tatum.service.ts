@@ -5,6 +5,7 @@
 import axios from 'axios';
 import { Decimal } from '@prisma/client/runtime/library';
 import cryptoLogger from '../../utils/crypto.logger';
+import { parseTatumUtxoAmountAsNumber } from '../utxo/utxo.tatum.service';
 
 const baseUrl = 'https://api.tatum.io/v3';
 
@@ -71,10 +72,10 @@ export async function sendBitcoinFromAddress(params: SendBitcoinFromAddressParam
     to: [
       {
         address: params.toAddress,
-        value: params.valueBtc,
+        value: parseTatumUtxoAmountAsNumber(params.valueBtc),
       },
     ],
-    fee: params.feeBtc,
+    fee: parseTatumUtxoAmountAsNumber(params.feeBtc),
     changeAddress: params.changeAddress,
   };
 

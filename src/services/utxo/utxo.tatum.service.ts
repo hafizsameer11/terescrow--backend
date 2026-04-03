@@ -11,6 +11,19 @@ const baseUrl = 'https://api.tatum.io/v3';
 
 export type UtxoTatumChain = 'bitcoin' | 'dogecoin' | 'litecoin';
 
+/**
+ * Tatum v3 UTXO transaction API validates `to[].value` and `fee` as **numbers** (not strings),
+ * with at most 8 decimal places for BTC/LTC/DOGE.
+ */
+export function parseTatumUtxoAmountAsNumber(amountStr: string, maxDecimals = 8): number {
+  const d = new Decimal(String(amountStr).trim());
+  if (!d.isFinite() || d.lte(0)) {
+    throw new Error('Tatum UTXO amount must be a positive number');
+  }
+  const clipped = d.toDecimalPlaces(maxDecimals, Decimal.ROUND_DOWN);
+  return parseFloat(clipped.toFixed(maxDecimals));
+}
+
 function apiKey(): string {
   const k = process.env.TATUM_API_KEY || '';
   if (!k) throw new Error('TATUM_API_KEY is required');
@@ -81,8 +94,8 @@ export async function sendUtxoFromAddress(params: SendUtxoFromAddressParams): Pr
         privateKey: params.fromPrivateKey,
       },
     ],
-    to: [{ address: params.toAddress, value: params.value }],
-    fee: params.fee,
+    to: [{ address: params.toAddress, value: parseTatumUtxoAmountAsNumber(params.value) }],
+    fee: parseTatumUtxoAmountAsNumber(params.fee),
     changeAddress: params.changeAddress,
   };
 

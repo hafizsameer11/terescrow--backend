@@ -10,6 +10,8 @@ import {
   isValidTronAddress,
   isValidBitcoinAddress,
   isValidLitecoinAddress,
+  isValidDogecoinAddress,
+  isValidSolanaAddress,
   isNativeAssetForChain,
   type DecryptFn,
 } from './received.asset.disbursement.helpers';
@@ -17,6 +19,8 @@ import { executeEvmVendorDisbursement } from './received.asset.disbursement.evm'
 import { executeTronVendorDisbursement } from './received.asset.disbursement.tron';
 import { executeBtcVendorDisbursement } from './received.asset.disbursement.btc';
 import { executeLtcVendorDisbursement } from './received.asset.disbursement.ltc';
+import { executeDogeVendorDisbursement } from './received.asset.disbursement.doge';
+import { executeSolVendorDisbursement } from './received.asset.disbursement.sol';
 
 function decryptPrivateKey(encryptedKey: string): string {
   const algorithm = 'aes-256-cbc';
@@ -50,7 +54,7 @@ export interface BulkDisbursementItemResult {
   statusCode?: number;
 }
 
-const SUPPORTED_BASE = new Set(['ETH', 'USDT', 'BNB', 'TRX', 'MATIC', 'BTC']);
+const SUPPORTED_BASE = new Set(['ETH', 'USDT', 'BNB', 'TRX', 'MATIC', 'BTC', 'LTC', 'DOGE', 'SOL']);
 const BULK_MAX_ITEMS = 100;
 
 export type ReceiveOutboundContext = {
@@ -115,11 +119,11 @@ export async function loadReceiveDisbursementForOutbound(
 
   if (!SUPPORTED_BASE.has(baseSymbol)) {
     throw ApiError.badRequest(
-      `Unsupported asset for disbursement: ${baseSymbol}. Supported: BTC, LTC, ETH, USDT, BNB, TRX, MATIC.`
+      `Unsupported asset for disbursement: ${baseSymbol}. Supported: BTC, LTC, DOGE, SOL, ETH, USDT, BNB, TRX, MATIC.`
     );
   }
 
-  const supportedChains = ['ethereum', 'bsc', 'tron', 'polygon', 'bitcoin', 'litecoin'];
+  const supportedChains = ['ethereum', 'bsc', 'tron', 'polygon', 'bitcoin', 'litecoin', 'dogecoin', 'solana'];
   if (!supportedChains.includes(chainNorm)) {
     throw ApiError.badRequest(`Unsupported blockchain for disbursement: ${tx.blockchain}`);
   }
@@ -138,6 +142,12 @@ export async function loadReceiveDisbursementForOutbound(
   }
   if (baseSymbol === 'LTC' && chainNorm !== 'litecoin') {
     throw ApiError.badRequest('LTC disbursement is only valid on Litecoin');
+  }
+  if (baseSymbol === 'DOGE' && chainNorm !== 'dogecoin') {
+    throw ApiError.badRequest('DOGE disbursement is only valid on Dogecoin');
+  }
+  if (baseSymbol === 'SOL' && chainNorm !== 'solana') {
+    throw ApiError.badRequest('SOL disbursement is only valid on Solana');
   }
   if ((baseSymbol === 'ETH' || baseSymbol === 'USDT') && chainNorm === 'tron') {
     throw ApiError.badRequest('Use TRX or USDT (TRC20) on Tron, not ETH/USDT labels here');
@@ -286,6 +296,14 @@ export async function sendReceivedAssetToVendor(input: {
     if (!isValidLitecoinAddress(toAddr)) {
       throw ApiError.badRequest('Vendor wallet must be a valid Litecoin address.');
     }
+  } else if (chainNorm === 'dogecoin') {
+    if (!isValidDogecoinAddress(toAddr)) {
+      throw ApiError.badRequest('Vendor wallet must be a valid Dogecoin address.');
+    }
+  } else if (chainNorm === 'solana') {
+    if (!isValidSolanaAddress(toAddr)) {
+      throw ApiError.badRequest('Vendor wallet must be a valid Solana address.');
+    }
   }
 
   const decrypt: DecryptFn = decryptPrivateKey;
@@ -313,6 +331,42 @@ export async function sendReceivedAssetToVendor(input: {
       throw ApiError.badRequest('Only native LTC disbursement is supported on Litecoin.');
     }
     return executeLtcVendorDisbursement({
+      tx,
+      recv,
+      receivedAsset,
+      vendor,
+      virtualAccount,
+      recvAmount,
+      baseSymbol,
+      adminUserId,
+      receiveTransactionId,
+      decryptPrivateKey: decrypt,
+    });
+  }
+
+  if (chainNorm === 'dogecoin') {
+    if (!isNative || baseSymbol !== 'DOGE') {
+      throw ApiError.badRequest('Only native DOGE disbursement is supported on Dogecoin.');
+    }
+    return executeDogeVendorDisbursement({
+      tx,
+      recv,
+      receivedAsset,
+      vendor,
+      virtualAccount,
+      recvAmount,
+      baseSymbol,
+      adminUserId,
+      receiveTransactionId,
+      decryptPrivateKey: decrypt,
+    });
+  }
+
+  if (chainNorm === 'solana') {
+    if (!isNative || baseSymbol !== 'SOL') {
+      throw ApiError.badRequest('Only native SOL disbursement is supported on Solana.');
+    }
+    return executeSolVendorDisbursement({
       tx,
       recv,
       receivedAsset,
@@ -456,6 +510,14 @@ export async function sendReceivedAssetToMasterWallet(input: {
     if (!isValidLitecoinAddress(toAddr)) {
       throw ApiError.badRequest('Master wallet address must be a valid Litecoin address.');
     }
+  } else if (chainNorm === 'dogecoin') {
+    if (!isValidDogecoinAddress(toAddr)) {
+      throw ApiError.badRequest('Master wallet address must be a valid Dogecoin address.');
+    }
+  } else if (chainNorm === 'solana') {
+    if (!isValidSolanaAddress(toAddr)) {
+      throw ApiError.badRequest('Master wallet address must be a valid Solana address.');
+    }
   }
 
   const masterAsRecipient = { id: null as number | null, walletAddress: toAddr };
@@ -486,6 +548,46 @@ export async function sendReceivedAssetToMasterWallet(input: {
       throw ApiError.badRequest('Only native LTC disbursement is supported on Litecoin.');
     }
     return executeLtcVendorDisbursement({
+      tx,
+      recv,
+      receivedAsset,
+      vendor: masterAsRecipient,
+      virtualAccount,
+      recvAmount,
+      baseSymbol,
+      adminUserId,
+      receiveTransactionId,
+      decryptPrivateKey: decrypt,
+      disbursementType: 'master_wallet',
+      receivedAssetNextStatus: 'transferredToMaster',
+    });
+  }
+
+  if (chainNorm === 'dogecoin') {
+    if (!isNative || baseSymbol !== 'DOGE') {
+      throw ApiError.badRequest('Only native DOGE disbursement is supported on Dogecoin.');
+    }
+    return executeDogeVendorDisbursement({
+      tx,
+      recv,
+      receivedAsset,
+      vendor: masterAsRecipient,
+      virtualAccount,
+      recvAmount,
+      baseSymbol,
+      adminUserId,
+      receiveTransactionId,
+      decryptPrivateKey: decrypt,
+      disbursementType: 'master_wallet',
+      receivedAssetNextStatus: 'transferredToMaster',
+    });
+  }
+
+  if (chainNorm === 'solana') {
+    if (!isNative || baseSymbol !== 'SOL') {
+      throw ApiError.badRequest('Only native SOL disbursement is supported on Solana.');
+    }
+    return executeSolVendorDisbursement({
       tx,
       recv,
       receivedAsset,
