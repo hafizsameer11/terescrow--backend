@@ -17,6 +17,7 @@ import {
 } from './crypto.unified.usdt';
 import cryptoLogger from '../../utils/crypto.logger';
 import { sendPushNotification } from '../../utils/pushService';
+import { InAppNotificationType } from '@prisma/client';
 import {
   assertCustomerSendChainSupported,
   findMasterWalletForChain,
@@ -27,11 +28,6 @@ import { executeCustodialSendNonEthereum } from './crypto.send.chain.handlers';
 import { getEvmNativeBalance, getEvmFungibleTokenBalance } from '../tatum/evm.tatum.balance.service';
 import { getTronTrxBalance, getTronTrc20Balance } from '../tron/tron.tatum.service';
 import { estimateUtxoTxFee, getUtxoAddressBalance } from '../utxo/utxo.tatum.service';
-
-/** Interactive `$transaction` client type, inferred from `prisma` (avoids a separate `@prisma/client` type import). */
-type PrismaTransactionClient = Parameters<
-  Extract<Parameters<typeof prisma.$transaction>[0], (tx: never) => Promise<unknown>>
->[0];
 
 export interface SendCryptoInput {
   userId: number;
@@ -249,7 +245,7 @@ class CryptoSendService {
     // Update database records (do this quickly without verification to avoid timeout)
     // Blockchain transfer already succeeded, so we just need to update balances
     try {
-      await prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      await prisma.$transaction(async (tx) => {
         // Update virtual account to match expected on-chain balance after send
         await tx.virtualAccount.update({
           where: { id: virtualAccount.id },
@@ -337,7 +333,7 @@ class CryptoSendService {
           userId,
           title: 'Crypto Transfer Successful',
           description: `You successfully sent ${amountCryptoDecimal.toString()} ${currencyCode} to ${toAddress}. Transaction ID: ${transactionId}`,
-          type: 'customeer',
+          type: InAppNotificationType.customeer,
         },
       });
 
