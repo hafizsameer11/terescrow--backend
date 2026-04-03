@@ -31,9 +31,16 @@ export const previewSendController = async (
       return next(ApiError.unauthorized('User not authenticated'));
     }
 
-    const { amount, currency, blockchain, toAddress } = req.body;
+    const { amount, currency, blockchain, toAddress, amountInUsd } = req.body;
 
-    const preview = await cryptoSendService.previewSendTransaction(userId, amount, currency, blockchain, toAddress);
+    const preview = await cryptoSendService.previewSendTransaction(
+      userId,
+      amount,
+      currency,
+      blockchain,
+      toAddress,
+      amountInUsd
+    );
 
     return new ApiResponse(200, preview, 'Send transaction preview generated successfully').send(res);
   } catch (error: any) {
@@ -70,8 +77,8 @@ export const sendCryptoController = async (
     if (restrictions.banned) return next(ApiError.forbidden('Your account has been banned. Contact support.'));
     if (isFeatureFrozen(restrictions, FEATURE_CRYPTO)) return next(ApiError.forbidden('Crypto operations are temporarily disabled for your account.'));
 
-    const { amount, currency, blockchain, toAddress } = req.body;
-    console.log('Sending cryptocurrency:', { amount, currency, blockchain, toAddress });
+    const { amount, currency, blockchain, toAddress, amountInUsd } = req.body;
+    console.log('Sending cryptocurrency:', { amount, amountInUsd, currency, blockchain, toAddress });
 
     const result = await cryptoSendService.sendCrypto({
       userId,
@@ -79,6 +86,7 @@ export const sendCryptoController = async (
       currency,
       blockchain,
       toAddress,
+      amountInUsd,
     });
 
     return new ApiResponse(200, result, 'Cryptocurrency sent successfully').send(res);

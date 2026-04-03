@@ -36,10 +36,13 @@ type PrismaTransactionClient = Parameters<
 
 export interface SendCryptoInput {
   userId: number;
-  amount: number; // Amount in crypto currency (e.g., 6 USDT, 0.001 ETH)
+  /** When `amountInUsd` is not `false`, this is USD; otherwise coin units (see `amountInUsd`). */
+  amount: number;
   currency: string; // Crypto currency to send (e.g., ETH, USDT)
   blockchain: string; // Blockchain (e.g., ethereum)
   toAddress: string; // Recipient address
+  /** Omit or `true`: `amount` is USD (converted via `walletCurrency.price`). `false`: `amount` is crypto. */
+  amountInUsd?: boolean;
 }
 
 export interface SendCryptoResult {
@@ -52,6 +55,21 @@ export interface SendCryptoResult {
   virtualAccountId: number;
   balanceBefore: string;
   balanceAfter: string;
+}
+
+function resolveSendAmounts(amount: number, amountInUsd: boolean, cryptoPrice: Decimal) {
+  if (cryptoPrice.lessThanOrEqualTo(0)) {
+    throw new Error('Currency price must be greater than 0');
+  }
+  const raw = new Decimal(amount);
+  if (amountInUsd) {
+    const amountUsd = raw;
+    const amountCryptoDecimal = amountUsd.div(cryptoPrice);
+    return { amountCryptoDecimal, amountUsd };
+  }
+  const amountCryptoDecimal = raw;
+  const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
+  return { amountCryptoDecimal, amountUsd };
 }
 
 /** Include for send/preview queries (no depositAddresses — avoid Tatum on user deposit in this flow). */
@@ -137,7 +155,8 @@ class CryptoSendService {
   }
 
   async sendCrypto(input: SendCryptoInput): Promise<SendCryptoResult> {
-    const { userId, amount, currency, blockchain, toAddress } = input;
+    const { userId, amount, currency, blockchain, toAddress, amountInUsd } = input;
+    const useUsd = amountInUsd !== false;
 
     const chainNorm = normalizeCustomerSendBlockchain(blockchain);
     assertCustomerSendChainSupported(chainNorm);
@@ -150,7 +169,7 @@ class CryptoSendService {
     console.log('[CRYPTO SEND] Starting send transaction');
     console.log('========================================');
     console.log('User ID:', userId);
-    console.log('Amount:', amount);
+    console.log('Amount (raw):', amount, useUsd ? '(USD)' : '(crypto)');
     console.log('Currency:', currency);
     console.log('Blockchain:', blockchain, '→', chainNorm);
     console.log('To Address:', toAddress);
@@ -169,8 +188,7 @@ class CryptoSendService {
     }
 
     const cryptoPrice = new Decimal(walletCurrency.price.toString());
-    const amountCryptoDecimal = new Decimal(amount);
-    const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
+    const { amountCryptoDecimal, amountUsd } = resolveSendAmounts(amount, useUsd, cryptoPrice);
 
     const userBookBalance = new Decimal(virtualAccount.availableBalance || '0');
     if (userBookBalance.lessThan(amountCryptoDecimal)) {
@@ -357,12 +375,20 @@ class CryptoSendService {
    * Preview send transaction with complete details
    * Includes current balances, gas fees, and all transaction details
    */
-  async previewSendTransaction(userId: number, amount: number, currency: string, blockchain: string, toAddress: string) {
+  async previewSendTransaction(
+    userId: number,
+    amount: number,
+    currency: string,
+    blockchain: string,
+    toAddress: string,
+    amountInUsd?: boolean
+  ) {
+    const useUsd = amountInUsd !== false;
     console.log('\n========================================');
     console.log('[CRYPTO SEND PREVIEW] Starting preview');
     console.log('========================================');
     console.log('User ID:', userId);
-    console.log('Amount:', amount);
+    console.log('Amount (raw):', amount, useUsd ? '(USD)' : '(crypto)');
     console.log('Currency:', currency);
     console.log('Blockchain:', blockchain);
     console.log('To Address:', toAddress);
@@ -401,8 +427,7 @@ class CryptoSendService {
     }
 
     const cryptoPrice = new Decimal(walletCurrency.price.toString());
-    const amountCryptoDecimal = new Decimal(amount);
-    const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
+    const { amountCryptoDecimal, amountUsd } = resolveSendAmounts(amount, useUsd, cryptoPrice);
 
     const userBookBalance = new Decimal(virtualAccount.availableBalance || '0');
 

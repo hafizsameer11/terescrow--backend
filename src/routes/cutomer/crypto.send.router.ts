@@ -33,6 +33,7 @@ const cryptoSendRouter = express.Router();
  *       - On-chain send is from **MasterWallet** (Tatum on server); user book vs hot-wallet liquidity checked.
  *       - Networks include Ethereum, BSC, Polygon, Tron, Bitcoin, Dogecoin, Litecoin (see `docs/CLIENT_CRYPTO_SEND_API.md`).
  *       - Returns `canProceed`, `hotWalletBalance`, `selectedNetworkMaxSend`, fee estimates.
+ *       - **`amount` is in USD** unless you send `amountInUsd: false` (then `amount` is in coin units).
  *
  *       **Flow Step 1:** Preview before sending
  *     security:
@@ -51,8 +52,12 @@ const cryptoSendRouter = express.Router();
  *             properties:
  *               amount:
  *                 type: number
- *                 description: Amount in crypto currency (e.g., 6 for 6 USDT, 0.001 for 0.001 ETH)
- *                 example: 6
+ *                 description: USD value to send (converted with server `walletCurrency.price`). Use `amountInUsd: false` for coin units.
+ *                 example: 10.5
+ *               amountInUsd:
+ *                 type: boolean
+ *                 description: Omit or true = `amount` is USD; false = `amount` is in crypto (legacy).
+ *                 example: true
  *               currency:
  *                 type: string
  *                 description: Ledger currency for the user's virtual account (e.g. ETH, USDT, USDT_TRON, BSC, BTC)
@@ -169,6 +174,7 @@ cryptoSendRouter.post(
   authenticateUser,
   [
     body('amount').isFloat({ min: 0.00000001 }).withMessage('Amount must be greater than 0'),
+    body('amountInUsd').optional().isBoolean().withMessage('amountInUsd must be a boolean when provided'),
     body('currency').isString().notEmpty().withMessage('Currency is required'),
     body('blockchain').isString().notEmpty().withMessage('Blockchain is required'),
     body('toAddress').isString().notEmpty().withMessage('Recipient address is required'),
@@ -185,7 +191,7 @@ cryptoSendRouter.post(
  *     x-order: 2
  *     description: |
  *       Broadcasts from **MasterWallet** (Tatum, server-side `TATUM_API_KEY`); debits the user's virtual account on success.
- *       Same body as `/send/preview`. See `docs/CLIENT_CRYPTO_SEND_API.md` for chains, payloads, and errors.
+ *       Same body as `/send/preview` (`amount` in USD by default; `amountInUsd: false` for crypto units). See `docs/CLIENT_CRYPTO_SEND_API.md`.
  *
  *       **Flow Step 2:** Execute the send after preview
  *     security:
@@ -204,8 +210,12 @@ cryptoSendRouter.post(
  *             properties:
  *               amount:
  *                 type: number
- *                 description: Amount in crypto currency (e.g., 6 for 6 USDT, 0.001 for 0.001 ETH)
- *                 example: 6
+ *                 description: USD value to send (converted with server `walletCurrency.price`). Use `amountInUsd: false` for coin units.
+ *                 example: 10.5
+ *               amountInUsd:
+ *                 type: boolean
+ *                 description: Omit or true = `amount` is USD; false = `amount` is in crypto (legacy).
+ *                 example: true
  *               currency:
  *                 type: string
  *                 description: Ledger currency for the user's virtual account (e.g. ETH, USDT, USDT_TRON, BSC, BTC)
@@ -275,6 +285,7 @@ cryptoSendRouter.post(
   authenticateUser,
   [
     body('amount').isFloat({ min: 0.00000001 }).withMessage('Amount must be greater than 0'),
+    body('amountInUsd').optional().isBoolean().withMessage('amountInUsd must be a boolean when provided'),
     body('currency').isString().notEmpty().withMessage('Currency is required'),
     body('blockchain').isString().notEmpty().withMessage('Blockchain is required'),
     body('toAddress').isString().notEmpty().withMessage('Recipient address is required'),

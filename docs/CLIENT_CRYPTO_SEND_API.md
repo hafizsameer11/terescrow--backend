@@ -60,7 +60,8 @@ Full URL: **`POST /api/v2/crypto/send/preview`**
 
 | Field | Type | Required | Rules |
 |-------|------|----------|--------|
-| `amount` | number | Yes | `> 0` (min `0.00000001` per validator) |
+| `amount` | number | Yes | `> 0` (min `0.00000001` per validator). **By default this is a USD value**; the server converts to coin using `wallet_currency.price` for the selected asset. |
+| `amountInUsd` | boolean | No | Omit or `true`: `amount` is USD. `false`: `amount` is in **crypto** units (legacy behaviour). |
 | `currency` | string | Yes | Non-empty. Examples: `ETH`, `USDT`, `TRX`, `BTC`, `BSC`, `BNB`, `MATIC`, `USDT_TRON`, `USDT_BSC` (must match a `virtual_account.currency` for that user + chain) |
 | `blockchain` | string | Yes | Non-empty. Normalized server-side (see **Blockchain values** below) |
 | `toAddress` | string | Yes | Non-empty. Format must match the chain (EVM `0x`+40 hex, Tron `T…`, etc.) |
@@ -75,6 +76,8 @@ Full URL: **`POST /api/v2/crypto/send/preview`**
   "toAddress": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
 }
 ```
+
+(`amount` is **$10.50** of USDT at the server’s price, not 10.5 USDT tokens. To send 10.5 tokens explicitly, add `"amountInUsd": false`.)
 
 ### Example — Tron USDT (ledger currency often `USDT_TRON`)
 
@@ -103,7 +106,7 @@ Full URL: **`POST /api/v2/crypto/send/preview`**
 | Field | Meaning |
 |-------|--------|
 | `currency`, `blockchain` | Echo/normalized values |
-| `amount`, `amountUsd` | Requested amount as strings |
+| `amount`, `amountUsd` | Resolved send amount: `amount` is **crypto** (string); `amountUsd` is the USD equivalent at the price used for conversion |
 | `toAddress` | Recipient |
 | `fromAddress` | **Master wallet address** used for on-chain broadcast (not the user deposit) |
 | `gasFee` | Fee estimate object (`eth` / `usd` where applicable + chain-specific extras) |
@@ -128,7 +131,7 @@ Use **`canProceed`** and **`selectedNetworkMaxSend`** in the UI before enabling 
 
 Full URL: **`POST /api/v2/crypto/send`**
 
-Same auth and same **body schema** as preview (`amount`, `currency`, `blockchain`, `toAddress`).
+Same auth and same **body schema** as preview (`amount`, optional `amountInUsd`, `currency`, `blockchain`, `toAddress`).
 
 ### Success `data`
 
@@ -191,7 +194,7 @@ Send the network name your UI uses; the server normalizes aliases.
 
 1. `POST /api/v2/crypto/send/preview` with the same payload you will use for send.  
 2. If `data.canProceed !== true`, show reasons (insufficient book vs insufficient hot wallet vs gas).  
-3. `POST /api/v2/crypto/send` with the **same** `amount`, `currency`, `blockchain`, `toAddress`.  
+3. `POST /api/v2/crypto/send` with the **same** `amount`, `amountInUsd` (if used), `currency`, `blockchain`, `toAddress`.  
 4. Store/display `data.txHash` and `data.transactionId` for support.
 
 ---
