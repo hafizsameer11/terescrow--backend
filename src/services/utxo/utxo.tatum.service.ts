@@ -3,7 +3,7 @@
  * Used for customer sends from deposit addresses (same pattern as bitcoin.tatum.service).
  */
 
-import axios from 'axios';
+import axios, { isAxiosError } from 'axios';
 import { Decimal } from '@prisma/client/runtime/library';
 import cryptoLogger from '../../utils/crypto.logger';
 
@@ -12,8 +12,7 @@ const baseUrl = 'https://api.tatum.io/v3';
 export type UtxoTatumChain = 'bitcoin' | 'dogecoin' | 'litecoin';
 
 /**
- * Tatum v3 UTXO transaction API validates `to[].value` and `fee` as **numbers** (not strings),
- * with at most 8 decimal places for BTC/LTC/DOGE.
+ * Tatum v3 UTXO: `to[].value` must be a JSON **number** (≤8 decimal places for BTC/LTC/DOGE).
  */
 export function parseTatumUtxoAmountAsNumber(amountStr: string, maxDecimals = 8): number {
   const d = new Decimal(String(amountStr).trim());
@@ -22,6 +21,36 @@ export function parseTatumUtxoAmountAsNumber(amountStr: string, maxDecimals = 8)
   }
   const clipped = d.toDecimalPlaces(maxDecimals, Decimal.ROUND_DOWN);
   return parseFloat(clipped.toFixed(maxDecimals));
+}
+
+/**
+ * Tatum v3 UTXO: `fee` must be a **numeric string** (positive, ≤8 digits after decimal).
+ * Differs from `to[].value`, which must be a number type in JSON.
+ */
+export function formatTatumUtxoFeeAsNumericString(feeStr: string, maxDecimals = 8): string {
+  const d = new Decimal(String(feeStr).trim());
+  if (!d.isFinite() || d.lte(0)) {
+    throw new Error('Tatum UTXO fee must be a positive number');
+  }
+  return d.toDecimalPlaces(maxDecimals, Decimal.ROUND_DOWN).toFixed(maxDecimals);
+}
+
+/** Readable message from Tatum/axios failures (validation body, errorCode, etc.). */
+export function formatTatumRequestError(error: unknown): string {
+  if (!isAxiosError(error)) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  const d = error.response?.data as Record<string, unknown> | undefined;
+  if (d && typeof d === 'object') {
+    const chunks: string[] = [];
+    if (typeof d.errorCode === 'string') chunks.push(`[${d.errorCode}]`);
+    if (typeof d.message === 'string') chunks.push(d.message);
+    if (Array.isArray(d.data)) {
+      chunks.push(d.data.map((x) => String(x)).join('; '));
+    }
+    if (chunks.length) return chunks.join(' ');
+  }
+  return error.message;
 }
 
 function apiKey(): string {
@@ -95,20 +124,24 @@ export async function sendUtxoFromAddress(params: SendUtxoFromAddressParams): Pr
       },
     ],
     to: [{ address: params.toAddress, value: parseTatumUtxoAmountAsNumber(params.value) }],
-    fee: parseTatumUtxoAmountAsNumber(params.fee),
+    fee: formatTatumUtxoFeeAsNumericString(params.fee),
     changeAddress: params.changeAddress,
   };
 
-  const response = await axios.post<{ txId: string }>(`${baseUrl}/${segment(chain)}/transaction`, body, {
-    headers: {
-      'x-api-key': apiKey(),
-      'content-type': 'application/json',
-      accept: 'application/json',
-    },
-  });
+  try {
+    const response = await axios.post<{ txId: string }>(`${baseUrl}/${segment(chain)}/transaction`, body, {
+      headers: {
+        'x-api-key': apiKey(),
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+    });
 
-  if (!response.data?.txId) {
-    throw new Error(`${chain} transaction: no txId in response`);
+    if (!response.data?.txId) {
+      throw new Error(`${chain} transaction: no txId in response`);
+    }
+    return response.data.txId;
+  } catch (e) {
+    throw new Error(formatTatumRequestError(e));
   }
-  return response.data.txId;
 }

@@ -5,7 +5,11 @@
 import axios from 'axios';
 import { Decimal } from '@prisma/client/runtime/library';
 import cryptoLogger from '../../utils/crypto.logger';
-import { parseTatumUtxoAmountAsNumber } from '../utxo/utxo.tatum.service';
+import {
+  formatTatumRequestError,
+  formatTatumUtxoFeeAsNumericString,
+  parseTatumUtxoAmountAsNumber,
+} from '../utxo/utxo.tatum.service';
 
 const baseUrl = 'https://api.tatum.io/v3';
 
@@ -75,20 +79,24 @@ export async function sendBitcoinFromAddress(params: SendBitcoinFromAddressParam
         value: parseTatumUtxoAmountAsNumber(params.valueBtc),
       },
     ],
-    fee: parseTatumUtxoAmountAsNumber(params.feeBtc),
+    fee: formatTatumUtxoFeeAsNumericString(params.feeBtc),
     changeAddress: params.changeAddress,
   };
 
-  const response = await axios.post<{ txId: string }>(`${baseUrl}/bitcoin/transaction`, body, {
-    headers: {
-      'x-api-key': apiKey(),
-      'content-type': 'application/json',
-      accept: 'application/json',
-    },
-  });
+  try {
+    const response = await axios.post<{ txId: string }>(`${baseUrl}/bitcoin/transaction`, body, {
+      headers: {
+        'x-api-key': apiKey(),
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+    });
 
-  if (!response.data?.txId) {
-    throw new Error('Bitcoin transaction: no txId in response');
+    if (!response.data?.txId) {
+      throw new Error('Bitcoin transaction: no txId in response');
+    }
+    return response.data.txId;
+  } catch (e) {
+    throw new Error(formatTatumRequestError(e));
   }
-  return response.data.txId;
 }
