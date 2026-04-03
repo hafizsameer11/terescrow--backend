@@ -87,9 +87,9 @@ export function decryptDepositPrivateKey(encryptedKey: string): string {
 /** Same algorithm as deposit keys — used for master wallet encrypted private keys. */
 export const decryptSignerPrivateKey = decryptDepositPrivateKey;
 
+/** Resolve custodial hot wallet for a chain. `chainNorm` must be lowercase (see normalizeCustomerSendBlockchain). */
 export async function findMasterWalletForChain(chainNorm: string) {
   return prisma.masterWallet.findFirst({
-    // `chainNorm` is lowercase; MySQL `StringFilter` has no `mode: 'insensitive'`.
     where: { blockchain: chainNorm },
   });
 }
