@@ -6,6 +6,16 @@
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 
+/** Prisma/`unknown` balances → Decimal without passing `unknown` into the constructor (TS Value type). */
+function decimalFromBalance(value: unknown): Decimal {
+  if (value == null || value === '') return new Decimal('0');
+  if (value instanceof Decimal) return value;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') {
+    return new Decimal(String(value));
+  }
+  return new Decimal('0');
+}
+
 export function isUsdtFamilyCurrency(currency: string): boolean {
   const c = (currency || '').toUpperCase();
   return c === 'USDT' || c.startsWith('USDT_');
@@ -43,8 +53,8 @@ export async function fetchUsdtFamilyVirtualAccounts(userId: number) {
 
 export function sumUsdtBalances(accounts: { availableBalance?: unknown }[]): Decimal {
   return accounts.reduce(
-    (s, a) => s.plus(new Decimal(a.availableBalance || '0')),
-    new Decimal(0)
+    (s, a) => s.plus(decimalFromBalance(a.availableBalance)),
+    new Decimal('0')
   );
 }
 
@@ -63,7 +73,7 @@ export function buildUsdtNetworkBalances(
     blockchain: a.blockchain,
     storageCurrency: a.currency,
     virtualAccountId: a.id,
-    balance: new Decimal(a.availableBalance || '0').toString(),
+    balance: decimalFromBalance(a.availableBalance).toString(),
     depositAddress: a.depositAddresses[0]?.address ?? null,
   }));
 }
