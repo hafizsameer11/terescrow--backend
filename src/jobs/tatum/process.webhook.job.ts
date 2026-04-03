@@ -13,6 +13,53 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
 
+/** Sender / counterparty from Tatum payloads (field names and shapes differ by chain). */
+function resolveIncomingCounterpartyAddress(webhookData: {
+  counterAddress?: unknown;
+  counterAddresses?: unknown;
+  counter_address?: unknown;
+  from?: unknown;
+}): string | undefined {
+  const ca = webhookData.counterAddress ?? webhookData.counter_address;
+  if (typeof ca === 'string' && ca.trim()) return ca.trim();
+  const cas = webhookData.counterAddresses;
+  if (Array.isArray(cas)) {
+    const first = cas.find((x): x is string => typeof x === 'string' && !!x.trim());
+    if (first) return first.trim();
+  }
+  const from = webhookData.from;
+  if (typeof from === 'string' && from.trim()) return from.trim();
+  return undefined;
+}
+
+/** 40-hex EVM contract id, lowercase with 0x — for matching Tatum vs DB regardless of checksum / 0x prefix. */
+function canonicalEvmContract(addr: string): string | null {
+  const t = addr.trim().toLowerCase();
+  const hex = t.startsWith('0x') ? t.slice(2) : t;
+  if (!/^[0-9a-f]{40}$/.test(hex)) return null;
+  return `0x${hex}`;
+}
+
+/** True if DB token contract matches webhook asset (EVM hex, Tron base58, or Tatum symbol e.g. USDT_TRON). */
+function tokenContractMatches(dbContract: string, webhookContract: string): boolean {
+  const db = dbContract.trim();
+  const inc = webhookContract.trim();
+  const dbEvm = canonicalEvmContract(db);
+  const incEvm = canonicalEvmContract(inc);
+  if (dbEvm && incEvm) return dbEvm === incEvm;
+  if (db.toLowerCase() === inc.toLowerCase()) return true;
+  return db === inc;
+}
+
+/** wallet_currencies.blockchain casing differs from virtual_account (e.g. Ethereum vs ethereum). */
+function blockchainDbVariants(slug: string): string[] {
+  const s = slug.toLowerCase();
+  const variants = new Set<string>([s]);
+  if (s === 'ethereum') variants.add('Ethereum');
+  if (s === 'litecoin') variants.add('Litecoin');
+  return [...variants];
+}
+
 /**
  * Process blockchain webhook from Tatum
  */
@@ -56,30 +103,30 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
     // These webhooks don't have accountId, but we can find the deposit address by matching the address
     if (isAddressWebhook && !webhookData.accountId) {
       const addressTxId = webhookData.txId || webhookData.txHash;
-      const webhookAddr = webhookData.address?.toLowerCase();
-      const counterAddress = webhookData.counterAddress?.toLowerCase();
-      
-      // If no counterAddress, it's a send transaction - ignore (we handle sends synchronously)
-      if (!counterAddress) {
-        tatumLogger.info('Address-based webhook without counterAddress - ignoring (send transaction)', {
-          address: webhookAddr,
+      const addressRaw = typeof webhookData.address === 'string' ? webhookData.address.trim() : '';
+      const counterpartyRaw = resolveIncomingCounterpartyAddress(webhookData);
+      const isTatumIncomingSubscription =
+        webhookData.subscriptionType === 'INCOMING_NATIVE_TX'
+        || webhookData.subscriptionType === 'INCOMING_FUNGIBLE_TX';
+
+      // Legacy ADDRESS_EVENT may omit counterparty on outbound notifications; INCOMING_* is always inbound to `address`.
+      if (!counterpartyRaw && !isTatumIncomingSubscription) {
+        tatumLogger.info('Address-based webhook without counterparty - ignoring (treated as non-receive)', {
+          address: addressRaw,
           txId: addressTxId,
           subscriptionType: webhookData.subscriptionType,
         });
         return { processed: false, reason: 'send_transaction_ignore' };
       }
-      
-      // Has counterAddress - this is a RECEIVE transaction
-      // Find deposit address by matching the webhook address
-      if (!webhookAddr) {
+
+      if (!addressRaw) {
         tatumLogger.warn('Address-based webhook missing address field', {
           txId: addressTxId,
           subscriptionType: webhookData.subscriptionType,
         });
         return { processed: false, reason: 'missing_address' };
       }
-      
-      // Find deposit address with case-insensitive matching
+
       const allDepositAddresses = await prisma.depositAddress.findMany({
         include: {
           virtualAccount: {
@@ -89,17 +136,16 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
           },
         },
       });
-      
-      // Case-insensitive address matching
+
       const depositAddressRecord = allDepositAddresses.find(
-        da => da.address.toLowerCase() === webhookAddr.toLowerCase()
+        da => da.address.toLowerCase() === addressRaw.toLowerCase()
       );
       
       if (!depositAddressRecord || !depositAddressRecord.virtualAccount) {
         tatumLogger.info('Address-based webhook - deposit address not found', {
-          address: webhookAddr,
+          address: addressRaw,
           txId: addressTxId,
-          counterAddress,
+          counterparty: counterpartyRaw,
         });
         return { processed: false, reason: 'deposit_address_not_found' };
       }
@@ -116,8 +162,8 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       const isToken = isFungibleToken || (contractAddress && contractAddress !== 'ETH' && webhookData.type === 'token');
       
       tatumLogger.info('Processing address-based webhook as receive transaction', {
-        address: webhookAddr,
-        counterAddress,
+        address: addressRaw,
+        counterparty: counterpartyRaw,
         amount: amountStr,
         contractAddress,
         subscriptionType: webhookData.subscriptionType,
@@ -134,22 +180,23 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       let targetVirtualAccount = addressVirtualAccount;
       
       // For token transfers, find the correct currency and virtual account
+      // Supports: EVM 0x + checksum (USDT), Tron TRC-20 base58, Tron Tatum symbol USDT_TRON on contractAddress
       if (isToken && contractAddress) {
+        const chainSlug = addressVirtualAccount.blockchain.toLowerCase();
         const walletCurrencies = await prisma.walletCurrency.findMany({
           where: {
-            blockchain: addressVirtualAccount.blockchain.toLowerCase(),
+            blockchain: { in: blockchainDbVariants(chainSlug) },
             contractAddress: { not: null },
           },
         });
-        
-        // Match by on-chain contract address (EVM hex, Tron base58, etc.)
+
         let walletCurrency = walletCurrencies.find(
-          wc => wc.contractAddress?.toLowerCase() === contractAddress.toLowerCase()
+          (wc) => wc.contractAddress && tokenContractMatches(wc.contractAddress, String(contractAddress))
         );
-        // Tatum often sends an asset symbol in contractAddress for Tron (e.g. USDT_TRON) instead of the TRC-20 address
+        // Tatum Tron: contractAddress may be USDT_TRON instead of TRC-20 base58
         if (!walletCurrency) {
           walletCurrency = walletCurrencies.find(
-            wc => wc.currency.toUpperCase() === contractAddress.toUpperCase()
+            (wc) => wc.currency.toUpperCase() === String(contractAddress).toUpperCase()
           );
         }
         
@@ -192,9 +239,8 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       // We'll set accountId to targetVirtualAccount.accountId for compatibility
       webhookData.accountId = targetVirtualAccount.accountId;
       webhookData.currency = detectedCurrency;
-      // Set from and to addresses for address-based webhooks
-      webhookData.from = counterAddress; // Sender
-      webhookData.to = webhookAddr; // Receiver (our deposit address)
+      webhookData.from = counterpartyRaw ?? '';
+      webhookData.to = addressRaw;
       
       // IMPORTANT: Check for duplicates and save WebhookResponse EARLY to "claim" this webhook
       // This must happen AFTER we've set up all the webhook data but BEFORE processing
@@ -220,8 +266,8 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         if (existingReceiveTx) {
           tatumLogger.info('Address-based webhook already processed (receive transaction exists)', {
             txId: addressTxId,
-            address: webhookAddr,
-            counterAddress,
+            address: addressRaw,
+            counterparty: counterpartyRaw,
             existingReceiveTxId: existingReceiveTx.id,
             transactionType: existingReceiveTx.transactionType,
           });
@@ -249,8 +295,8 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
               txId: addressTxId || '',
               blockHeight: BigInt(webhookData.blockNumber || 0),
               blockHash: webhookData.blockHash || null,
-              fromAddress: counterAddress || null,
-              toAddress: webhookAddr || null,
+              fromAddress: counterpartyRaw || null,
+              toAddress: addressRaw || null,
               transactionDate: transactionDateForClaim,
               index: webhookData.logIndex || null,
             },
