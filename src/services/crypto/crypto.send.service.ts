@@ -17,7 +17,6 @@ import {
 } from './crypto.unified.usdt';
 import cryptoLogger from '../../utils/crypto.logger';
 import { sendPushNotification } from '../../utils/pushService';
-import { InAppNotificationType } from '@prisma/client';
 import {
   assertCustomerSendChainSupported,
   findMasterWalletForChain,
@@ -28,6 +27,11 @@ import { executeCustodialSendNonEthereum } from './crypto.send.chain.handlers';
 import { getEvmNativeBalance, getEvmFungibleTokenBalance } from '../tatum/evm.tatum.balance.service';
 import { getTronTrxBalance, getTronTrc20Balance } from '../tron/tron.tatum.service';
 import { estimateUtxoTxFee, getUtxoAddressBalance } from '../utxo/utxo.tatum.service';
+
+/** Interactive `$transaction` callback client (inferred; avoids importing `Prisma` namespace). */
+type PrismaTransactionClient = Parameters<
+  Extract<Parameters<typeof prisma.$transaction>[0], (tx: never) => Promise<unknown>>
+>[0];
 
 export interface SendCryptoInput {
   userId: number;
@@ -49,6 +53,34 @@ export interface SendCryptoResult {
   balanceAfter: string;
 }
 
+/** Include for send/preview queries. */
+const VIRTUAL_ACCOUNT_FOR_SEND_INCLUDE = {
+  depositAddresses: { take: 1, orderBy: { createdAt: 'desc' as const } },
+  walletCurrency: true,
+};
+
+/**
+ * Virtual account with relations loaded for send/preview.
+ * (Explicit shape so TS knows about `include` without `Prisma.*GetPayload`.)
+ */
+type VirtualAccountForSend = {
+  id: number;
+  userId: number;
+  currency: string;
+  blockchain: string;
+  availableBalance: string;
+  accountBalance: string;
+  depositAddresses: { address: string }[];
+  walletCurrency: {
+    price: { toString(): string } | null;
+    contractAddress: string | null;
+    decimals: number | null;
+    isToken: boolean | null;
+    name: string | null;
+    symbol: string | null;
+  } | null;
+};
+
 class CryptoSendService {
   /**
    * Send to an external address: broadcast from **master wallet**, debit user's virtual account.
@@ -57,18 +89,16 @@ class CryptoSendService {
     userId: number,
     storageCurrency: string,
     chainNorm: string
-  ) {
+  ): Promise<VirtualAccountForSend | null> {
     return prisma.virtualAccount.findFirst({
       where: {
         userId,
         currency: storageCurrency,
-        blockchain: { equals: chainNorm, mode: 'insensitive' },
+        // `chainNorm` is already lowercase; MySQL StringFilter has no `mode: 'insensitive'`.
+        blockchain: chainNorm,
       },
-      include: {
-        depositAddresses: { take: 1, orderBy: { createdAt: 'desc' } },
-        walletCurrency: true,
-      },
-    });
+      include: VIRTUAL_ACCOUNT_FOR_SEND_INCLUDE,
+    }) as Promise<VirtualAccountForSend | null>;
   }
 
   /** On-chain asset balance at any address (user deposit or master). */
@@ -245,7 +275,7 @@ class CryptoSendService {
     // Update database records (do this quickly without verification to avoid timeout)
     // Blockchain transfer already succeeded, so we just need to update balances
     try {
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: PrismaTransactionClient) => {
         // Update virtual account to match expected on-chain balance after send
         await tx.virtualAccount.update({
           where: { id: virtualAccount.id },
@@ -333,7 +363,7 @@ class CryptoSendService {
           userId,
           title: 'Crypto Transfer Successful',
           description: `You successfully sent ${amountCryptoDecimal.toString()} ${currencyCode} to ${toAddress}. Transaction ID: ${transactionId}`,
-          type: InAppNotificationType.customeer,
+          type: 'customeer',
         },
       });
 
@@ -511,7 +541,7 @@ class CryptoSendService {
       }
 
       const nativeWc = await prisma.walletCurrency.findFirst({
-        where: { blockchain: { equals: chainNorm, mode: 'insensitive' }, isToken: false },
+        where: { blockchain: chainNorm, isToken: false },
       });
       if (nativeWc?.price) {
         gasFeeUsd = gasFeeEth.mul(new Decimal(nativeWc.price.toString()));
