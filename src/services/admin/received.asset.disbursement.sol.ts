@@ -36,6 +36,8 @@ export async function executeSolVendorDisbursement(params: {
   toAddress: string;
   vendorId: number | null;
   networkFee: string;
+  requestedAmountSol?: string;
+  partialSolSweep?: boolean;
 }> {
   const {
     tx,
@@ -88,12 +90,18 @@ export async function executeSolVendorDisbursement(params: {
   let netToVendor = Decimal.min(recvAmount, maxSendable);
   netToVendor = netToVendor.toDecimalPlaces(9, Decimal.ROUND_DOWN);
 
-  if (netToVendor.lessThan(recvAmount)) {
-    throw ApiError.badRequest(
-      `Cannot send the full receive (${recvAmount.toString()} SOL) from this Solana deposit: ` +
-        `after network fee and rent-exempt minimum, at most ${maxSendable.toString()} SOL can leave the address. ` +
-        `On-chain balance: ${onChain.toString()} SOL. Top up the deposit slightly or reconcile the receive amount.`
-    );
+  const partialSweep = netToVendor.lessThan(recvAmount);
+  if (partialSweep) {
+    cryptoLogger.transaction('ADMIN_SOL_PARTIAL_SWEEP', {
+      receiveTransactionId,
+      depositAddress,
+      bookedReceiveSol: recvAmount.toString(),
+      sentSol: netToVendor.toString(),
+      onChainSol: onChain.toString(),
+      maxSendableSol: maxSendable.toString(),
+      minLeftReserveSol: SOLANA_MIN_LEFT_ON_DEPOSIT.toString(),
+      txFeeHeadroomSol: txFeeHeadroom.toString(),
+    });
   }
 
   if (!netToVendor.isFinite() || netToVendor.lte(0)) {
@@ -104,6 +112,11 @@ export async function executeSolVendorDisbursement(params: {
   const networkFeeLedger = txFeeHeadroom;
 
   const amountUsd = netToVendor.mul(cryptoPrice);
+
+  const sweepNotes = partialSweep
+    ? `Partial SOL sweep: sent ${netToVendor.toString()} SOL; booked receive ${recvAmount.toString()} SOL; ` +
+      `~${SOLANA_MIN_LEFT_ON_DEPOSIT.toString()} SOL + fees reserved on deposit.`
+    : null;
 
   const pending = await prisma.receivedAssetDisbursement.create({
     data: {
@@ -119,6 +132,7 @@ export async function executeSolVendorDisbursement(params: {
       amountUsd,
       status: 'pending',
       adminUserId,
+      notes: sweepNotes,
     },
   });
 
@@ -179,5 +193,8 @@ export async function executeSolVendorDisbursement(params: {
     toAddress,
     vendorId: vendor.id ?? null,
     networkFee: networkFeeLedger.toString(),
+    ...(partialSweep
+      ? { requestedAmountSol: recvAmount.toString(), partialSolSweep: true }
+      : {}),
   };
 }

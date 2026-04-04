@@ -44,6 +44,10 @@ export interface SendReceivedAssetToVendorResult {
   vendorId: number | null;
   networkFee: string;
   gasFundingTxHash?: string;
+  /** Booked receive amount when Solana sweep sends less (rent + fee stay on deposit). */
+  requestedAmountSol?: string;
+  /** True when sent amount is below booked receive for native SOL (automatic partial sweep). */
+  partialSolSweep?: boolean;
 }
 
 export interface BulkDisbursementItemResult {
