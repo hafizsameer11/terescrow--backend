@@ -5,6 +5,7 @@
 import axios from 'axios';
 import { Decimal } from '@prisma/client/runtime/library';
 import cryptoLogger from '../../utils/crypto.logger';
+import { formatTatumRequestError } from '../utxo/utxo.tatum.service';
 
 const baseUrl = 'https://api.tatum.io/v3';
 
@@ -32,23 +33,27 @@ export function parseTatumSolBalance(raw: string | number | undefined | null): D
 
 /** Spendable SOL at address (best effort from Tatum account payload). */
 export async function getSolanaAddressBalanceSol(address: string): Promise<string> {
-  const endpoint = `${baseUrl}/solana/account/${encodeURIComponent(address)}`;
-  const response = await axios.get(endpoint, {
-    headers: { 'x-api-key': apiKey(), accept: 'application/json' },
-  });
-  const data = response.data as Record<string, unknown>;
-  const candidates = [
-    data.balance,
-    (data.account as Record<string, unknown> | undefined)?.balance,
-    (data.data as Record<string, unknown> | undefined)?.balance,
-  ];
-  for (const c of candidates) {
-    if (c !== undefined && c !== null) {
-      return parseTatumSolBalance(c as string | number).toString();
+  try {
+    const endpoint = `${baseUrl}/solana/account/${encodeURIComponent(address)}`;
+    const response = await axios.get(endpoint, {
+      headers: { 'x-api-key': apiKey(), accept: 'application/json' },
+    });
+    const data = response.data as Record<string, unknown>;
+    const candidates = [
+      data.balance,
+      (data.account as Record<string, unknown> | undefined)?.balance,
+      (data.data as Record<string, unknown> | undefined)?.balance,
+    ];
+    for (const c of candidates) {
+      if (c !== undefined && c !== null) {
+        return parseTatumSolBalance(c as string | number).toString();
+      }
     }
+    cryptoLogger.warn('Solana account response missing balance field', { address, keys: Object.keys(data) });
+    return '0';
+  } catch (e) {
+    throw new Error(`Solana balance (Tatum): ${formatTatumRequestError(e)}`);
   }
-  cryptoLogger.warn('Solana account response missing balance field', { address, keys: Object.keys(data) });
-  return '0';
 }
 
 export async function estimateSolanaTransferFeeSol(): Promise<Decimal> {
@@ -86,21 +91,26 @@ export async function sendSolFromAddress(params: SendSolFromAddressParams): Prom
     fromPrivateKey: params.fromPrivateKey.trim(),
   };
 
-  const response = await axios.post<{ txId?: string; signature?: string }>(
-    `${baseUrl}/solana/transaction`,
-    body,
-    {
-      headers: {
-        'x-api-key': apiKey(),
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
-    }
-  );
+  try {
+    const response = await axios.post<{ txId?: string; signature?: string }>(
+      `${baseUrl}/solana/transaction`,
+      body,
+      {
+        headers: {
+          'x-api-key': apiKey(),
+          'content-type': 'application/json',
+          accept: 'application/json',
+        },
+      }
+    );
 
-  const id = response.data?.txId || response.data?.signature;
-  if (!id) {
-    throw new Error('Solana transaction: no txId/signature in response');
+    const id = response.data?.txId || response.data?.signature;
+    if (!id) {
+      throw new Error('Solana transaction: no txId/signature in response');
+    }
+    return id;
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('no txId')) throw e;
+    throw new Error(`Solana send (Tatum): ${formatTatumRequestError(e)}`);
   }
-  return id;
 }

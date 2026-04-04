@@ -4,6 +4,14 @@ import ApiResponse from '../../utils/ApiResponse';
 import * as trackingService from '../../services/admin/transaction.tracking.service';
 import * as receivedAssetDisbursementService from '../../services/admin/received.asset.disbursement.service';
 
+/** Preserve upstream messages (e.g. Tatum/Axios) when the error is not an ApiError. */
+function nextDisbursementError(error: unknown, fallback: string, next: NextFunction) {
+  if (error instanceof ApiError) return next(error);
+  const msg =
+    error instanceof Error && error.message?.trim() ? error.message.trim() : fallback;
+  return next(ApiError.internal(msg));
+}
+
 export async function getTransactionTrackingController(
   req: Request,
   res: Response,
@@ -88,8 +96,7 @@ export async function sendReceivedAssetToVendorController(
       res
     );
   } catch (error) {
-    if (error instanceof ApiError) return next(error);
-    next(ApiError.internal('Failed to send to vendor'));
+    return nextDisbursementError(error, 'Failed to send to vendor', next);
   }
 }
 
@@ -119,8 +126,7 @@ export async function sendReceivedAssetToMasterWalletController(
       'Sent from customer deposit to configured master wallet address; recorded as received-asset disbursement'
     ).send(res);
   } catch (error) {
-    if (error instanceof ApiError) return next(error);
-    next(ApiError.internal('Failed to send deposit to master wallet'));
+    return nextDisbursementError(error, 'Failed to send deposit to master wallet', next);
   }
 }
 
@@ -148,7 +154,6 @@ export async function bulkSendReceivedAssetsToVendorController(
       `Bulk disbursement finished: ${result.summary.succeeded}/${result.summary.total} succeeded`
     ).send(res);
   } catch (error) {
-    if (error instanceof ApiError) return next(error);
-    next(ApiError.internal('Failed bulk send to vendor'));
+    return nextDisbursementError(error, 'Failed bulk send to vendor', next);
   }
 }
