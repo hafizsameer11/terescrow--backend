@@ -31,10 +31,10 @@ export function parseTatumSolBalance(raw: string | number | undefined | null): D
   return d.div(1e9);
 }
 
-/** Spendable SOL at address (best effort from Tatum account payload). */
+/** Native SOL balance via Tatum v3 `GET /v3/solana/account/balance/{address}` (not `/account/{address}`). */
 export async function getSolanaAddressBalanceSol(address: string): Promise<string> {
   try {
-    const endpoint = `${baseUrl}/solana/account/${encodeURIComponent(address)}`;
+    const endpoint = `${baseUrl}/solana/account/balance/${encodeURIComponent(address)}`;
     const response = await axios.get(endpoint, {
       headers: { 'x-api-key': apiKey(), accept: 'application/json' },
     });
@@ -49,7 +49,7 @@ export async function getSolanaAddressBalanceSol(address: string): Promise<strin
         return parseTatumSolBalance(c as string | number).toString();
       }
     }
-    cryptoLogger.warn('Solana account response missing balance field', { address, keys: Object.keys(data) });
+    cryptoLogger.warn('Solana balance response missing balance field', { address, keys: Object.keys(data) });
     return '0';
   } catch (e) {
     throw new Error(`Solana balance (Tatum): ${formatTatumRequestError(e)}`);

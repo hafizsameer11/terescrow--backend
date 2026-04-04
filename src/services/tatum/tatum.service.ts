@@ -650,8 +650,7 @@ class TatumService {
           break;
         case 'solana':
         case 'sol':
-          // Solana: GET /v3/solana/account/{address} (may not have direct balance endpoint)
-          endpoint = `/solana/account/${address}`;
+          endpoint = `/solana/account/balance/${address}`;
           break;
         default:
           // Try EVM format for unknown chains
