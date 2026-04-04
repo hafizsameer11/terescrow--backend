@@ -81,8 +81,17 @@ function feeTicker(chain: UtxoTatumChain): string {
   return 'LTC';
 }
 
+/** Reject Tatum /blockchain/fee/* values above this (wrong units / bad payloads). */
+function maxReasonableFeeLtc(chain: UtxoTatumChain): Decimal {
+  if (chain === 'bitcoin') return new Decimal('0.01');
+  if (chain === 'litecoin') return new Decimal('0.02');
+  if (chain === 'dogecoin') return new Decimal('20');
+  return new Decimal('0.01');
+}
+
 export async function estimateUtxoTxFee(chain: UtxoTatumChain): Promise<Decimal> {
   const ticker = feeTicker(chain);
+  const ceiling = maxReasonableFeeLtc(chain);
   try {
     const response = await axios.get(`${baseUrl}/blockchain/fee/${ticker}`, {
       headers: { 'x-api-key': apiKey(), accept: 'application/json' },
@@ -91,9 +100,14 @@ export async function estimateUtxoTxFee(chain: UtxoTatumChain): Promise<Decimal>
     const medium = d?.medium ?? d?.standard ?? d?.fast;
     if (medium != null) {
       const m = new Decimal(String(medium));
-      if (m.isFinite() && m.gt(0)) {
-        const cap = chain === 'bitcoin' ? new Decimal('0.01') : new Decimal('100');
-        if (m.lt(cap)) return m;
+      if (m.isFinite() && m.gt(0) && m.lte(ceiling)) {
+        return m;
+      }
+      if (m.gt(ceiling)) {
+        cryptoLogger.warn(`Tatum ${ticker} fee ignored (implausible ${m.toString()} > ${ceiling.toString()})`, {
+          ticker,
+          raw: medium,
+        });
       }
     }
   } catch (e) {
