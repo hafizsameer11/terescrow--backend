@@ -83,11 +83,21 @@ export interface SendSolFromAddressParams {
   amountSol: string;
 }
 
+/** Tatum accepts SOL amount as JSON number; max 9 fractional digits (lamports). */
+export function parseTatumSolAmountAsNumber(amountSol: string): number {
+  const d = new Decimal(String(amountSol).trim());
+  if (!d.isFinite() || d.lte(0)) {
+    throw new Error('Solana send amount must be a positive number');
+  }
+  const clipped = d.toDecimalPlaces(9, Decimal.ROUND_DOWN);
+  return parseFloat(clipped.toFixed(9));
+}
+
 export async function sendSolFromAddress(params: SendSolFromAddressParams): Promise<string> {
   const body = {
     from: params.fromAddress,
     to: params.toAddress,
-    amount: params.amountSol,
+    amount: parseTatumSolAmountAsNumber(params.amountSol),
     fromPrivateKey: params.fromPrivateKey.trim(),
   };
 

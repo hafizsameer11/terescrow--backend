@@ -9,8 +9,11 @@ import {
 } from '../solana/solana.tatum.service';
 import type { DecryptFn } from './received.asset.disbursement.helpers';
 
-/** Extra headroom beyond fee estimate (rent + priority variance). */
-const SOL_FEE_BUFFER = new Decimal('0.0001');
+/**
+ * Solana sender must keep rent-exempt lamports + tx fee on the deposit account after transfer.
+ * ~0.00089 SOL is typical rent for a basic account; we leave more for fee variance.
+ */
+const SOLANA_MIN_LEFT_ON_DEPOSIT = new Decimal('0.002');
 
 export async function executeSolVendorDisbursement(params: {
   tx: any;
@@ -73,14 +76,32 @@ export async function executeSolVendorDisbursement(params: {
   }
 
   const feeEst = await estimateSolanaTransferFeeSol();
-  const totalFee = Decimal.max(feeEst, SOL_FEE_BUFFER);
-  const netToVendor = recvAmount.minus(totalFee);
-
-  if (!netToVendor.isFinite() || netToVendor.lte(0)) {
+  const txFeeHeadroom = Decimal.max(feeEst, new Decimal('0.00005'));
+  const maxSendable = onChain.minus(SOLANA_MIN_LEFT_ON_DEPOSIT).minus(txFeeHeadroom);
+  if (!maxSendable.isFinite() || maxSendable.lte(0)) {
     throw ApiError.badRequest(
-      `Receive amount too small to cover Solana network fee (reserve ${totalFee.toString()} SOL).`
+      `Solana deposit balance too low to sweep after keeping ~${SOLANA_MIN_LEFT_ON_DEPOSIT.toString()} SOL ` +
+        `(rent + fees) on the address. On-chain: ${onChain.toString()} SOL.`
     );
   }
+
+  let netToVendor = Decimal.min(recvAmount, maxSendable);
+  netToVendor = netToVendor.toDecimalPlaces(9, Decimal.ROUND_DOWN);
+
+  if (netToVendor.lessThan(recvAmount)) {
+    throw ApiError.badRequest(
+      `Cannot send the full receive (${recvAmount.toString()} SOL) from this Solana deposit: ` +
+        `after network fee and rent-exempt minimum, at most ${maxSendable.toString()} SOL can leave the address. ` +
+        `On-chain balance: ${onChain.toString()} SOL. Top up the deposit slightly or reconcile the receive amount.`
+    );
+  }
+
+  if (!netToVendor.isFinite() || netToVendor.lte(0)) {
+    throw ApiError.badRequest('Computed Solana send amount is invalid after rent/fee reserve.');
+  }
+
+  /** Ledger hint for fees (actual priority fee may differ on-chain). */
+  const networkFeeLedger = txFeeHeadroom;
 
   const amountUsd = netToVendor.mul(cryptoPrice);
 
@@ -125,7 +146,7 @@ export async function executeSolVendorDisbursement(params: {
         data: {
           status: 'successful',
           txHash,
-          networkFee: totalFee,
+          networkFee: networkFeeLedger,
         },
       });
       if (receivedAsset) {
@@ -157,6 +178,6 @@ export async function executeSolVendorDisbursement(params: {
     amountUsd: amountUsd.toString(),
     toAddress,
     vendorId: vendor.id ?? null,
-    networkFee: totalFee.toString(),
+    networkFee: networkFeeLedger.toString(),
   };
 }
