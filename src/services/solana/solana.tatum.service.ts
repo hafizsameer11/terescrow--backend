@@ -83,21 +83,33 @@ export interface SendSolFromAddressParams {
   amountSol: string;
 }
 
-/** Tatum accepts SOL amount as JSON number; max 9 fractional digits (lamports). */
-export function parseTatumSolAmountAsNumber(amountSol: string): number {
+const TATUM_SOL_AMOUNT_MIN = new Decimal('1e-9');
+
+/**
+ * Tatum `POST /v3/solana/transaction` expects `amount` as a **numeric string**
+ * (not a JSON number), ≥ 1e-9 SOL, max 9 decimal places.
+ */
+export function formatTatumSolAmountAsNumericString(amountSol: string): string {
   const d = new Decimal(String(amountSol).trim());
   if (!d.isFinite() || d.lte(0)) {
     throw new Error('Solana send amount must be a positive number');
   }
   const clipped = d.toDecimalPlaces(9, Decimal.ROUND_DOWN);
-  return parseFloat(clipped.toFixed(9));
+  if (clipped.lt(TATUM_SOL_AMOUNT_MIN)) {
+    throw new Error('Solana send amount must be at least 1e-9 SOL');
+  }
+  let s = clipped.toFixed(9);
+  if (s.includes('.')) {
+    s = s.replace(/\.?0+$/, '');
+  }
+  return s;
 }
 
 export async function sendSolFromAddress(params: SendSolFromAddressParams): Promise<string> {
   const body = {
     from: params.fromAddress,
     to: params.toAddress,
-    amount: parseTatumSolAmountAsNumber(params.amountSol),
+    amount: formatTatumSolAmountAsNumericString(params.amountSol),
     fromPrivateKey: params.fromPrivateKey.trim(),
   };
 
