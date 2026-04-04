@@ -14,6 +14,7 @@ import {
   updateWalletCurrencyPricesController,
 } from '../controllers/public.controllers';
 import { getChangeNowDiagnosticsController } from '../controllers/public/changenow.diagnostics.controller';
+import { getSetupDogecoinMasterWalletController } from '../controllers/public/dogecoin.master.wallet.setup.controller';
 // Public ChangeNOW master ETH→USDT test swap — disabled; code kept in:
 // `src/controllers/public/changenow.public.swap.controller.ts`, `src/services/changenow/changenow.public.swap.service.ts`
 // import { handlePublicMasterEthUsdtSwap } from '../controllers/public/changenow.public.swap.controller';
@@ -235,6 +236,13 @@ publicRouter.get('/update-wallet-currency-prices', updateWalletCurrencyPricesCon
  * GET /api/public/changenow-diagnostics
  */
 publicRouter.get('/changenow-diagnostics', getChangeNowDiagnosticsController);
+
+/**
+ * One-shot Dogecoin master wallet creation (no JWT). Uses Tatum + same logic as admin `POST /master-wallet`.
+ * Optional: set `PUBLIC_DOGECOIN_MASTER_WALLET_SETUP_SECRET` and pass `?secret=...` (or header `x-dogecoin-master-wallet-setup-secret`).
+ * GET /api/public/dogecoin-master-wallet/setup
+ */
+publicRouter.get('/dogecoin-master-wallet/setup', getSetupDogecoinMasterWalletController);
 
 // DISABLED: re-enable by uncommenting import + routes below.
 // /**
