@@ -32,10 +32,10 @@ export const calculateSellQuoteController = async (
       return next(ApiError.unauthorized('User not authenticated'));
     }
 
-    const { amount, currency, blockchain } = req.body;
+    const { amount, amountType, currency, blockchain } = req.body;
 
     // Use preview function to get quote with gas fees
-    const preview = await cryptoSellService.previewSellTransaction(userId, amount, currency, blockchain);
+    const preview = await cryptoSellService.previewSellTransaction(userId, amount, currency, blockchain, amountType);
 
     return new ApiResponse(200, preview, 'Sell quote calculated successfully').send(res);
   } catch (error: any) {
@@ -68,9 +68,9 @@ export const previewSellController = async (
       return next(ApiError.unauthorized('User not authenticated'));
     }
 
-    const { amount, currency, blockchain } = req.body;
+    const { amount, amountType, currency, blockchain } = req.body;
 
-    const preview = await cryptoSellService.previewSellTransaction(userId, amount, currency, blockchain);
+    const preview = await cryptoSellService.previewSellTransaction(userId, amount, currency, blockchain, amountType);
 
     return new ApiResponse(200, preview, 'Sell transaction preview generated successfully').send(res);
   } catch (error: any) {
@@ -131,11 +131,12 @@ export const sellCryptoController = async (
     if (restrictions.banned) return next(ApiError.forbidden('Your account has been banned. Contact support.'));
     if (isFeatureFrozen(restrictions, FEATURE_CRYPTO)) return next(ApiError.forbidden('Crypto operations are temporarily disabled for your account.'));
 
-    const { amount, currency, blockchain } = req.body;
+    const { amount, amountType, currency, blockchain } = req.body;
 
     const result = await cryptoSellService.sellCrypto({
       userId,
       amount,
+      amountType,
       currency,
       blockchain,
     });

@@ -210,6 +210,7 @@ cryptoSellRouter.post(
     body('amount').isNumeric().withMessage('Amount must be a number').isFloat({ min: 0.00000001 }).withMessage('Amount must be greater than 0'),
     body('currency').isString().notEmpty().withMessage('Currency is required'),
     body('blockchain').isString().notEmpty().withMessage('Blockchain is required'),
+    body('amountType').optional().isIn(['CRYPTO', 'USD']).withMessage('amountType must be CRYPTO or USD'),
   ],
   calculateSellQuoteController
 );
@@ -319,6 +320,7 @@ cryptoSellRouter.post(
     body('amount').isNumeric().withMessage('Amount must be a number').isFloat({ min: 0.00000001 }).withMessage('Amount must be greater than 0'),
     body('currency').isString().notEmpty().withMessage('Currency is required'),
     body('blockchain').isString().notEmpty().withMessage('Blockchain is required'),
+    body('amountType').optional().isIn(['CRYPTO', 'USD']).withMessage('amountType must be CRYPTO or USD'),
   ],
   previewSellController
 );
@@ -445,6 +447,7 @@ cryptoSellRouter.post(
     body('amount').isNumeric().withMessage('Amount must be a number').isFloat({ min: 0.00000001 }).withMessage('Amount must be greater than 0'),
     body('currency').isString().notEmpty().withMessage('Currency is required'),
     body('blockchain').isString().notEmpty().withMessage('Blockchain is required'),
+    body('amountType').optional().isIn(['CRYPTO', 'USD']).withMessage('amountType must be CRYPTO or USD'),
   ],
   sellCryptoController
 );

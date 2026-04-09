@@ -18,9 +18,12 @@ import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
 import { creditReferralCommission, ReferralService } from '../referral/referral.commission.service';
 
+export type SellAmountType = 'CRYPTO' | 'USD';
+
 export interface SellCryptoInput {
   userId: number;
-  amount: number; // Amount in crypto (e.g., 0.001 BTC)
+  amount: number; // Amount in crypto or USD depending on amountType
+  amountType?: SellAmountType; // default: CRYPTO
   currency: string; // Crypto currency to sell (e.g., BTC, ETH, USDT)
   blockchain: string; // Blockchain (e.g., bitcoin, ethereum, bsc)
 }
@@ -41,6 +44,31 @@ export interface SellCryptoResult {
 }
 
 class CryptoSellService {
+  private resolveSellAmounts(
+    amountInput: number,
+    cryptoPrice: Decimal,
+    amountType: SellAmountType = 'CRYPTO'
+  ): { amountCryptoDecimal: Decimal; amountUsd: Decimal } {
+    const amountDecimal = new Decimal(amountInput);
+    if (!amountDecimal.isFinite() || amountDecimal.lte(0)) {
+      throw new Error('Amount must be greater than 0');
+    }
+
+    const type = (amountType || 'CRYPTO').toUpperCase() as SellAmountType;
+    if (type === 'USD') {
+      if (cryptoPrice.lte(0)) {
+        throw new Error('Price not set for selected currency');
+      }
+      const amountCryptoDecimal = amountDecimal.div(cryptoPrice);
+      return { amountCryptoDecimal, amountUsd: amountDecimal };
+    }
+
+    return {
+      amountCryptoDecimal: amountDecimal,
+      amountUsd: amountDecimal.mul(cryptoPrice),
+    };
+  }
+
   /**
    * Sell cryptocurrency for fiat (NGN)
    * 
@@ -89,7 +117,7 @@ class CryptoSellService {
    * but no actual blockchain transfer occurs yet.
    */
   async sellCrypto(input: SellCryptoInput): Promise<SellCryptoResult> {
-    const { userId, amount, currency, blockchain } = input;
+    const { userId, amount, amountType = 'CRYPTO', currency, blockchain } = input;
 
     console.log('\n========================================');
     console.log('[CRYPTO SELL] Starting sell transaction');
@@ -162,19 +190,17 @@ class CryptoSellService {
       throw new Error(`Deposit address not found for ${currency} on ${blockchain}. Please contact support.`);
     }
 
+    // Get crypto price
+    const cryptoPrice = new Decimal(walletCurrency.price.toString());
+
+    // Resolve input amount by type: CRYPTO amount or USD notional
+    const { amountCryptoDecimal, amountUsd } = this.resolveSellAmounts(amount, cryptoPrice, amountType);
+
     // Check sufficient crypto balance
     const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
-    const amountCryptoDecimal = new Decimal(amount);
-    
     if (cryptoBalanceBefore.lessThan(amountCryptoDecimal)) {
       throw new Error('Insufficient crypto balance');
     }
-
-    // Get crypto price
-    const cryptoPrice = new Decimal(walletCurrency.price.toString());
-    
-    // Convert crypto to USD
-    const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
 
     // Get USD to NGN rate (outside transaction)
     const estimatedUsdAmount = parseFloat(amountUsd.toString());
@@ -809,11 +835,17 @@ class CryptoSellService {
    * Returns estimated NGN amount without executing the transaction
    * For USDT ERC-20, includes gas fee calculations
    */
-  async calculateSellQuote(amountCrypto: number, currency: string, blockchain: string) {
+  async calculateSellQuote(
+    amountInput: number,
+    currency: string,
+    blockchain: string,
+    amountType: SellAmountType = 'CRYPTO'
+  ) {
     console.log('\n========================================');
     console.log('[CRYPTO SELL QUOTE] Starting quote calculation');
     console.log('========================================');
-    console.log('Amount:', amountCrypto);
+    console.log('Amount:', amountInput);
+    console.log('Amount Type:', amountType);
     console.log('Currency:', currency);
     console.log('Blockchain:', blockchain);
     console.log('========================================\n');
@@ -832,10 +864,7 @@ class CryptoSellService {
 
     // Get crypto price
     const cryptoPrice = new Decimal(walletCurrency.price.toString());
-    const amountCryptoDecimal = new Decimal(amountCrypto);
-    
-    // Convert crypto to USD
-    const amountUsd = amountCryptoDecimal.mul(cryptoPrice);
+    const { amountCryptoDecimal, amountUsd } = this.resolveSellAmounts(amountInput, cryptoPrice, amountType);
 
     // Get USD to NGN rate
     const estimatedUsdAmount = parseFloat(amountUsd.toString());
@@ -874,12 +903,19 @@ class CryptoSellService {
    * Includes current balances, rates, gas fees, and all transaction details
    * For USDT ERC-20: checks ETH balance and calculates gas fees
    */
-  async previewSellTransaction(userId: number, amountCrypto: number, currency: string, blockchain: string) {
+  async previewSellTransaction(
+    userId: number,
+    amountInput: number,
+    currency: string,
+    blockchain: string,
+    amountType: SellAmountType = 'CRYPTO'
+  ) {
     console.log('\n========================================');
     console.log('[CRYPTO SELL PREVIEW] Starting preview');
     console.log('========================================');
     console.log('User ID:', userId);
-    console.log('Amount:', amountCrypto);
+    console.log('Amount:', amountInput);
+    console.log('Amount Type:', amountType);
     console.log('Currency:', currency);
     console.log('Blockchain:', blockchain);
     console.log('========================================\n');
@@ -921,14 +957,14 @@ class CryptoSellService {
     }
 
     const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
-    const amountCryptoDecimal = new Decimal(amountCrypto);
 
     // Get user's fiat wallet
     const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
     const fiatBalanceBefore = new Decimal(fiatWallet.balance);
 
     // Calculate quote
-    const quote = await this.calculateSellQuote(amountCrypto, currency, blockchain);
+    const quote = await this.calculateSellQuote(amountInput, currency, blockchain, amountType);
+    const amountCryptoDecimal = new Decimal(quote.amountCrypto);
     const amountNgnDecimal = new Decimal(quote.amountNgn);
 
     // Initialize gas fee variables - SIMULATED
