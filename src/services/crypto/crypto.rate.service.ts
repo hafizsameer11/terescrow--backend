@@ -60,20 +60,32 @@ class CryptoRateService {
    * Get rate for a specific transaction type and USD amount
    */
   async getRateForAmount(transactionType: TransactionType, usdAmount: number) {
-    const rate = await prisma.cryptoRate.findFirst({
+    // Prefer the most specific bounded tier first (smallest maxAmount that still matches).
+    // This avoids broad fallback tiers (e.g. 1-100000) overriding narrow bands (e.g. 1-9).
+    const boundedRate = await prisma.cryptoRate.findFirst({
       where: {
         transactionType,
         isActive: true,
         minAmount: { lte: usdAmount },
-        OR: [
-          { maxAmount: { gte: usdAmount } },
-          { maxAmount: null },
-        ],
+        maxAmount: { not: null, gte: usdAmount },
       },
-      orderBy: { minAmount: 'desc' }, // Get the highest tier that matches
+      orderBy: [{ maxAmount: 'asc' }, { minAmount: 'desc' }, { id: 'asc' }],
     });
 
-    return rate;
+    if (boundedRate) {
+      return boundedRate;
+    }
+
+    // Fallback to open-ended tier (maxAmount = null), choose the highest lower bound.
+    return prisma.cryptoRate.findFirst({
+      where: {
+        transactionType,
+        isActive: true,
+        minAmount: { lte: usdAmount },
+        maxAmount: null,
+      },
+      orderBy: [{ minAmount: 'desc' }, { id: 'asc' }],
+    });
   }
 
   /**
