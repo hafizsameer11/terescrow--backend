@@ -3,7 +3,26 @@
  */
 
 import axios from 'axios';
+import { Decimal } from '@prisma/client/runtime/library';
 import cryptoLogger from '../../utils/crypto.logger';
+
+/**
+ * Tatum validates `amount` as a plain decimal string (^-?[0-9.]+). Values from Decimal.toString()
+ * can use scientific notation for tiny amounts (e.g. 2.9e-7 ETH), which Tatum rejects.
+ */
+export function formatTatumEvmAmountString(amount: string | Decimal): string {
+  const d = amount instanceof Decimal ? amount : new Decimal(String(amount).trim());
+  if (!d.isFinite() || d.lte(0)) {
+    throw new Error('EVM transaction amount must be a positive finite number');
+  }
+  const clipped = d.toDecimalPlaces(18, Decimal.ROUND_DOWN);
+  if (clipped.lte(0)) {
+    throw new Error('EVM transaction amount is too small (would round to zero at 18 decimal places)');
+  }
+  let s = clipped.toFixed(18);
+  s = s.replace(/\.?0+$/, '');
+  return s || '0';
+}
 
 export type EvmTatumPath = 'ethereum' | 'bsc' | 'polygon';
 
@@ -52,12 +71,17 @@ export async function sendEvmTatumTransaction(params: {
 
   const body: EvmTxRequest = {
     to: cleanTo,
-    amount: params.amount.toString(),
+    amount: formatTatumEvmAmountString(params.amount),
     currency: params.currency.toUpperCase(),
     fromPrivateKey: params.fromPrivateKey,
   };
   if (params.gasPriceGwei && params.gasLimit) {
-    body.fee = { gasPrice: params.gasPriceGwei.toString(), gasLimit: params.gasLimit.toString() };
+    const gp = String(params.gasPriceGwei).trim();
+    const gl = String(params.gasLimit).trim();
+    body.fee = {
+      gasPrice: /e|E/.test(gp) ? new Decimal(gp).toFixed(0) : gp,
+      gasLimit: /e|E/.test(gl) ? new Decimal(gl).toFixed(0) : gl,
+    };
   }
 
   try {
