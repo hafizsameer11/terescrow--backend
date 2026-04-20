@@ -104,6 +104,23 @@ export async function loadReceiveDisbursementForOutbound(
 
   const recv = tx.cryptoReceive;
   const recvAmount = new Decimal(recv.amount.toString());
+  const chainNorm = normalizeBlockchain(tx.blockchain);
+  let baseSymbol = extractBaseSymbol(tx.currency);
+
+  /** CryptoReceive.currency often mirrors VirtualAccount.currency; some Tron rows store "TRON" instead of USDT/TRX. */
+  const vaWcEarly = tx.virtualAccount?.walletCurrency;
+  if (chainNorm === 'tron' && vaWcEarly?.currency) {
+    const wcSym = extractBaseSymbol(vaWcEarly.currency);
+    const txSym = baseSymbol;
+    if (!SUPPORTED_BASE.has(txSym) || txSym === 'TRON' || txSym === 'TRC20') {
+      if (SUPPORTED_BASE.has(wcSym)) {
+        baseSymbol = wcSym;
+      }
+    } else if (txSym === 'TRX' && vaWcEarly.isToken === true && wcSym === 'USDT') {
+      baseSymbol = 'USDT';
+    }
+  }
+
   const amountDecimal =
     amountInput != null && String(amountInput).trim() !== ''
       ? new Decimal(String(amountInput).trim())
@@ -114,12 +131,9 @@ export async function loadReceiveDisbursementForOutbound(
   }
   if (!amountDecimal.equals(recvAmount)) {
     throw ApiError.badRequest(
-      `amount must match the full receive amount (${recvAmount.toString()} ${extractBaseSymbol(tx.currency)}) for this deposit`
+      `amount must match the full receive amount (${recvAmount.toString()} ${baseSymbol}) for this deposit`
     );
   }
-
-  const chainNorm = normalizeBlockchain(tx.blockchain);
-  const baseSymbol = extractBaseSymbol(tx.currency);
 
   if (!SUPPORTED_BASE.has(baseSymbol)) {
     throw ApiError.badRequest(
@@ -153,8 +167,8 @@ export async function loadReceiveDisbursementForOutbound(
   if (baseSymbol === 'SOL' && chainNorm !== 'solana') {
     throw ApiError.badRequest('SOL disbursement is only valid on Solana');
   }
-  if ((baseSymbol === 'ETH' || baseSymbol === 'USDT') && chainNorm === 'tron') {
-    throw ApiError.badRequest('Use TRX or USDT (TRC20) on Tron, not ETH/USDT labels here');
+  if (baseSymbol === 'ETH' && chainNorm === 'tron') {
+    throw ApiError.badRequest('ETH is not valid on a Tron receive; use TRX or USDT (TRC20).');
   }
 
   const receivedAsset = await prisma.receivedAsset.findFirst({
