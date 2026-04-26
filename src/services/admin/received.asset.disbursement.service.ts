@@ -120,6 +120,10 @@ export async function loadReceiveDisbursementForOutbound(
       baseSymbol = 'USDT';
     }
   }
+  // Last resort if currency string still normalizes to chain name (no wallet row / old data)
+  if (chainNorm === 'tron' && baseSymbol === 'TRON') {
+    baseSymbol = 'TRX';
+  }
 
   const amountDecimal =
     amountInput != null && String(amountInput).trim() !== ''

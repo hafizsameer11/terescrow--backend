@@ -1660,6 +1660,99 @@ model CryptoSwap {
   @@map("crypto_swap")
 }
 
+model ProfitConfig {
+  id              Int              @id @default(autoincrement())
+  transactionType String           @map("transaction_type") @db.VarChar(50)
+  scope           ProfitConfigScope @default(GLOBAL)
+  asset           String?          @db.VarChar(50)
+  service         String?          @db.VarChar(100)
+  profitType      ProfitType       @map("profit_type")
+  value           Decimal          @db.Decimal(20, 8)
+  isActive        Boolean          @default(true) @map("is_active")
+  effectiveFrom   DateTime         @default(now()) @map("effective_from")
+  effectiveTo     DateTime?        @map("effective_to")
+  createdBy       Int?             @map("created_by")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@index([transactionType, isActive])
+  @@index([asset, isActive])
+  @@index([service, isActive])
+  @@index([scope, isActive])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("profit_configs")
+}
+
+model RateConfig {
+  id            Int      @id @default(autoincrement())
+  asset         String   @db.VarChar(50)
+  blockchain    String?  @db.VarChar(50)
+  baseBuyRate   Decimal  @map("base_buy_rate") @db.Decimal(20, 8)
+  baseSellRate  Decimal  @map("base_sell_rate") @db.Decimal(20, 8)
+  isActive      Boolean  @default(true) @map("is_active")
+  effectiveFrom DateTime @default(now()) @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  createdBy     Int?     @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([asset, blockchain, isActive])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("rate_configs")
+}
+
+model DiscountTier {
+  id                 Int      @id @default(autoincrement())
+  asset              String?  @db.VarChar(50)
+  transactionType    String?  @map("transaction_type") @db.VarChar(50)
+  minAmount          Decimal  @map("min_amount") @db.Decimal(20, 8)
+  maxAmount          Decimal? @map("max_amount") @db.Decimal(20, 8)
+  discountPercentage Decimal  @map("discount_percentage") @db.Decimal(10, 4)
+  precedence         Int      @default(0)
+  isActive           Boolean  @default(true) @map("is_active")
+  effectiveFrom      DateTime @default(now()) @map("effective_from")
+  effectiveTo        DateTime? @map("effective_to")
+  createdBy          Int?     @map("created_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([asset, transactionType, isActive])
+  @@index([minAmount, maxAmount, isActive])
+  @@index([precedence])
+  @@map("discount_tiers")
+}
+
+model ProfitLedger {
+  id                    Int      @id @default(autoincrement())
+  eventKey              String   @unique @map("event_key") @db.VarChar(191)
+  sourceTransactionType String   @map("source_transaction_type") @db.VarChar(50)
+  sourceTransactionId   String   @map("source_transaction_id") @db.VarChar(255)
+  transactionType       String   @map("transaction_type") @db.VarChar(50)
+  asset                 String?  @db.VarChar(50)
+  blockchain            String?  @db.VarChar(50)
+  service               String?  @db.VarChar(100)
+  amount                Decimal  @db.Decimal(30, 18)
+  amountUsd             Decimal? @map("amount_usd") @db.Decimal(30, 18)
+  amountNgn             Decimal? @map("amount_ngn") @db.Decimal(30, 18)
+  buyRate               Decimal? @map("buy_rate") @db.Decimal(20, 8)
+  sellRate              Decimal? @map("sell_rate") @db.Decimal(20, 8)
+  discountPercentage    Decimal? @map("discount_percentage") @db.Decimal(10, 4)
+  profitType            ProfitType @map("profit_type")
+  profitValue           Decimal  @map("profit_value") @db.Decimal(30, 18)
+  profitNgn             Decimal  @map("profit_ngn") @db.Decimal(30, 18)
+  status                String   @default("computed") @db.VarChar(30)
+  notes                 String?  @db.Text
+  meta                  Json?
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([transactionType, createdAt])
+  @@index([asset, createdAt])
+  @@index([status, createdAt])
+  @@index([sourceTransactionType, sourceTransactionId])
+  @@map("profit_ledger")
+}
+
 enum CryptoTxType {
   BUY
   SELL
@@ -1674,4 +1767,16 @@ enum CryptoTxStatus {
   successful
   failed
   cancelled
+}
+
+enum ProfitType {
+  FIXED
+  PERCENTAGE
+  SPREAD
+}
+
+enum ProfitConfigScope {
+  GLOBAL
+  ASSET
+  SERVICE
 }

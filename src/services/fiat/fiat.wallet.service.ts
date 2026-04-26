@@ -1,11 +1,43 @@
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
+import profitLedgerService from '../profit/profit.ledger.service';
 
 /**
  * Fiat Wallet Service
  * Handles wallet credit/debit operations
  */
 class FiatWalletService {
+  private async recordProfitForFiatTransaction(transactionId: string) {
+    const tx = await prisma.fiatTransaction.findUnique({ where: { id: transactionId } });
+    if (!tx) return;
+
+    const type = (tx.type || '').toUpperCase().trim();
+    const map: Record<string, string> = {
+      DEPOSIT: 'DEPOSIT',
+      WITHDRAW: 'WITHDRAWAL',
+      WITHDRAWAL: 'WITHDRAWAL',
+      BILL_PAYMENT: 'BILL_PAYMENTS',
+      BILLPAYMENT: 'BILL_PAYMENTS',
+      BILL: 'BILL_PAYMENTS',
+    };
+    const transactionType = map[type] || type || 'DEPOSIT';
+
+    await profitLedgerService.record({
+      sourceTransactionType: 'FIAT_TRANSACTION',
+      sourceTransactionId: tx.id,
+      transactionType,
+      asset: tx.currency,
+      service: type.startsWith('BILL') ? tx.billType || 'bill_payment' : undefined,
+      amount: tx.amount.toString(),
+      amountNgn: tx.totalAmount.toString(),
+      meta: {
+        fiatTransactionType: tx.type,
+        walletId: tx.walletId,
+        status: tx.status,
+      },
+    });
+  }
+
   /**
    * Get or create user's fiat wallet for a currency
    */
@@ -80,7 +112,7 @@ class FiatWalletService {
     transactionId: string,
     description?: string
   ) {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // Get wallet with lock
       const wallet = await tx.fiatWallet.findUnique({
         where: { id: walletId },
@@ -121,6 +153,9 @@ class FiatWalletService {
         amount: amount.toString(),
       };
     });
+
+    await this.recordProfitForFiatTransaction(transactionId);
+    return result;
   }
 
   /**
@@ -132,7 +167,7 @@ class FiatWalletService {
     transactionId: string,
     description?: string
   ) {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // Get wallet with lock
       const wallet = await tx.fiatWallet.findUnique({
         where: { id: walletId },
@@ -178,6 +213,9 @@ class FiatWalletService {
         amount: amount.toString(),
       };
     });
+
+    await this.recordProfitForFiatTransaction(transactionId);
+    return result;
   }
 
   /**

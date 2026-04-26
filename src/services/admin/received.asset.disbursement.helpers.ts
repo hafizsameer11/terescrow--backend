@@ -9,6 +9,8 @@ export function extractBaseSymbol(currency: string): string {
   if (u.startsWith('ETH') || u === 'ETH') return 'ETH';
   if (u.startsWith('BNB') || u === 'BNB') return 'BNB';
   if (u.startsWith('TRX') || u === 'TRX') return 'TRX';
+  // Chain name used as currency in some rows; Tatum / network native symbol is TRX
+  if (u === 'TRON' || u === 'TRON_NETWORK' || u === 'TRON_MAINNET') return 'TRX';
   if (u.startsWith('BTC') || u === 'BTC') return 'BTC';
   if (u.startsWith('LTC') || u === 'LTC') return 'LTC';
   if (u.includes('LITECOIN')) return 'LTC';
@@ -24,7 +26,7 @@ export function normalizeBlockchain(blockchain: string): string {
   if (b === 'eth') return 'ethereum';
   if (b === 'btc') return 'bitcoin';
   if (b === 'binance' || b === 'binancesmartchain') return 'bsc';
-  if (b === 'trx') return 'tron';
+  if (b === 'trx' || b === 'tron' || b === 'trc20' || b === 'trc-20') return 'tron';
   if (b === 'ltc') return 'litecoin';
   if (b === 'doge') return 'dogecoin';
   if (b === 'sol') return 'solana';

@@ -7,6 +7,7 @@
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import { isUsdtFamilyCurrency } from './crypto.unified.usdt';
+import profitLedgerService from '../profit/profit.ledger.service';
 
 export type CryptoTxType = 'BUY' | 'SELL' | 'SEND' | 'RECEIVE' | 'SWAP';
 export type CryptoTxStatus = 'pending' | 'processing' | 'successful' | 'failed' | 'cancelled';
@@ -144,6 +145,20 @@ class CryptoTransactionService {
       },
     });
 
+    await profitLedgerService.record({
+      sourceTransactionType: 'CRYPTO_TRANSACTION',
+      sourceTransactionId: cryptoTransaction.transactionId,
+      transactionType: 'BUY',
+      asset: cryptoTransaction.currency,
+      blockchain: cryptoTransaction.blockchain,
+      amount: buyData.amount,
+      amountUsd: buyData.amountUsd,
+      amountNgn: buyData.amountNaira,
+      buyRate: buyData.rateNgnToUsd,
+      sellRate: buyData.rateNgnToUsd,
+      meta: { cryptoTransactionId: cryptoTransaction.id, child: 'cryptoBuy' },
+    });
+
     return cryptoTransaction;
   }
 
@@ -188,6 +203,20 @@ class CryptoTransactionService {
           },
         },
       },
+    });
+
+    await profitLedgerService.record({
+      sourceTransactionType: 'CRYPTO_TRANSACTION',
+      sourceTransactionId: cryptoTransaction.transactionId,
+      transactionType: 'SELL',
+      asset: cryptoTransaction.currency,
+      blockchain: cryptoTransaction.blockchain,
+      amount: sellData.amount,
+      amountUsd: sellData.amountUsd,
+      amountNgn: sellData.amountNaira,
+      buyRate: sellData.rateCryptoToUsd,
+      sellRate: sellData.rateUsdToNgn,
+      meta: { cryptoTransactionId: cryptoTransaction.id, child: 'cryptoSell' },
     });
 
     return cryptoTransaction;
@@ -235,6 +264,19 @@ class CryptoTransactionService {
       },
     });
 
+    await profitLedgerService.record({
+      sourceTransactionType: 'CRYPTO_TRANSACTION',
+      sourceTransactionId: cryptoTransaction.transactionId,
+      transactionType: 'SEND',
+      asset: cryptoTransaction.currency,
+      blockchain: cryptoTransaction.blockchain,
+      amount: sendData.amount,
+      amountUsd: sendData.amountUsd,
+      amountNgn: sendData.amountNaira,
+      service: 'crypto_send',
+      meta: { cryptoTransactionId: cryptoTransaction.id, child: 'cryptoSend', networkFee: sendData.networkFee ?? null },
+    });
+
     return cryptoTransaction;
   }
 
@@ -279,6 +321,19 @@ class CryptoTransactionService {
           },
         },
       },
+    });
+
+    await profitLedgerService.record({
+      sourceTransactionType: 'CRYPTO_TRANSACTION',
+      sourceTransactionId: cryptoTransaction.transactionId,
+      transactionType: 'RECEIVE',
+      asset: cryptoTransaction.currency,
+      blockchain: cryptoTransaction.blockchain,
+      amount: receiveData.amount,
+      amountUsd: receiveData.amountUsd,
+      amountNgn: receiveData.amountNaira,
+      service: 'crypto_receive',
+      meta: { cryptoTransactionId: cryptoTransaction.id, child: 'cryptoReceive' },
     });
 
     return cryptoTransaction;
@@ -336,6 +391,27 @@ class CryptoTransactionService {
             walletCurrency: true,
           },
         },
+      },
+    });
+
+    await profitLedgerService.record({
+      sourceTransactionType: 'CRYPTO_TRANSACTION',
+      sourceTransactionId: cryptoTransaction.transactionId,
+      transactionType: 'SWAP',
+      asset: swapData.fromCurrency,
+      blockchain: swapData.fromBlockchain,
+      amount: swapData.fromAmount,
+      amountUsd: swapData.fromAmountUsd,
+      service: 'crypto_swap',
+      meta: {
+        cryptoTransactionId: cryptoTransaction.id,
+        child: 'cryptoSwap',
+        toCurrency: swapData.toCurrency,
+        toBlockchain: swapData.toBlockchain,
+        toAmount: swapData.toAmount,
+        toAmountUsd: swapData.toAmountUsd,
+        gasFee: swapData.gasFee,
+        gasFeeUsd: swapData.gasFeeUsd,
       },
     });
 
