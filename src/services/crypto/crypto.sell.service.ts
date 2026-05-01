@@ -17,6 +17,7 @@ import cryptoLogger from '../../utils/crypto.logger';
 import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
 import { creditReferralCommission, ReferralService } from '../referral/referral.commission.service';
+import profitLedgerService from '../profit/profit.ledger.service';
 
 export type SellAmountType = 'CRYPTO' | 'USD';
 
@@ -41,6 +42,7 @@ export interface SellCryptoResult {
   cryptoBalanceAfter: string;
   balanceBefore: string;
   balanceAfter: string;
+  occurredAt: Date;
 }
 
 class CryptoSellService {
@@ -818,11 +820,31 @@ class CryptoSellService {
         cryptoBalanceAfter: cryptoBalanceAfter.toString(),
         balanceBefore: balanceBefore.toString(),
         balanceAfter: balanceAfter.toString(),
+        occurredAt: cryptoTransaction.createdAt,
       };
     }, {
       maxWait: 10000,
       timeout: 15000,
     });
+
+    try {
+      await profitLedgerService.record({
+        sourceTransactionType: 'CRYPTO_TRANSACTION',
+        sourceTransactionId: result.transactionId,
+        transactionType: 'SELL',
+        asset: virtualAccount.currency,
+        blockchain: virtualAccount.blockchain,
+        amount: result.amountCrypto,
+        amountUsd: result.amountUsd,
+        amountNgn: result.amountNgn,
+        buyRate: cryptoPrice.toString(),
+        sellRate: new Decimal(usdToNgnRate.rate.toString()).toString(),
+        asOf: result.occurredAt,
+        meta: { source: 'crypto.sell.service' },
+      });
+    } catch (profitErr: any) {
+      cryptoLogger.exception('Profit ledger (SELL)', profitErr, { transactionId: result.transactionId });
+    }
 
     creditReferralCommission(input.userId, ReferralService.CRYPTO_SELL, parseFloat(result.amountNgn))
       .catch((err) => console.error('[SellCrypto] Referral commission error:', err));

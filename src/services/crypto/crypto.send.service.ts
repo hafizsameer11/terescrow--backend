@@ -28,6 +28,7 @@ import { executeCustodialSendNonEthereum } from './crypto.send.chain.handlers';
 import { getEvmNativeBalance, getEvmFungibleTokenBalance } from '../tatum/evm.tatum.balance.service';
 import { getTronTrxBalance, getTronTrc20Balance } from '../tron/tron.tatum.service';
 import { estimateUtxoTxFee, getUtxoAddressBalance } from '../utxo/utxo.tatum.service';
+import profitLedgerService from '../profit/profit.ledger.service';
 
 /** Interactive `$transaction` callback client (inferred; avoids importing `Prisma` namespace). */
 type PrismaTransactionClient = Parameters<
@@ -260,7 +261,7 @@ class CryptoSendService {
     // Update database records (do this quickly without verification to avoid timeout)
     // Blockchain transfer already succeeded, so we just need to update balances
     try {
-      await prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      const savedSend = await prisma.$transaction(async (tx: PrismaTransactionClient) => {
         // Update virtual account to match expected on-chain balance after send
         await tx.virtualAccount.update({
           where: { id: virtualAccount.id },
@@ -271,7 +272,7 @@ class CryptoSendService {
         });
 
         // Create crypto transaction directly (without service method to avoid extra queries)
-        await tx.cryptoTransaction.create({
+        return tx.cryptoTransaction.create({
           data: {
             userId,
             virtualAccountId: virtualAccount.id,
@@ -296,6 +297,28 @@ class CryptoSendService {
         maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
         timeout: 15000, // 15 seconds should be plenty for simple DB updates
       });
+
+      try {
+        await profitLedgerService.record({
+          sourceTransactionType: 'CRYPTO_TRANSACTION',
+          sourceTransactionId: transactionId,
+          transactionType: 'SEND',
+          asset: virtualAccount.currency,
+          blockchain: virtualAccount.blockchain,
+          amount: amountCryptoDecimal.toString(),
+          amountUsd: amountUsd.toString(),
+          service: 'crypto_send',
+          asOf: savedSend.createdAt,
+          meta: {
+            source: 'crypto.send.service',
+            txHash,
+            toAddress,
+            networkFee: gasFeeEth.toString(),
+          },
+        });
+      } catch (profitErr: any) {
+        cryptoLogger.exception('Profit ledger (SEND)', profitErr, { transactionId });
+      }
     } catch (error: any) {
       // If database update fails, log it but don't fail the entire operation
       // The blockchain transfer already succeeded

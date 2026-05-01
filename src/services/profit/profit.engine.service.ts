@@ -12,6 +12,8 @@ export type ProfitComputationInput = {
   amountNgn?: string | number | Decimal | null;
   buyRate?: string | number | Decimal | null;
   sellRate?: string | number | Decimal | null;
+  /** Use the source transaction time when backfilling; defaults to request time when omitted. */
+  asOf?: Date;
 };
 
 export type ProfitComputationResult = {
@@ -48,8 +50,9 @@ class ProfitEngineService {
     transactionType: string;
     asset?: string | null;
     service?: string | null;
+    asOf?: Date;
   }) {
-    const now = this.now();
+    const now = params.asOf ?? this.now();
     const txType = params.transactionType.toUpperCase().trim();
     const asset = params.asset?.toUpperCase().trim();
     const service = params.service?.toLowerCase().trim();
@@ -96,9 +99,9 @@ class ProfitEngineService {
     });
   }
 
-  async resolveRateConfig(params: { asset?: string | null; blockchain?: string | null }) {
+  async resolveRateConfig(params: { asset?: string | null; blockchain?: string | null; asOf?: Date }) {
     if (!params.asset) return null;
-    const now = this.now();
+    const now = params.asOf ?? this.now();
     const asset = params.asset.toUpperCase().trim();
     const blockchain = params.blockchain?.toLowerCase().trim();
     if (blockchain) {
@@ -130,9 +133,10 @@ class ProfitEngineService {
     transactionType?: string | null;
     asset?: string | null;
     amountUsd?: Decimal | null;
+    asOf?: Date;
   }) {
     if (!params.amountUsd || params.amountUsd.lte(0)) return null;
-    const now = this.now();
+    const now = params.asOf ?? this.now();
     const amountUsd = params.amountUsd;
     const txType = params.transactionType?.toUpperCase().trim();
     const asset = params.asset?.toUpperCase().trim();
@@ -161,17 +165,21 @@ class ProfitEngineService {
     const buyRateIn = d(input.buyRate);
     const sellRateIn = d(input.sellRate);
 
+    const asOf = input.asOf;
+
     const [cfg, rateCfg, tier] = await Promise.all([
       this.resolveProfitConfig({
         transactionType: input.transactionType,
         asset: input.asset,
         service: input.service,
+        asOf,
       }),
-      this.resolveRateConfig({ asset: input.asset, blockchain: input.blockchain }),
+      this.resolveRateConfig({ asset: input.asset, blockchain: input.blockchain, asOf }),
       this.resolveDiscountTier({
         transactionType: input.transactionType,
         asset: input.asset,
         amountUsd,
+        asOf,
       }),
     ]);
 

@@ -1743,10 +1743,14 @@ model ProfitLedger {
   status                String   @default("computed") @db.VarChar(30)
   notes                 String?  @db.Text
   meta                  Json?
+  /// Moment the source transaction economically occurred (often crypto.createdAt); used for date filters and retrospective config resolution alignment.
+  sourceOccurredAt      DateTime? @map("source_occurred_at")
   createdAt             DateTime @default(now()) @map("created_at")
 
   @@index([createdAt])
+  @@index([sourceOccurredAt])
   @@index([transactionType, createdAt])
+  @@index([transactionType, sourceOccurredAt])
   @@index([asset, createdAt])
   @@index([status, createdAt])
   @@index([sourceTransactionType, sourceTransactionId])

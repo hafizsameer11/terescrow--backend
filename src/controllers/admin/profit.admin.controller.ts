@@ -5,6 +5,13 @@ import profitAdminService from '../../services/profit/profit.admin.service';
 import profitTrackerService from '../../services/profit/profit.tracker.service';
 import profitBackfillService from '../../services/profit/profit.backfill.service';
 
+function syncHistoricalFromQuery(req: Request): boolean {
+  const raw = req.query.syncHistorical ?? (req.query as { sync_historical?: unknown }).sync_historical;
+  if (raw === undefined) return true;
+  const s = String(raw).toLowerCase();
+  return s !== 'false' && s !== '0' && s !== 'no';
+}
+
 function parseId(req: Request): number {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) throw ApiError.badRequest('Invalid id');
@@ -96,6 +103,7 @@ export async function getProfitLedgerController(req: Request, res: Response, nex
       status: req.query.status as string | undefined,
       startDate: req.query.startDate as string | undefined,
       endDate: req.query.endDate as string | undefined,
+      syncHistorical: syncHistoricalFromQuery(req),
     });
     return res.status(200).json(new ApiResponse(200, data, 'Profit ledger retrieved successfully'));
   } catch (error: any) {
@@ -111,6 +119,7 @@ export async function getProfitStatsController(req: Request, res: Response, next
       status: req.query.status as string | undefined,
       startDate: req.query.startDate as string | undefined,
       endDate: req.query.endDate as string | undefined,
+      syncHistorical: syncHistoricalFromQuery(req),
     });
     return res.status(200).json(new ApiResponse(200, data, 'Profit stats retrieved successfully'));
   } catch (error: any) {
@@ -122,11 +131,14 @@ export async function backfillProfitLedgerController(req: Request, res: Response
   try {
     const limit = req.body?.limit ? Number(req.body.limit) : undefined;
     const dryRun = req.body?.dryRun === true;
-    const [crypto, fiat] = await Promise.all([
-      profitBackfillService.backfillCryptoTransactions({ limit, dryRun }),
-      profitBackfillService.backfillFiatTransactions({ limit, dryRun }),
-    ]);
-    return res.status(200).json(new ApiResponse(200, { crypto, fiat }, dryRun ? 'Backfill dry run complete' : 'Backfill complete'));
+    const { crypto, fiat, window } = await profitBackfillService.runSyncedBackfill({
+      startDate: typeof req.body?.startDate === 'string' ? req.body.startDate : undefined,
+      endDate: typeof req.body?.endDate === 'string' ? req.body.endDate : undefined,
+      limit,
+      dryRun,
+    });
+    const message = `${dryRun ? 'Backfill dry run' : 'Backfill'} for window ${window.start.toISOString()} → ${window.end.toISOString()}`;
+    return res.status(200).json(new ApiResponse(200, { crypto, fiat, window }, message));
   } catch (error: any) {
     return next(ApiError.internal(error.message || 'Failed to run backfill'));
   }

@@ -26,6 +26,8 @@ class ProfitLedgerService {
     const computed = await profitEngineService.compute(input);
     const eventKey = buildEventKey(input);
 
+    const occurredAt = input.asOf ?? new Date();
+
     try {
       return await prisma.profitLedger.create({
         data: {
@@ -36,6 +38,7 @@ class ProfitLedgerService {
           asset: computed.asset || null,
           blockchain: computed.blockchain || null,
           service: computed.service || null,
+          sourceOccurredAt: occurredAt,
           amount: computed.amount,
           amountUsd: computed.amountUsd ?? null,
           amountNgn: computed.amountNgn ?? null,

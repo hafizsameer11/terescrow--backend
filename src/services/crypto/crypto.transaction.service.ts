@@ -156,6 +156,7 @@ class CryptoTransactionService {
       amountNgn: buyData.amountNaira,
       buyRate: buyData.rateNgnToUsd,
       sellRate: buyData.rateNgnToUsd,
+      asOf: cryptoTransaction.createdAt,
       meta: { cryptoTransactionId: cryptoTransaction.id, child: 'cryptoBuy' },
     });
 
@@ -216,6 +217,7 @@ class CryptoTransactionService {
       amountNgn: sellData.amountNaira,
       buyRate: sellData.rateCryptoToUsd,
       sellRate: sellData.rateUsdToNgn,
+      asOf: cryptoTransaction.createdAt,
       meta: { cryptoTransactionId: cryptoTransaction.id, child: 'cryptoSell' },
     });
 
@@ -274,6 +276,7 @@ class CryptoTransactionService {
       amountUsd: sendData.amountUsd,
       amountNgn: sendData.amountNaira,
       service: 'crypto_send',
+      asOf: cryptoTransaction.createdAt,
       meta: { cryptoTransactionId: cryptoTransaction.id, child: 'cryptoSend', networkFee: sendData.networkFee ?? null },
     });
 
@@ -333,6 +336,7 @@ class CryptoTransactionService {
       amountUsd: receiveData.amountUsd,
       amountNgn: receiveData.amountNaira,
       service: 'crypto_receive',
+      asOf: cryptoTransaction.createdAt,
       meta: { cryptoTransactionId: cryptoTransaction.id, child: 'cryptoReceive' },
     });
 
@@ -403,6 +407,7 @@ class CryptoTransactionService {
       amount: swapData.fromAmount,
       amountUsd: swapData.fromAmountUsd,
       service: 'crypto_swap',
+      asOf: cryptoTransaction.createdAt,
       meta: {
         cryptoTransactionId: cryptoTransaction.id,
         child: 'cryptoSwap',

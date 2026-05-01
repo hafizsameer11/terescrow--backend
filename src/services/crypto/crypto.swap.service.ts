@@ -22,6 +22,7 @@ import {
   sumUsdtBalances,
   type UsdtNetworkBalance,
 } from './crypto.unified.usdt';
+import profitLedgerService from '../profit/profit.ledger.service';
 
 export interface SwapCryptoInput {
   userId: number;
@@ -50,6 +51,7 @@ export interface SwapCryptoResult {
   fromBalanceAfter: string;
   toBalanceBefore: string;
   toBalanceAfter: string;
+  occurredAt: Date;
 }
 
 export interface SwapQuoteResult {
@@ -945,7 +947,7 @@ class CryptoSwapService {
     const transactionId = `SWAP-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
 
     // Update balances and create transaction record
-    return await prisma.$transaction(async (tx) => {
+    const swapTxnResult = await prisma.$transaction(async (tx) => {
       // Debit fromCurrency
       await tx.virtualAccount.update({
         where: { id: fromVirtualAccount.id },
@@ -1051,11 +1053,41 @@ class CryptoSwapService {
         fromBalanceAfter: fromBalanceAfter.toString(),
         toBalanceBefore: toBalanceBefore.toString(),
         toBalanceAfter: toBalanceAfter.toString(),
+        occurredAt: cryptoTransaction.createdAt,
       };
     }, {
       maxWait: 10000,
       timeout: 30000, // Increased timeout for blockchain operations
     });
+
+    try {
+      await profitLedgerService.record({
+        sourceTransactionType: 'CRYPTO_TRANSACTION',
+        sourceTransactionId: swapTxnResult.transactionId,
+        transactionType: 'SWAP',
+        asset: quote.fromCurrency,
+        blockchain: quote.fromBlockchain,
+        amount: swapTxnResult.fromAmount,
+        amountUsd: swapTxnResult.fromAmountUsd,
+        service: 'crypto_swap',
+        asOf: swapTxnResult.occurredAt,
+        meta: {
+          source: 'crypto.swap.service',
+          toCurrency: quote.toCurrency,
+          toBlockchain: quote.toBlockchain,
+          toAmount: swapTxnResult.toAmount,
+          toAmountUsd: swapTxnResult.toAmountUsd,
+          gasFee: swapTxnResult.gasFee,
+          gasFeeUsd: swapTxnResult.gasFeeUsd,
+        },
+      });
+    } catch (profitErr: any) {
+      cryptoLogger.exception('Profit ledger (SWAP)', profitErr, {
+        transactionId: swapTxnResult.transactionId,
+      });
+    }
+
+    return swapTxnResult;
   }
 }
 

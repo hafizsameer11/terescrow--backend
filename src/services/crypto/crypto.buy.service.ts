@@ -18,6 +18,7 @@ import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
 import { creditReferralCommission, ReferralService } from '../referral/referral.commission.service';
 import { getDefaultUsdtBlockchain, isUsdtFamilyCurrency } from './crypto.unified.usdt';
+import profitLedgerService from '../profit/profit.ledger.service';
 
 export interface BuyCryptoInput {
   userId: number;
@@ -39,6 +40,7 @@ export interface BuyCryptoResult {
   balanceAfter: string;
   cryptoBalanceBefore: string;
   cryptoBalanceAfter: string;
+  occurredAt: Date;
 }
 
 class CryptoBuyService {
@@ -607,6 +609,7 @@ class CryptoBuyService {
         balanceAfter: balanceAfter.toString(),
         cryptoBalanceBefore: cryptoBalanceBefore.toString(),
         cryptoBalanceAfter: cryptoBalanceAfter.toString(),
+        occurredAt: cryptoTransaction.createdAt,
         txHash: txHash,
         gasFee: txHash ? {
           eth: gasFeeEth.toString(),
@@ -620,6 +623,25 @@ class CryptoBuyService {
       maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
       timeout: 15000, // Maximum time the transaction can run (15 seconds)
     });
+
+    try {
+      await profitLedgerService.record({
+        sourceTransactionType: 'CRYPTO_TRANSACTION',
+        sourceTransactionId: result.transactionId,
+        transactionType: 'BUY',
+        asset: virtualAccount.currency,
+        blockchain: virtualAccount.blockchain,
+        amount: result.amountCrypto,
+        amountUsd: result.amountUsd,
+        amountNgn: result.amountNgn,
+        buyRate: result.rateUsdToCrypto,
+        sellRate: result.rateNgnToUsd,
+        asOf: result.occurredAt,
+        meta: { source: 'crypto.buy.service' },
+      });
+    } catch (profitErr: any) {
+      cryptoLogger.exception('Profit ledger (BUY)', profitErr, { transactionId: result.transactionId });
+    }
 
     creditReferralCommission(input.userId, ReferralService.CRYPTO_BUY, parseFloat(result.amountNgn))
       .catch((err) => console.error('[BuyCrypto] Referral commission error:', err));
