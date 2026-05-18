@@ -313,7 +313,63 @@ export const getMasterWalletTransactionsController = async (
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to get transactions'));
   }
-};/**
+};
+
+/**
+ * Preview master wallet disburse (fee breakdown; UTXO deducts fee from amount).
+ * POST /api/admin/master-wallet/send/estimate
+ */
+export const getMasterWalletMaxDebitController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const network = String(req.query.network ?? '');
+    const symbol = String(req.query.symbol ?? '');
+    if (!network || !symbol) {
+      return next(ApiError.badRequest('network and symbol query params are required'));
+    }
+    const { estimateMasterWalletMaxDebit } = await import(
+      '../../services/admin/master.wallet.outbound.service'
+    );
+    const max = await estimateMasterWalletMaxDebit({ network, symbol });
+    if (!max) {
+      return new ApiResponse(200, null, 'Max debit not applicable for this asset').send(res);
+    }
+    return new ApiResponse(200, max, 'Max disburse amount').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to get max disburse amount'));
+  }
+};
+
+export const postMasterWalletSendEstimateController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { address, amountCrypto, network, symbol } = req.body;
+    if (!address || !symbol || !network || amountCrypto == null || amountCrypto === '') {
+      return next(
+        ApiError.badRequest('address, symbol, network, and amountCrypto are required')
+      );
+    }
+    const estimate = await masterWalletAdminService.estimateMasterWalletSend({
+      address: String(address),
+      amountCrypto: String(amountCrypto),
+      network: String(network),
+      symbol: String(symbol),
+    });
+    return new ApiResponse(200, estimate, 'Disbursement estimate').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to estimate disbursement'));
+  }
+};
+
+/**
  * Send from master wallet
  * POST /api/admin/master-wallet/send
  */
@@ -350,6 +406,9 @@ export const postMasterWalletSendController = async (
         txId: result.txId,
         txHash: result.txHash,
         status: result.status ?? 'successful',
+        requestedAmount: result.requestedAmount,
+        recipientAmount: result.recipientAmount,
+        networkFee: result.networkFee,
       },
       result.txHash ? 'Disbursement broadcast on-chain' : 'Disbursement recorded'
     ).send(res);

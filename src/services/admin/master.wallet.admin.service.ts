@@ -1,7 +1,13 @@
 import { prisma } from '../../utils/prisma';
 import tatumService from '../tatum/tatum.service';
 import { getTronTrc20Balance, getTronTrxBalance } from '../tron/tron.tatum.service';
-import { executeMasterWalletOnChainSend } from './master.wallet.outbound.service';
+import {
+  estimateMasterWalletSend,
+  executeMasterWalletOnChainSend,
+  type MasterWalletSendEstimate,
+} from './master.wallet.outbound.service';
+
+export { estimateMasterWalletSend, type MasterWalletSendEstimate };
 
 const mwTxModel = (prisma as any).masterWalletTransaction;
 
@@ -269,6 +275,9 @@ export async function createMasterWalletSend(params: {
   txHash?: string;
   status?: string;
   error?: string;
+  requestedAmount?: string;
+  recipientAmount?: string;
+  networkFee?: string;
 }> {
   const amount = params.amountCrypto?.trim() ?? '0';
   const walletId = 'tercescrow';
@@ -289,7 +298,7 @@ export async function createMasterWalletSend(params: {
   });
 
   try {
-    const { txHash } = await executeMasterWalletOnChainSend({
+    const sendResult = await executeMasterWalletOnChainSend({
       address: params.address,
       amountCrypto: amount,
       network: params.network,
@@ -297,9 +306,17 @@ export async function createMasterWalletSend(params: {
     });
     await mwTxModel.update({
       where: { id: record.id },
-      data: { status: 'successful', txHash },
+      data: { status: 'successful', txHash: sendResult.txHash },
     });
-    return { success: true, txId: record.id, txHash, status: 'successful' };
+    return {
+      success: true,
+      txId: record.id,
+      txHash: sendResult.txHash,
+      status: 'successful',
+      recipientAmount: sendResult.recipientAmount,
+      networkFee: sendResult.networkFee,
+      requestedAmount: amount,
+    };
   } catch (err: any) {
     const message = err?.message ?? 'Disburse failed';
     await mwTxModel.update({

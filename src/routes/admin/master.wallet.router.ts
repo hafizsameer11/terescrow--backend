@@ -14,6 +14,8 @@ import {
   getMasterWalletBalanceSummaryController,
   getMasterWalletAssetsController,
   getMasterWalletTransactionsController,
+  getMasterWalletMaxDebitController,
+  postMasterWalletSendEstimateController,
   postMasterWalletSendController,
   postMasterWalletSwapController,
 } from '../../controllers/admin/master.wallet.controller';
@@ -187,6 +189,8 @@ masterWalletRouter.get('/balances', getMasterWalletsBalancesController);
 masterWalletRouter.get('/balances/summary', ...adminOnly, getMasterWalletBalanceSummaryController);
 masterWalletRouter.get('/assets', ...adminOnly, getMasterWalletAssetsController);
 masterWalletRouter.get('/transactions', ...adminOnly, getMasterWalletTransactionsController);
+masterWalletRouter.get('/send/max-debit', ...adminOnly, getMasterWalletMaxDebitController);
+masterWalletRouter.post('/send/estimate', ...adminOnly, postMasterWalletSendEstimateController);
 masterWalletRouter.post('/send', ...adminOnly, postMasterWalletSendController);
 masterWalletRouter.post('/swap', ...adminOnly, postMasterWalletSwapController);
 
