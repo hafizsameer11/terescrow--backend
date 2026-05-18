@@ -1,5 +1,5 @@
 import { prisma } from '../../utils/prisma';
-import { CryptoTxType } from '@prisma/client';
+import { CryptoTxStatus, CryptoTxType } from '@prisma/client';
 
 export type NicheType = 'crypto' | 'giftcard' | 'billpayment' | 'naira';
 
@@ -90,11 +90,22 @@ function normalizeStatus(dbStatus: string): string {
   return dbStatus;
 }
 
+/** String status values for gift cards, bill payments, naira (not CryptoTxStatus enum). */
 function statusToDbValues(s: string): string[] {
   if (s === 'successful') return ['successful', 'completed'];
   if (s === 'declined') return ['declined', 'failed', 'cancelled', 'refunded'];
   if (s === 'pending') return ['pending', 'processing'];
   return [s];
+}
+
+/** CryptoTransaction.status is Prisma enum CryptoTxStatus — no "completed" / "declined". */
+function statusToCryptoDbValues(s: string): CryptoTxStatus[] {
+  if (s === 'successful') return [CryptoTxStatus.successful];
+  if (s === 'declined') return [CryptoTxStatus.failed, CryptoTxStatus.cancelled];
+  if (s === 'pending') return [CryptoTxStatus.pending, CryptoTxStatus.processing];
+  const values = Object.values(CryptoTxStatus) as string[];
+  if (values.includes(s)) return [s as CryptoTxStatus];
+  return [];
 }
 
 function buildDateFilter(startDate?: string, endDate?: string) {
@@ -193,7 +204,10 @@ async function queryCrypto(f: TransactionFilters, take: number, skip: number) {
   const where: any = {};
   const df = buildDateFilter(f.startDate, f.endDate);
   if (df) where.createdAt = df;
-  if (f.status) where.status = { in: statusToDbValues(f.status) };
+  if (f.status) {
+    const statuses = statusToCryptoDbValues(f.status);
+    if (statuses.length) where.status = { in: statuses };
+  }
   if (f.customerId) where.userId = f.customerId;
   if (f.type === 'buy') where.transactionType = { in: ['BUY', 'RECEIVE'] };
   else if (f.type === 'sell') where.transactionType = { in: ['SELL', 'SEND'] };
