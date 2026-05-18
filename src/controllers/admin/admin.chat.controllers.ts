@@ -309,9 +309,9 @@ export const getAllCustomerWithAgentsChats = async (
         some: {
           user: {
             OR: [
-              { username: { contains: q, mode: 'insensitive' } },
-              { firstname: { contains: q, mode: 'insensitive' } },
-              { lastname:  { contains: q, mode: 'insensitive' } },
+              { username: { contains: q } },
+              { firstname: { contains: q } },
+              { lastname: { contains: q } },
             ],
           },
         },

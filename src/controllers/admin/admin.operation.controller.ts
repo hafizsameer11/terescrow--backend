@@ -136,18 +136,22 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
 
         const where: any = { role: UserRoles.customer };
 
+        // MySQL (Prisma) does not support `mode: 'insensitive'` — use plain filters (utf8mb4 collation is case-insensitive for LIKE).
         if (genderQ && genderQ.toLowerCase() !== 'all') {
-            where.gender = { equals: genderQ, mode: 'insensitive' };
+            const g = genderQ.toLowerCase();
+            if (g === Gender.male || g === Gender.female || g === Gender.other) {
+                where.gender = g;
+            }
         }
         if (countryQ && countryQ.toLowerCase() !== 'all') {
-            where.country = { contains: countryQ, mode: 'insensitive' };
+            where.country = { contains: countryQ };
         }
         if (searchQ) {
             where.OR = [
-                { firstname: { contains: searchQ, mode: 'insensitive' } },
-                { lastname: { contains: searchQ, mode: 'insensitive' } },
-                { username: { contains: searchQ, mode: 'insensitive' } },
-                { email: { contains: searchQ, mode: 'insensitive' } },
+                { firstname: { contains: searchQ } },
+                { lastname: { contains: searchQ } },
+                { username: { contains: searchQ } },
+                { email: { contains: searchQ } },
             ];
         }
         if (startDateQ || endDateQ) {
