@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
-import { getUserBalances } from '../../services/admin/user.balances.service';
+import { getUserBalances, getUserBalancesSummary } from '../../services/admin/user.balances.service';
 
 export async function getAdminUserBalancesController(
   req: Request,
@@ -24,5 +24,19 @@ export async function getAdminUserBalancesController(
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to fetch user balances'));
+  }
+}
+
+export async function getAdminUserBalancesSummaryController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const summary = await getUserBalancesSummary();
+    return new ApiResponse(200, summary, 'User balances summary retrieved successfully').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to fetch user balances summary'));
   }
 }

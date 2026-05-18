@@ -118,3 +118,54 @@ export async function getUserBalances(
     totalPages: Math.ceil(total / limit),
   };
 }
+
+export interface UserBalancesSummary {
+  /** Sum of customer fiat NGN wallets. */
+  totalNairaWallet: number;
+  /** Sum of crypto held on user deposit addresses (NGN equivalent). */
+  totalCryptoDepositNgn: number;
+  /** Fiat NGN + crypto deposit NGN — total user-held balances in Naira. */
+  totalDepositNgn: number;
+  totalCryptoDepositUsd: number;
+}
+
+/** Aggregate deposit balances across all customers (for admin dashboards). */
+export async function getUserBalancesSummary(): Promise<UserBalancesSummary> {
+  const users = await prisma.user.findMany({
+    where: { role: UserRoles.customer },
+    select: {
+      fiatWallets: { where: { currency: 'NGN' }, select: { balance: true } },
+      virtualAccounts: {
+        include: { walletCurrency: { select: { price: true, nairaPrice: true } } },
+      },
+    },
+  });
+
+  let totalNairaWallet = 0;
+  let totalCryptoDepositNgn = 0;
+  let totalCryptoDepositUsd = 0;
+
+  for (const u of users) {
+    for (const w of u.fiatWallets) {
+      totalNairaWallet += Number(w.balance);
+    }
+    for (const va of u.virtualAccounts) {
+      const bal = Number(va.availableBalance || va.accountBalance || 0);
+      const wc = va.walletCurrency;
+      if (wc?.price) totalCryptoDepositUsd += bal * Number(wc.price);
+      if (wc?.nairaPrice) totalCryptoDepositNgn += bal * Number(wc.nairaPrice);
+    }
+  }
+
+  const round = (n: number) => Math.round(n * 100) / 100;
+  totalNairaWallet = round(totalNairaWallet);
+  totalCryptoDepositNgn = round(totalCryptoDepositNgn);
+  totalCryptoDepositUsd = round(totalCryptoDepositUsd);
+
+  return {
+    totalNairaWallet,
+    totalCryptoDepositNgn,
+    totalDepositNgn: round(totalNairaWallet + totalCryptoDepositNgn),
+    totalCryptoDepositUsd,
+  };
+}

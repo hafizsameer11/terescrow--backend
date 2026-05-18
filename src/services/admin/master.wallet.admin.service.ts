@@ -15,14 +15,47 @@ function chainKey(blockchain: string): string {
   return String(blockchain ?? '').toLowerCase().trim();
 }
 
-/** Client-friendly label, e.g. "USDT (Tron)". */
-function formatDisplayLabel(currency: string, blockchain: string): string {
-  const c = String(currency ?? '').trim();
-  const b = String(blockchain ?? '').trim();
-  if (!c) return b || '—';
-  if (!b) return c;
+function normalizeCurrencyTicker(currency: string): string {
+  const raw = String(currency ?? '').trim();
+  if (!raw) return '—';
+  const u = raw.toUpperCase().replace(/\s+/g, '');
+  const m = u.match(/^(USDT|USDC|DAI|BUSD|BTC|ETH|BNB|TRX|SOL|LTC|DOGE|MATIC)_(.+)$/);
+  if (m) return m[1];
+  if (u.includes('_')) {
+    const base = u.split('_')[0];
+    if (['USDT', 'USDC', 'DAI', 'BUSD', 'BTC', 'ETH', 'BNB', 'TRX', 'SOL', 'LTC', 'DOGE', 'MATIC'].includes(base)) {
+      return base;
+    }
+  }
+  return raw;
+}
+
+function tokenStandardForChain(blockchain: string, isToken: boolean): string | null {
+  if (!isToken) return null;
+  const chain = String(blockchain ?? '').toLowerCase();
+  if (chain === 'tron' || chain === 'trx') return 'TRC20';
+  if (chain === 'ethereum' || chain === 'eth') return 'ERC20';
+  if (chain === 'bsc') return 'BEP20';
+  if (chain === 'polygon' || chain === 'matic') return 'Polygon';
+  if (chain === 'solana' || chain === 'sol') return 'SPL';
+  return 'Token';
+}
+
+/** Client-friendly label, e.g. "USDT TRC20 (Tron)". */
+function formatDisplayLabel(currency: string, blockchain: string, isToken = false): string {
+  const chain = String(blockchain ?? '').trim();
+  let c = normalizeCurrencyTicker(currency);
+  if (!isToken) {
+    const cl = chain.toLowerCase();
+    if (cl === 'bsc' && (c === 'BSC' || c === 'BNB')) c = 'BNB';
+    if ((cl === 'tron' || cl === 'trx') && (c === 'TRON' || c === 'TRX')) c = 'TRX';
+  }
+  if (!c || c === '—') return chain || '—';
+  if (!chain) return c;
   const chainLabel =
-    b.length <= 4 ? b.toUpperCase() : b.charAt(0).toUpperCase() + b.slice(1).toLowerCase();
+    chain.length <= 4 ? chain.toUpperCase() : chain.charAt(0).toUpperCase() + chain.slice(1).toLowerCase();
+  const standard = tokenStandardForChain(chain, isToken);
+  if (standard) return `${c} ${standard} (${chainLabel})`;
   return `${c} (${chainLabel})`;
 }
 
@@ -174,7 +207,7 @@ export async function getMasterWalletAssets(walletId?: string): Promise<AssetIte
     const mw = walletByChain.get(chain);
     if (!mw?.address) continue;
 
-    const displayLabel = formatDisplayLabel(wc.currency, wc.blockchain);
+    const displayLabel = formatDisplayLabel(wc.currency, wc.blockchain, Boolean(wc.isToken));
     const nativeWc = currencies.find((c) => chainKey(c.blockchain) === chain && !c.isToken);
     const nativeSymbol = nativeWc?.currency ?? formatChainName(wc.blockchain);
 
