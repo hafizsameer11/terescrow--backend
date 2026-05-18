@@ -832,17 +832,20 @@ model UserBankAccount {
 }
 
 model Vendor {
-  id           Int      @id @default(autoincrement())
-  name         String   @db.VarChar(255)
-  network      String   @db.VarChar(100)
-  currency     String   @db.VarChar(20)
-  walletAddress String  @db.VarChar(255)
-  notes        String?  @db.Text
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id               Int             @id @default(autoincrement())
+  name             String          @db.VarChar(255)
+  network          String          @db.VarChar(100)
+  currency         String          @db.VarChar(20)
+  walletCurrencyId Int?            @map("wallet_currency_id")
+  walletAddress    String          @db.VarChar(255)
+  notes            String?         @db.Text
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  walletCurrency   WalletCurrency? @relation(fields: [walletCurrencyId], references: [id], onDelete: SetNull)
   receivedAssetDisbursements ReceivedAssetDisbursement[]
 
   @@index([currency])
+  @@index([walletCurrencyId])
   @@map("vendors")
 }
 
@@ -1161,6 +1164,8 @@ model WalletCurrency {
   updatedAt       DateTime         @updatedAt @map("updated_at")
   virtualAccounts VirtualAccount[]
   changeNowTicker WalletCurrencyChangeNowTicker?
+  vendors         Vendor[]
+  adminPayoutAddresses AdminExchangePayoutAddress[]
 
   @@map("wallet_currencies")
 }
@@ -1356,21 +1361,24 @@ model ReceivedAssetDisbursement {
 
 /// Admin-managed payout address for ChangeNOW swaps (where exchanged funds are sent).
 model AdminExchangePayoutAddress {
-  id              Int      @id @default(autoincrement())
-  adminUserId     Int      @map("admin_user_id")
-  label           String?  @db.VarChar(255)
-  address         String   @db.VarChar(255)
-  extraId         String?  @map("extra_id") @db.VarChar(255)
-  toNetworkHint   String?  @map("to_network_hint") @db.VarChar(100)
-  isDefault       Boolean  @default(false) @map("is_default")
-  archived        Boolean  @default(false)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id               Int             @id @default(autoincrement())
+  adminUserId      Int             @map("admin_user_id")
+  label            String?         @db.VarChar(255)
+  address          String          @db.VarChar(255)
+  extraId          String?         @map("extra_id") @db.VarChar(255)
+  toNetworkHint    String?         @map("to_network_hint") @db.VarChar(100)
+  walletCurrencyId Int?            @map("wallet_currency_id")
+  isDefault        Boolean         @default(false) @map("is_default")
+  archived         Boolean         @default(false)
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
 
-  admin   User                 @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
-  swapOrders ChangeNowSwapOrder[]
+  admin          User                 @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  walletCurrency WalletCurrency?      @relation(fields: [walletCurrencyId], references: [id], onDelete: SetNull)
+  swapOrders     ChangeNowSwapOrder[]
 
   @@index([adminUserId])
+  @@index([walletCurrencyId])
   @@map("admin_exchange_payout_addresses")
 }
 

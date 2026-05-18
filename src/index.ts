@@ -77,6 +77,7 @@ import referralsAdminRouter from './routes/admin/referrals.admin.router';
 import supportAdminRouter from './routes/admin/support.admin.router';
 import customersFreezeRouter from './routes/admin/customers.freeze.router';
 import profitAdminRouter from './routes/admin/profit.admin.router';
+import cryptoJobsRouter from './routes/admin/crypto.jobs.router';
 
 // ============================================
 // V1 API Routes (Legacy - if any)
@@ -255,6 +256,7 @@ app.use('/api/admin/referrals', referralsAdminRouter);
 app.use('/api/admin/support', supportAdminRouter);
 app.use('/api/admin/customers', customersFreezeRouter);
 app.use('/api/admin/profit-tracker', profitAdminRouter);
+app.use('/api/admin/crypto-jobs', cryptoJobsRouter);
 
 // ============================================
 // V1 API Routes (Legacy - if any)

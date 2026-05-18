@@ -8,6 +8,7 @@ import {
   sendReceivedAssetToVendorController,
   sendReceivedAssetToMasterWalletController,
   bulkSendReceivedAssetsToVendorController,
+  estimateDisbursementFeeController,
 } from '../../controllers/admin/transaction.tracking.controller';
 
 const router = express.Router();
@@ -17,6 +18,7 @@ router.get('/', ...adminOnly, getTransactionTrackingController);
 router.post('/bulk-send-to-vendor', ...adminOnly, bulkSendReceivedAssetsToVendorController);
 router.get('/:txId/steps', ...adminOnly, getTrackingStepsController);
 router.get('/:txId/details', ...adminOnly, getTrackingDetailsController);
+router.get('/:txId/estimate-fee', ...adminOnly, estimateDisbursementFeeController);
 router.post('/:txId/send-to-vendor', ...adminOnly, sendReceivedAssetToVendorController);
 router.post('/:txId/send-to-master-wallet', ...adminOnly, sendReceivedAssetToMasterWalletController);
 

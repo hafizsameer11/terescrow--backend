@@ -61,7 +61,11 @@ export async function getSummaryController(req: Request, res: Response, next: Ne
   try {
     const agentId = req.query.agentId ? parseInt(String(req.query.agentId), 10) : undefined;
     const summary = await dailyReportService.getDailyReportSummary(
-      isNaN(agentId as number) ? undefined : agentId
+      isNaN(agentId as number) ? undefined : agentId,
+      {
+        startDate: req.query.startDate as string | undefined,
+        endDate: req.query.endDate as string | undefined,
+      }
     );
     return new ApiResponse(200, summary, 'Summary retrieved').send(res);
   } catch (error) {
@@ -73,7 +77,10 @@ export async function getSummaryController(req: Request, res: Response, next: Ne
 export async function getAvgWorkHoursChartController(req: Request, res: Response, next: NextFunction) {
   try {
     const days = req.query.days ? parseInt(String(req.query.days), 10) : 7;
-    const data = await dailyReportService.getAvgWorkHoursChart(isNaN(days) ? 7 : days);
+    const data = await dailyReportService.getAvgWorkHoursChart(isNaN(days) ? 7 : days, {
+      startDate: req.query.startDate as string | undefined,
+      endDate: req.query.endDate as string | undefined,
+    });
     return new ApiResponse(200, { data }, 'Chart data retrieved').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
@@ -84,7 +91,10 @@ export async function getAvgWorkHoursChartController(req: Request, res: Response
 export async function getWorkHoursPerMonthChartController(req: Request, res: Response, next: NextFunction) {
   try {
     const months = req.query.months ? parseInt(String(req.query.months), 10) : 3;
-    const data = await dailyReportService.getWorkHoursPerMonthChart(isNaN(months) ? 3 : months);
+    const data = await dailyReportService.getWorkHoursPerMonthChart(isNaN(months) ? 3 : months, {
+      startDate: req.query.startDate as string | undefined,
+      endDate: req.query.endDate as string | undefined,
+    });
     return new ApiResponse(200, { data }, 'Chart data retrieved').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);

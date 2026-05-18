@@ -67,6 +67,32 @@ export async function getTrackingDetailsController(
   }
 }
 
+export async function estimateDisbursementFeeController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const txId = req.params.txId;
+    if (!txId) return next(ApiError.badRequest('txId required'));
+    const target = String(req.query.target || 'vendor').toLowerCase();
+    if (target !== 'vendor' && target !== 'master') {
+      return next(ApiError.badRequest('target must be vendor or master'));
+    }
+    const vendorId = req.query.vendorId
+      ? parseInt(String(req.query.vendorId), 10)
+      : undefined;
+    const estimate = await receivedAssetDisbursementService.estimateDisbursementFee({
+      receiveTransactionId: txId,
+      target: target as 'vendor' | 'master',
+      vendorId: Number.isFinite(vendorId) ? vendorId : undefined,
+    });
+    return new ApiResponse(200, estimate, 'Fee estimate retrieved').send(res);
+  } catch (error) {
+    return nextDisbursementError(error, 'Failed to estimate fee', next);
+  }
+}
+
 export async function sendReceivedAssetToVendorController(
   req: Request,
   res: Response,

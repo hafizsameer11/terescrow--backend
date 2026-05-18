@@ -204,16 +204,19 @@ export async function createPayoutAddressController(
   next: NextFunction
 ) {
   try {
-    const { label, address, extraId, toNetworkHint, isDefault } = req.body;
+    const { label, address, extraId, toNetworkHint, isDefault, walletCurrencyId } = req.body;
     if (!address || String(address).trim() === '') {
       throw ApiError.badRequest('address is required');
     }
+    const wcid =
+      walletCurrencyId != null ? parseInt(String(walletCurrencyId), 10) : undefined;
     const row = await svc.createPayoutAddress({
       adminUserId: adminId(req),
       label,
       address: String(address),
       extraId,
       toNetworkHint,
+      walletCurrencyId: Number.isFinite(wcid) && wcid! > 0 ? wcid : null,
       isDefault: !!isDefault,
     });
     return new ApiResponse(201, row, 'Payout address created').send(res);

@@ -154,12 +154,29 @@ export async function getReportById(reportId: number) {
   };
 }
 
-export async function getDailyReportSummary(agentId?: number) {
-  const where = agentId !== undefined ? { userId: agentId } : {};
+function dateRangeWhere(startDate?: string, endDate?: string): Record<string, unknown> {
+  if (!startDate && !endDate) return {};
+  const date: Record<string, Date> = {};
+  if (startDate) date.gte = new Date(startDate);
+  if (endDate) {
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    date.lte = end;
+  }
+  return { date };
+}
+
+export async function getDailyReportSummary(
+  agentId?: number,
+  opts?: { startDate?: string; endDate?: string }
+) {
+  const where: Record<string, unknown> = {
+    ...(agentId !== undefined ? { userId: agentId } : {}),
+    ...dateRangeWhere(opts?.startDate, opts?.endDate),
+  };
   const logs = await attendanceModel.findMany({
     where,
     orderBy: { date: 'desc' },
-    take: 30,
   });
   let activeHours = 0;
   for (const log of logs) {
@@ -176,11 +193,30 @@ export async function getDailyReportSummary(agentId?: number) {
   };
 }
 
-export async function getAvgWorkHoursChart(days: number = 7) {
-  const start = new Date();
-  start.setDate(start.getDate() - days);
+export async function getAvgWorkHoursChart(
+  days: number = 7,
+  opts?: { startDate?: string; endDate?: string }
+) {
+  let start: Date;
+  let end: Date | undefined;
+  if (opts?.startDate || opts?.endDate) {
+    start = opts.startDate ? new Date(opts.startDate) : new Date();
+    if (!opts.startDate) {
+      start = new Date();
+      start.setDate(start.getDate() - days);
+    }
+    if (opts.endDate) {
+      end = new Date(opts.endDate);
+      end.setHours(23, 59, 59, 999);
+    }
+  } else {
+    start = new Date();
+    start.setDate(start.getDate() - days);
+  }
+  const dateFilter: Record<string, Date> = { gte: start };
+  if (end) dateFilter.lte = end;
   const logs = await attendanceModel.findMany({
-    where: { date: { gte: start } },
+    where: { date: dateFilter },
     select: { date: true, checkInTime: true, checkOutTime: true },
   });
   const byDay: Record<string, number> = {};
@@ -194,15 +230,25 @@ export async function getAvgWorkHoursChart(days: number = 7) {
   return Object.entries(byDay).map(([day, hours]) => ({ day, hours: Math.round(hours * 100) / 100 }));
 }
 
-export async function getWorkHoursPerMonthChart(months: number = 3) {
+export async function getWorkHoursPerMonthChart(
+  months: number = 3,
+  opts?: { startDate?: string; endDate?: string }
+) {
   const result: { month: string; workHrs: number; overTimeHrs: number }[] = [];
-  const now = new Date();
-  for (let i = 0; i < months; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+  const rangeEnd = opts?.endDate ? new Date(opts.endDate) : new Date();
+  rangeEnd.setHours(23, 59, 59, 999);
+  const rangeStart = opts?.startDate
+    ? new Date(opts.startDate)
+    : new Date(rangeEnd.getFullYear(), rangeEnd.getMonth() - (months - 1), 1);
+  let cursor = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
+  while (cursor <= rangeEnd) {
+    const d = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
     const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const next = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    next.setHours(23, 59, 59, 999);
+    const monthEnd = next > rangeEnd ? rangeEnd : next;
     const logs = await attendanceModel.findMany({
-      where: { date: { gte: d, lte: next } },
+      where: { date: { gte: d, lte: monthEnd } },
       select: { checkInTime: true, checkOutTime: true },
     });
     let workHrs = 0;
@@ -223,6 +269,7 @@ export async function getWorkHoursPerMonthChart(months: number = 3) {
       workHrs: Math.round(workHrs * 100) / 100,
       overTimeHrs: Math.round(overTimeHrs * 100) / 100,
     });
+    cursor = new Date(d.getFullYear(), d.getMonth() + 1, 1);
   }
   return result;
 }

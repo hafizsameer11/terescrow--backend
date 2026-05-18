@@ -518,6 +518,7 @@ export async function listPayoutAddresses(adminUserId: number) {
   return prisma.adminExchangePayoutAddress.findMany({
     where: { adminUserId, archived: false },
     orderBy: [{ isDefault: 'desc' }, { id: 'desc' }],
+    include: { walletCurrency: true },
   });
 }
 
@@ -527,6 +528,7 @@ export async function createPayoutAddress(input: {
   address: string;
   extraId?: string;
   toNetworkHint?: string;
+  walletCurrencyId?: number | null;
   isDefault?: boolean;
 }) {
   if (input.isDefault) {
@@ -542,8 +544,10 @@ export async function createPayoutAddress(input: {
       address: input.address.trim(),
       extraId: input.extraId?.trim() || null,
       toNetworkHint: input.toNetworkHint?.trim() || null,
+      walletCurrencyId: input.walletCurrencyId ?? null,
       isDefault: !!input.isDefault,
     },
+    include: { walletCurrency: true },
   });
 }
 
@@ -555,6 +559,7 @@ export async function updatePayoutAddress(
     address?: string;
     extraId?: string | null;
     toNetworkHint?: string | null;
+    walletCurrencyId?: number | null;
     isDefault?: boolean;
     archived?: boolean;
   }
@@ -578,9 +583,11 @@ export async function updatePayoutAddress(
         ? { extraId: patch.extraId === null ? null : patch.extraId.trim() }
         : {}),
       ...(patch.toNetworkHint !== undefined ? { toNetworkHint: patch.toNetworkHint } : {}),
+      ...(patch.walletCurrencyId !== undefined ? { walletCurrencyId: patch.walletCurrencyId } : {}),
       ...(patch.isDefault !== undefined ? { isDefault: patch.isDefault } : {}),
       ...(patch.archived !== undefined ? { archived: patch.archived } : {}),
     },
+    include: { walletCurrency: true },
   });
 }
 

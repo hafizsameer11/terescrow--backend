@@ -22,6 +22,7 @@ router.post(
     body('currency').isString().notEmpty(),
     body('walletAddress').isString().notEmpty(),
     body('notes').optional().isString(),
+    body('walletCurrencyId').optional().isInt({ min: 1 }),
   ],
   createVendorController
 );

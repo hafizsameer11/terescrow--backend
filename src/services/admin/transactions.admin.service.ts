@@ -46,6 +46,7 @@ export interface UnifiedTransaction {
   nairaType: string | null;
   nairaChannel: string | null;
   nairaReference: string | null;
+  exchangeRate?: number | null;
 }
 
 export interface TransactionsResult {
@@ -249,12 +250,27 @@ function mapCrypto(tx: any): UnifiedTransaction {
     fromAddr = tx.cryptoSwap.fromAddress ?? null;
     toAddr = tx.cryptoSwap.toAddress ?? null;
   }
+
+  let exchangeRate: number | null = null;
+  if (tx.cryptoBuy) {
+    exchangeRate = tx.cryptoBuy.rateNgnToUsd != null
+      ? Number(tx.cryptoBuy.rateNgnToUsd)
+      : tx.cryptoBuy.rate != null ? Number(tx.cryptoBuy.rate) : null;
+  } else if (tx.cryptoSell) {
+    exchangeRate = tx.cryptoSell.rateUsdToNgn != null
+      ? Number(tx.cryptoSell.rateUsdToNgn)
+      : tx.cryptoSell.rate != null ? Number(tx.cryptoSell.rate) : null;
+  } else if (child?.rate != null) {
+    exchangeRate = Number(child.rate);
+  }
+
   return {
     id: tx.id,
     transactionId: tx.transactionId,
     status: normalizeStatus(tx.status),
     amount: Math.round(amount * 100) / 100,
     amountNaira: Math.round(amountNaira * 100) / 100,
+    exchangeRate,
     createdAt: tx.createdAt.toISOString(),
     updatedAt: tx.updatedAt.toISOString(),
     profit: 0,
@@ -357,14 +373,17 @@ async function queryNaira(f: TransactionFilters, take: number, skip: number) {
 }
 
 function mapNaira(f: any): UnifiedTransaction {
+  const fiatAmount = Number(f.amount || 0);
   const totalAmt = Number(f.totalAmount || f.amount || 0);
+  const currency = String(f.currency || 'NGN').toUpperCase();
+  const isUsd = currency === 'USD';
   const deptType = ['deposit', 'credit'].includes(f.type) ? 'buy' : 'sell';
   return {
     id: f.id,
     transactionId: f.id,
     status: normalizeStatus(f.status),
-    amount: 0,
-    amountNaira: totalAmt,
+    amount: isUsd ? fiatAmount : 0,
+    amountNaira: isUsd ? 0 : totalAmt,
     createdAt: f.createdAt.toISOString(),
     updatedAt: f.updatedAt.toISOString(),
     profit: 0,

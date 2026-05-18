@@ -17,6 +17,7 @@ export async function getVendorsController(
     const vendors = await vendorModel.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      include: { walletCurrency: true },
     });
     return new ApiResponse(200, vendors, 'Vendors retrieved').send(res);
   } catch (error) {
@@ -35,7 +36,11 @@ export async function createVendorController(
     if (!errors.isEmpty()) {
       return next(ApiError.badRequest('Validation failed', errors.array()));
     }
-    const { name, network, currency, walletAddress, notes } = req.body;
+    const { name, network, currency, walletAddress, notes, walletCurrencyId } = req.body;
+    const wcid =
+      walletCurrencyId != null && walletCurrencyId !== ''
+        ? parseInt(String(walletCurrencyId), 10)
+        : undefined;
     const vendor = await vendorModel.create({
       data: {
         name,
@@ -43,7 +48,9 @@ export async function createVendorController(
         currency,
         walletAddress,
         notes: notes ?? null,
+        ...(Number.isFinite(wcid) ? { walletCurrencyId: wcid } : {}),
       },
+      include: { walletCurrency: true },
     });
     return new ApiResponse(201, vendor, 'Vendor created').send(res);
   } catch (error) {
@@ -60,16 +67,21 @@ export async function updateVendorController(
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return next(ApiError.badRequest('Invalid vendor id'));
-    const { name, network, currency, walletAddress, notes } = req.body;
+    const { name, network, currency, walletAddress, notes, walletCurrencyId } = req.body;
     const data: any = {};
     if (name !== undefined) data.name = name;
     if (network !== undefined) data.network = network;
     if (currency !== undefined) data.currency = currency;
     if (walletAddress !== undefined) data.walletAddress = walletAddress;
     if (notes !== undefined) data.notes = notes;
+    if (walletCurrencyId !== undefined) {
+      const wcid = parseInt(String(walletCurrencyId), 10);
+      data.walletCurrencyId = Number.isFinite(wcid) && wcid > 0 ? wcid : null;
+    }
     const vendor = await vendorModel.update({
       where: { id },
       data,
+      include: { walletCurrency: true },
     });
     return new ApiResponse(200, vendor, 'Vendor updated').send(res);
   } catch (error: any) {

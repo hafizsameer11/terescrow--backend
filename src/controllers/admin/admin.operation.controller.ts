@@ -124,40 +124,88 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
             return next(ApiError.unauthorized('You are not authorized'));
         }
 
-        const customers = await prisma.user.findMany({
-            where: {
-                role: UserRoles.customer,
-            },
-            include: {
-                inappNotification: {
-                    orderBy: {
-                        createdAt: 'desc'
-                    },
-                    take: 6
-                },
-                KycStateTwo: {
-                    orderBy: {
-                        createdAt: 'desc'
-                    },
-                    take: 1
-                }
-            },
-            orderBy: {
-                createdAt: 'desc'
-            }
-        });
+        const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || '20'), 10) || 20));
+        const skip = (page - 1) * limit;
 
-        if (!customers || customers.length === 0) {
-            return next(ApiError.notFound('Customers not found'));
+        const genderQ = typeof req.query.gender === 'string' ? req.query.gender.trim() : '';
+        const countryQ = typeof req.query.country === 'string' ? req.query.country.trim() : '';
+        const searchQ = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+        const startDateQ = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : '';
+        const endDateQ = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : '';
+
+        const where: any = { role: UserRoles.customer };
+
+        if (genderQ && genderQ.toLowerCase() !== 'all') {
+            where.gender = { equals: genderQ, mode: 'insensitive' };
+        }
+        if (countryQ && countryQ.toLowerCase() !== 'all') {
+            where.country = { contains: countryQ, mode: 'insensitive' };
+        }
+        if (searchQ) {
+            where.OR = [
+                { firstname: { contains: searchQ, mode: 'insensitive' } },
+                { lastname: { contains: searchQ, mode: 'insensitive' } },
+                { username: { contains: searchQ, mode: 'insensitive' } },
+                { email: { contains: searchQ, mode: 'insensitive' } },
+            ];
+        }
+        if (startDateQ || endDateQ) {
+            where.createdAt = {};
+            if (startDateQ) {
+                const start = new Date(startDateQ);
+                if (!isNaN(start.getTime())) {
+                    start.setHours(0, 0, 0, 0);
+                    where.createdAt.gte = start;
+                }
+            }
+            if (endDateQ) {
+                const end = new Date(endDateQ);
+                if (!isNaN(end.getTime())) {
+                    end.setHours(23, 59, 59, 999);
+                    where.createdAt.lte = end;
+                }
+            }
         }
 
-        // Modify the response to remove the array from KycStateTwo
-        const modifiedCustomers = customers.map(customer => ({
+        const [customers, total] = await Promise.all([
+            prisma.user.findMany({
+                where,
+                include: {
+                    inappNotification: {
+                        orderBy: { createdAt: 'desc' },
+                        take: 6,
+                    },
+                    KycStateTwo: {
+                        orderBy: { createdAt: 'desc' },
+                        take: 1,
+                    },
+                },
+                orderBy: { createdAt: 'desc' },
+                skip,
+                take: limit,
+            }),
+            prisma.user.count({ where }),
+        ]);
+
+        const modifiedCustomers = customers.map((customer) => ({
             ...customer,
-            KycStateTwo: customer.KycStateTwo.length > 0 ? customer.KycStateTwo[0] : null
+            KycStateTwo: customer.KycStateTwo.length > 0 ? customer.KycStateTwo[0] : null,
         }));
 
-        return new ApiResponse(200, modifiedCustomers, 'Customers fetched successfully').send(res);
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+
+        return new ApiResponse(
+            200,
+            {
+                data: modifiedCustomers,
+                total,
+                page,
+                limit,
+                totalPages,
+            },
+            'Customers fetched successfully'
+        ).send(res);
     } catch (error) {
         console.log(error);
         if (error instanceof ApiError) {

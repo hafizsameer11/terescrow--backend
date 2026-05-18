@@ -787,3 +787,94 @@ export async function bulkSendReceivedAssetsToVendors(input: {
     },
   };
 }
+
+export type DisbursementFeeEstimate = {
+  receiveTransactionId: string;
+  target: 'vendor' | 'master';
+  amount: string;
+  currency: string;
+  blockchain: string;
+  toAddress: string;
+  estimatedNetworkFee: string | null;
+  estimatedNetworkFeeCurrency: string | null;
+  note?: string;
+};
+
+/**
+ * Dry-run gas estimate for vendor or master-wallet disbursement (EVM chains when possible).
+ */
+export async function estimateDisbursementFee(input: {
+  receiveTransactionId: string;
+  target: 'vendor' | 'master';
+  vendorId?: number;
+}): Promise<DisbursementFeeEstimate> {
+  const ctx = await loadReceiveDisbursementForOutbound(input.receiveTransactionId);
+  const { tx, recvAmount, chainNorm, baseSymbol, virtualAccount, walletCurrency, isNative } = ctx;
+
+  let toAddress: string;
+  if (input.target === 'vendor') {
+    const vendorId = input.vendorId;
+    if (!vendorId) throw ApiError.badRequest('vendorId is required for vendor estimate');
+    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) throw ApiError.notFound('Vendor not found');
+    toAddress = vendor.walletAddress.trim();
+  } else {
+    const masterWallet = await prisma.masterWallet.findUnique({ where: { blockchain: chainNorm } });
+    toAddress = masterWallet?.address?.trim() || '';
+    if (!toAddress) {
+      throw ApiError.badRequest(`Master wallet address is not configured for "${chainNorm}"`);
+    }
+  }
+
+  const deposit = virtualAccount?.depositAddresses?.[0];
+  const depositAddress = deposit?.address?.trim();
+  if (!depositAddress) {
+    throw ApiError.badRequest('Deposit address not found for this receive');
+  }
+
+  let estimatedNetworkFee: string | null = null;
+  let estimatedNetworkFeeCurrency: string | null = null;
+  let note: string | undefined;
+
+  const evmChains: Record<string, { gasChain: string; native: string }> = {
+    ethereum: { gasChain: 'ETH', native: 'ETH' },
+    bsc: { gasChain: 'BSC', native: 'BNB' },
+    polygon: { gasChain: 'MATIC', native: 'MATIC' },
+  };
+
+  if (evmChains[chainNorm]) {
+    const { gasChain, native } = evmChains[chainNorm];
+    const ethereumGasService = (await import('../ethereum/ethereum.gas.service')).default;
+    try {
+      const gasEstimate = await ethereumGasService.estimateGasFeeForChain(
+        gasChain as 'ETH' | 'BSC' | 'MATIC',
+        depositAddress,
+        toAddress,
+        recvAmount.toString(),
+        !isNative
+      );
+      const gasLimit = Math.ceil(parseInt(gasEstimate.gasLimit, 10) * 1.1);
+      const gasFeeNative = new Decimal(
+        ethereumGasService.calculateTotalFee(gasLimit.toString(), gasEstimate.gasPrice)
+      );
+      estimatedNetworkFee = gasFeeNative.toString();
+      estimatedNetworkFeeCurrency = isNative ? baseSymbol : native;
+    } catch (e: any) {
+      note = e?.message || 'Could not estimate EVM gas';
+    }
+  } else {
+    note = `Gas estimate preview is not available for ${chainNorm}; fees apply on confirm.`;
+  }
+
+  return {
+    receiveTransactionId: input.receiveTransactionId,
+    target: input.target,
+    amount: recvAmount.toString(),
+    currency: baseSymbol,
+    blockchain: tx.blockchain,
+    toAddress,
+    estimatedNetworkFee,
+    estimatedNetworkFeeCurrency,
+    note,
+  };
+}

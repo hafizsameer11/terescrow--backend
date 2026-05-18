@@ -1343,13 +1343,36 @@ export const getallSubCategories = async (req: Request, res: Response, next: Nex
 export const getAccountActivityofUser = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    // return new ApiResponse(200, id, 'AccountActivites retrieved successfully').send(res);
-    const accitivities = await prisma.accountActivity.findMany({
-      where: {
-        userId: parseInt(id, 10)
-      }
-    })
-    return new ApiResponse(200, accitivities, 'AccountActivites retrieved successfully').send(res);
+    const userId = parseInt(id, 10);
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit || '5'), 10) || 5));
+    const skip = (page - 1) * limit;
+
+    const where = { userId };
+
+    const [accitivities, total] = await Promise.all([
+      prisma.accountActivity.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.accountActivity.count({ where }),
+    ]);
+
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    return new ApiResponse(
+      200,
+      {
+        data: accitivities,
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+      'AccountActivites retrieved successfully'
+    ).send(res);
   } catch (error) {
     console.log(error);
     if (error instanceof ApiError) {
