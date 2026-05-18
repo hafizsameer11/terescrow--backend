@@ -3,6 +3,7 @@ import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
+import { getReferralSignupRules } from '../../services/referral/referral.signup.rules';
 
 /**
  * Get referral code for user (= their username)
@@ -246,13 +247,7 @@ export const withdrawReferralController = async (
 
     // First withdrawal must meet minimum threshold
     if (!wallet.hasWithdrawn) {
-      const setting = await prisma.referralCommissionSetting.findFirst({
-        where: { isActive: true },
-        select: { minFirstWithdrawal: true },
-      });
-      const minAmount = setting
-        ? new Decimal(setting.minFirstWithdrawal.toString())
-        : new Decimal('20000');
+      const { minFirstWithdrawal: minAmount } = await getReferralSignupRules();
 
       if (new Decimal(wallet.balance.toString()).lt(minAmount)) {
         return next(

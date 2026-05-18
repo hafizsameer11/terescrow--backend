@@ -61,11 +61,25 @@ export async function getEarnSettingsController(req: Request, res: Response, nex
 
 export async function putEarnSettingsController(req: Request, res: Response, next: NextFunction) {
   try {
-    const { firstTimeDepositBonusPct, commissionReferralTradesPct, commissionDownlineTradesPct } = req.body;
-    const settings = await referralsAdminService.updateEarnSettings({
-      firstTimeDepositBonusPct,
+    const {
+      signupBonusNgn,
+      minFirstWithdrawalNgn,
       commissionReferralTradesPct,
       commissionDownlineTradesPct,
+    } = req.body;
+    const settings = await referralsAdminService.updateEarnSettings({
+      signupBonusNgn:
+        signupBonusNgn !== undefined ? parseFloat(signupBonusNgn) : undefined,
+      minFirstWithdrawalNgn:
+        minFirstWithdrawalNgn !== undefined ? parseFloat(minFirstWithdrawalNgn) : undefined,
+      commissionReferralTradesPct:
+        commissionReferralTradesPct !== undefined
+          ? parseFloat(commissionReferralTradesPct)
+          : undefined,
+      commissionDownlineTradesPct:
+        commissionDownlineTradesPct !== undefined
+          ? parseFloat(commissionDownlineTradesPct)
+          : undefined,
     });
     return new ApiResponse(200, settings, 'Earn settings updated').send(res);
   } catch (error) {

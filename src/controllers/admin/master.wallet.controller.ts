@@ -336,9 +336,23 @@ export const postMasterWalletSendController = async (
       vendorId,
     });
     if (!result.success) {
-      return next(ApiError.badRequest(result.error ?? 'Send failed'));
+      return next(
+        ApiError.badRequest(
+          result.error ?? 'Disburse failed',
+          { txId: result.txId, status: result.status }
+        )
+      );
     }
-    return new ApiResponse(200, { success: true, txId: result.txId }, 'Send initiated').send(res);
+    return new ApiResponse(
+      200,
+      {
+        success: true,
+        txId: result.txId,
+        txHash: result.txHash,
+        status: result.status ?? 'successful',
+      },
+      result.txHash ? 'Disbursement broadcast on-chain' : 'Disbursement recorded'
+    ).send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Send failed'));

@@ -1,6 +1,10 @@
 import { prisma } from '../../utils/prisma';
 import { UserRoles, ReferralService, ReferralCommissionType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import {
+  getReferralSignupRules,
+  REFERRAL_SIGNUP_RULES_SERVICE,
+} from '../referral/referral.signup.rules';
 
 const earnSettingsModel = (prisma as any).referralEarnSettings;
 
@@ -196,28 +200,64 @@ export async function getReferralsByUser(userId: number) {
 // Legacy Earn Settings (kept for backward compatibility)
 // ──────────────────────────────────────────────────────
 
+async function syncSignupRulesAcrossServices(signupBonus?: number, minFirstWithdrawal?: number) {
+  const patch: { signupBonus?: number; minFirstWithdrawal?: number } = {};
+  if (signupBonus !== undefined) patch.signupBonus = signupBonus;
+  if (minFirstWithdrawal !== undefined) patch.minFirstWithdrawal = minFirstWithdrawal;
+  if (Object.keys(patch).length === 0) return;
+
+  const existing = await prisma.referralCommissionSetting.findUnique({
+    where: { service: REFERRAL_SIGNUP_RULES_SERVICE },
+  });
+  const canonical = existing ?? (await prisma.referralCommissionSetting.findFirst());
+  const commissionType = canonical?.commissionType ?? ReferralCommissionType.PERCENTAGE;
+  const commissionValue = canonical ? Number(canonical.commissionValue) : 0;
+  const level2Pct = canonical ? Number(canonical.level2Pct) : 30;
+  const isActive = canonical?.isActive ?? true;
+
+  await upsertCommissionSetting({
+    service: REFERRAL_SIGNUP_RULES_SERVICE,
+    commissionType,
+    commissionValue,
+    level2Pct,
+    signupBonus: signupBonus ?? (canonical ? Number(canonical.signupBonus) : 10000),
+    minFirstWithdrawal:
+      minFirstWithdrawal ?? (canonical ? Number(canonical.minFirstWithdrawal) : 20000),
+    isActive,
+  });
+
+  await prisma.referralCommissionSetting.updateMany({ data: patch });
+}
+
 export async function getEarnSettings() {
   let row = await earnSettingsModel.findFirst();
   if (!row) {
     row = await earnSettingsModel.create({ data: DEFAULT_EARN_SETTINGS });
   }
+  const signupRules = await getReferralSignupRules();
   return {
-    firstTimeDepositBonusPct: Number(row.firstTimeDepositBonusPct),
+    signupBonusNgn: signupRules.signupBonusNgn,
+    minFirstWithdrawalNgn: signupRules.minFirstWithdrawalNgn,
     commissionReferralTradesPct: Number(row.commissionReferralTradesPct),
     commissionDownlineTradesPct: Number(row.commissionDownlineTradesPct),
   };
 }
 
 export async function updateEarnSettings(body: {
-  firstTimeDepositBonusPct?: number;
+  signupBonusNgn?: number;
+  minFirstWithdrawalNgn?: number;
   commissionReferralTradesPct?: number;
   commissionDownlineTradesPct?: number;
 }) {
+  if (body.signupBonusNgn !== undefined || body.minFirstWithdrawalNgn !== undefined) {
+    await syncSignupRulesAcrossServices(body.signupBonusNgn, body.minFirstWithdrawalNgn);
+  }
+
   let row = await earnSettingsModel.findFirst();
   if (!row) {
     row = await earnSettingsModel.create({
       data: {
-        firstTimeDepositBonusPct: body.firstTimeDepositBonusPct ?? 0,
+        firstTimeDepositBonusPct: 0,
         commissionReferralTradesPct: body.commissionReferralTradesPct ?? 0,
         commissionDownlineTradesPct: body.commissionDownlineTradesPct ?? 0,
       },
@@ -225,10 +265,15 @@ export async function updateEarnSettings(body: {
     return getEarnSettings();
   }
   const data: any = {};
-  if (body.firstTimeDepositBonusPct !== undefined) data.firstTimeDepositBonusPct = body.firstTimeDepositBonusPct;
-  if (body.commissionReferralTradesPct !== undefined) data.commissionReferralTradesPct = body.commissionReferralTradesPct;
-  if (body.commissionDownlineTradesPct !== undefined) data.commissionDownlineTradesPct = body.commissionDownlineTradesPct;
-  await earnSettingsModel.update({ where: { id: row.id }, data });
+  if (body.commissionReferralTradesPct !== undefined) {
+    data.commissionReferralTradesPct = body.commissionReferralTradesPct;
+  }
+  if (body.commissionDownlineTradesPct !== undefined) {
+    data.commissionDownlineTradesPct = body.commissionDownlineTradesPct;
+  }
+  if (Object.keys(data).length > 0) {
+    await earnSettingsModel.update({ where: { id: row.id }, data });
+  }
   return getEarnSettings();
 }
 

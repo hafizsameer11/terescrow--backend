@@ -1,6 +1,7 @@
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import { ReferralService, ReferralCommissionType, ReferralEarningType } from '@prisma/client';
+import { getReferralSignupRules } from './referral.signup.rules';
 
 export { ReferralService } from '@prisma/client';
 
@@ -162,14 +163,7 @@ export async function creditReferralCommission(
  */
 export async function creditSignupBonus(newUserId: number, referrerId: number) {
   try {
-    const setting = await prisma.referralCommissionSetting.findFirst({
-      where: { isActive: true },
-      select: { signupBonus: true },
-    });
-
-    const bonusAmount = setting
-      ? new Decimal(setting.signupBonus.toString())
-      : new Decimal('10000');
+    const { signupBonus: bonusAmount } = await getReferralSignupRules();
 
     if (bonusAmount.lte(0)) return;
 
