@@ -13,6 +13,7 @@ export async function getAdminUserBalancesController(
     const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
     const result = await getUserBalances({
       sort: req.query.sort as string | undefined,
+      balanceCurrency: req.query.balanceCurrency as string | undefined,
       startDate: req.query.startDate as string | undefined,
       endDate: req.query.endDate as string | undefined,
       dateRange: req.query.dateRange as string | undefined,

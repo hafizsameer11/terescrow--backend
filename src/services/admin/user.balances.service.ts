@@ -12,8 +12,13 @@ export interface UserBalanceRow {
   nairaBalance: number;
 }
 
+export type BalanceSortCurrency = 'ngn' | 'usd';
+
 export interface UserBalancesFilters {
+  /** balance-desc | balance-asc | name-az | name-za | legacy balanceDesc | balanceAsc */
   sort?: string;
+  /** Which total to use when sorting by balance (default ngn). */
+  balanceCurrency?: BalanceSortCurrency | string;
   startDate?: string;
   endDate?: string;
   dateRange?: string;
@@ -31,6 +36,80 @@ export interface UserBalancesResult {
 }
 
 const NGN_TO_USD_DEFAULT = 0.0006; // fallback if no rate
+
+function computeUserBalanceRow(u: {
+  id: number;
+  firstname: string;
+  lastname: string;
+  email: string;
+  fiatWallets: { currency: string; balance: unknown }[];
+  virtualAccounts: {
+    availableBalance: unknown;
+    accountBalance: unknown;
+    walletCurrency: { price: unknown; nairaPrice: unknown } | null;
+  }[];
+}): UserBalanceRow {
+  let nairaBalance = 0;
+  for (const w of u.fiatWallets) {
+    if (w.currency === 'NGN') {
+      nairaBalance += Number(w.balance);
+    }
+  }
+
+  let cryptoUsd = 0;
+  let cryptoNgn = 0;
+  for (const va of u.virtualAccounts) {
+    const bal = Number(va.availableBalance || va.accountBalance || 0);
+    const wc = va.walletCurrency;
+    if (wc?.price) cryptoUsd += bal * Number(wc.price);
+    if (wc?.nairaPrice) cryptoNgn += bal * Number(wc.nairaPrice);
+  }
+
+  const totalUsd = cryptoUsd + nairaBalance * NGN_TO_USD_DEFAULT;
+  const totalN = nairaBalance + cryptoNgn;
+
+  return {
+    id: u.id,
+    name: `${u.firstname} ${u.lastname}`.trim() || u.email,
+    email: u.email,
+    totalBalanceUsd: Math.round(totalUsd * 100) / 100,
+    totalBalanceN: Math.round(totalN * 100) / 100,
+    cryptoBalanceUsd: Math.round(cryptoUsd * 100) / 100,
+    cryptoBalanceN: Math.round(cryptoNgn * 100) / 100,
+    nairaBalance: Math.round(nairaBalance * 100) / 100,
+  };
+}
+
+function resolveBalanceSort(
+  sort: string | undefined,
+  balanceCurrency: string | undefined
+): { mode: 'balance' | 'name'; desc: boolean; currency: BalanceSortCurrency } {
+  const currency: BalanceSortCurrency =
+    String(balanceCurrency ?? 'ngn').toLowerCase() === 'usd' ? 'usd' : 'ngn';
+
+  const s = String(sort ?? 'balance-desc').toLowerCase();
+
+  if (s === 'name-az') {
+    return { mode: 'name', desc: false, currency };
+  }
+  if (s === 'name-za') {
+    return { mode: 'name', desc: true, currency };
+  }
+
+  const asc =
+    s === 'balance-asc' ||
+    s === 'balanceasc' ||
+    s === 'total-balance-asc' ||
+    s === 'crypto-balance-asc' ||
+    s === 'local-balance-asc';
+
+  return { mode: 'balance', desc: !asc, currency };
+}
+
+function balanceSortValue(row: UserBalanceRow, currency: BalanceSortCurrency): number {
+  if (currency === 'usd') return row.totalBalanceUsd;
+  return row.totalBalanceN;
+}
 
 export async function getUserBalances(
   filters: UserBalancesFilters
@@ -50,81 +129,54 @@ export async function getUserBalances(
     ];
   }
 
-  const [users, total] = await Promise.all([
-    prisma.user.findMany({
-      where,
-      select: {
-        id: true,
-        firstname: true,
-        lastname: true,
-        email: true,
-        fiatWallets: true,
-        virtualAccounts: {
-          include: {
-            walletCurrency: true,
-          },
+  const users = await prisma.user.findMany({
+    where,
+    select: {
+      id: true,
+      firstname: true,
+      lastname: true,
+      email: true,
+      fiatWallets: true,
+      virtualAccounts: {
+        include: {
+          walletCurrency: true,
         },
       },
-      orderBy: [{ lastname: 'asc' }, { firstname: 'asc' }],
-      skip,
-      take: limit,
-    }),
-    prisma.user.count({ where }),
-  ]);
-
-  const rows: UserBalanceRow[] = users.map((u) => {
-    let nairaBalance = 0;
-    for (const w of u.fiatWallets) {
-      if (w.currency === 'NGN') {
-        nairaBalance += Number(w.balance);
-      }
-    }
-
-    let cryptoUsd = 0;
-    let cryptoNgn = 0;
-    for (const va of u.virtualAccounts) {
-      const bal = Number(va.availableBalance || va.accountBalance || 0);
-      const wc = va.walletCurrency;
-      if (wc?.price) cryptoUsd += bal * Number(wc.price);
-      if (wc?.nairaPrice) cryptoNgn += bal * Number(wc.nairaPrice);
-    }
-
-    const totalUsd = cryptoUsd + nairaBalance * NGN_TO_USD_DEFAULT;
-    const totalN = nairaBalance + cryptoNgn;
-
-    return {
-      id: u.id,
-      name: `${u.firstname} ${u.lastname}`.trim() || u.email,
-      email: u.email,
-      totalBalanceUsd: Math.round(totalUsd * 100) / 100,
-      totalBalanceN: Math.round(totalN * 100) / 100,
-      cryptoBalanceUsd: Math.round(cryptoUsd * 100) / 100,
-      cryptoBalanceN: Math.round(cryptoNgn * 100) / 100,
-      nairaBalance: Math.round(nairaBalance * 100) / 100,
-    };
+    },
   });
 
-  if (filters.sort === 'balanceDesc') {
-    rows.sort((a, b) => b.totalBalanceN - a.totalBalanceN);
-  } else if (filters.sort === 'balanceAsc') {
-    rows.sort((a, b) => a.totalBalanceN - b.totalBalanceN);
+  const { mode, desc, currency } = resolveBalanceSort(filters.sort, filters.balanceCurrency);
+
+  let rows: UserBalanceRow[] = users.map((u) => computeUserBalanceRow(u));
+
+  if (mode === 'balance') {
+    const key = currency;
+    rows.sort((a, b) => {
+      const diff = balanceSortValue(a, key) - balanceSortValue(b, key);
+      return desc ? -diff : diff;
+    });
+  } else {
+    rows.sort((a, b) => {
+      const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      return desc ? -cmp : cmp;
+    });
   }
 
+  const total = rows.length;
+  const paginated = rows.slice(skip, skip + limit);
+
   return {
-    rows,
+    rows: paginated,
     total,
     page,
     limit,
-    totalPages: Math.ceil(total / limit),
+    totalPages: Math.ceil(total / limit) || 0,
   };
 }
 
 export interface UserBalancesSummary {
-  /** Sum of customer fiat NGN wallets. */
   totalNairaWallet: number;
-  /** Sum of crypto held on user deposit addresses (NGN equivalent). */
   totalCryptoDepositNgn: number;
-  /** Fiat NGN + crypto deposit NGN — total user-held balances in Naira. */
   totalDepositNgn: number;
   totalCryptoDepositUsd: number;
 }
