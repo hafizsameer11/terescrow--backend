@@ -1,6 +1,7 @@
 import express from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
 import authenticateAdmin from '../../middlewares/authenticate.admin';
+import authenticateAdminOrAgent from '../../middlewares/authenticate.admin.or.agent';
 import {
   getChangeNowCurrenciesController,
   getInternalTickerMapController,
@@ -21,23 +22,24 @@ import {
 
 const router = express.Router();
 const adminOnly = [authenticateUser, authenticateAdmin];
+const staffOps = [authenticateUser, authenticateAdminOrAgent];
 
-router.get('/currencies', ...adminOnly, getChangeNowCurrenciesController);
-router.get('/map-internal', ...adminOnly, getInternalTickerMapController);
+router.get('/currencies', ...staffOps, getChangeNowCurrenciesController);
+router.get('/map-internal', ...staffOps, getInternalTickerMapController);
 router.put('/ticker-mappings/:walletCurrencyId', ...adminOnly, putTickerMappingController);
-router.get('/quote', ...adminOnly, getQuoteController);
-router.get('/available-pairs', ...adminOnly, getAvailablePairsController);
-router.get('/network-fee', ...adminOnly, getNetworkFeeController);
-router.get('/partner-exchanges', ...adminOnly, listPartnerExchangesController);
+router.get('/quote', ...staffOps, getQuoteController);
+router.get('/available-pairs', ...staffOps, getAvailablePairsController);
+router.get('/network-fee', ...staffOps, getNetworkFeeController);
+router.get('/partner-exchanges', ...staffOps, listPartnerExchangesController);
 
-router.get('/payout-addresses', ...adminOnly, listPayoutAddressesController);
+router.get('/payout-addresses', ...staffOps, listPayoutAddressesController);
 router.post('/payout-addresses', ...adminOnly, createPayoutAddressController);
 router.patch('/payout-addresses/:id', ...adminOnly, updatePayoutAddressController);
 router.delete('/payout-addresses/:id', ...adminOnly, deletePayoutAddressController);
 
-router.post('/swaps', ...adminOnly, createSwapController);
-router.get('/swaps', ...adminOnly, listSwapsController);
-router.get('/swaps/:id', ...adminOnly, getSwapController);
-router.post('/swaps/:id/refresh', ...adminOnly, refreshSwapController);
+router.post('/swaps', ...staffOps, createSwapController);
+router.get('/swaps', ...staffOps, listSwapsController);
+router.get('/swaps/:id', ...staffOps, getSwapController);
+router.post('/swaps/:id/refresh', ...staffOps, refreshSwapController);
 
 export default router;

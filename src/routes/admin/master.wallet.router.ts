@@ -195,10 +195,10 @@ masterWalletRouter.get('/assets', ...staffOps, getMasterWalletAssetsController);
 masterWalletRouter.get('/transactions', ...staffOps, getMasterWalletTransactionsController);
 masterWalletRouter.get('/sweep/preview', ...staffOps, getDepositSweepPreviewController);
 masterWalletRouter.post('/sweep', ...staffOps, postDepositSweepController);
-masterWalletRouter.get('/send/max-debit', ...adminOnly, getMasterWalletMaxDebitController);
-masterWalletRouter.post('/send/estimate', ...adminOnly, postMasterWalletSendEstimateController);
-masterWalletRouter.post('/send', ...adminOnly, postMasterWalletSendController);
-masterWalletRouter.post('/swap', ...adminOnly, postMasterWalletSwapController);
+masterWalletRouter.get('/send/max-debit', ...staffOps, getMasterWalletMaxDebitController);
+masterWalletRouter.post('/send/estimate', ...staffOps, postMasterWalletSendEstimateController);
+masterWalletRouter.post('/send', ...staffOps, postMasterWalletSendController);
+masterWalletRouter.post('/swap', ...staffOps, postMasterWalletSwapController);
 
 /**
  * @swagger
