@@ -9,6 +9,7 @@ import authenticateUser from '../../middlewares/authenticate.user';
 import {
   getAllRatesController,
   getRatesByTypeController,
+  setBaseRateController,
   createRateController,
   updateRateController,
   deleteRateController,
@@ -56,6 +57,8 @@ cryptoRateRouter.get('/rates', authenticateUser, getAllRatesController);
  *         description: Rate history retrieved successfully
  */
 cryptoRateRouter.get('/rates/history', authenticateUser, getRateHistoryController);
+
+cryptoRateRouter.put('/rates/base', authenticateUser, setBaseRateController);
 
 /**
  * @swagger

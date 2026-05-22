@@ -10,6 +10,7 @@ import masterWalletService from '../../services/tatum/master.wallet.service';
 import tatumService from '../../services/tatum/tatum.service';
 import depositAddressService from '../../services/tatum/deposit.address.service';
 import * as masterWalletAdminService from '../../services/admin/master.wallet.admin.service';
+import * as depositSweepService from '../../services/admin/deposit.sweep.service';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 
@@ -416,7 +417,70 @@ export const postMasterWalletSendController = async (
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Send failed'));
   }
-};/**
+};
+
+function staffUser(req: Request) {
+  const user = (req as any).user;
+  if (!user?.id) return null;
+  return { id: user.id as number, role: String(user.role || 'unknown') };
+}
+
+/**
+ * GET /api/admin/master-wallet/sweep/preview?currency=&blockchain=
+ */
+export const getDepositSweepPreviewController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const currency = String(req.query.currency || '').trim();
+    const blockchain = req.query.blockchain ? String(req.query.blockchain) : undefined;
+    if (!currency) return next(ApiError.badRequest('currency is required'));
+    const preview = await depositSweepService.getDepositSweepPreview({ currency, blockchain });
+    return new ApiResponse(200, preview, 'Sweep preview retrieved').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to load sweep preview'));
+  }
+};
+
+/**
+ * POST /api/admin/master-wallet/sweep — dryRun:true for preview only
+ */
+export const postDepositSweepController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const staff = staffUser(req);
+    if (!staff) return next(ApiError.unauthorized('Authentication required'));
+
+    const currency = String(req.body?.currency || '').trim();
+    const blockchain = req.body?.blockchain ? String(req.body.blockchain) : undefined;
+    const dryRun = req.body?.dryRun === true || req.body?.dryRun === 'true';
+    if (!currency) return next(ApiError.badRequest('currency is required'));
+
+    const result = await depositSweepService.executeDepositSweep({
+      currency,
+      blockchain,
+      dryRun,
+      performedByUserId: staff.id,
+      performedByRole: staff.role,
+    });
+    return new ApiResponse(
+      200,
+      result,
+      dryRun ? 'Sweep dry-run completed' : 'Sweep batch completed'
+    ).send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Sweep failed'));
+  }
+};
+
+/**
  * Swap on master wallet
  * POST /api/admin/master-wallet/swap
  */

@@ -18,12 +18,16 @@ import {
   postMasterWalletSendEstimateController,
   postMasterWalletSendController,
   postMasterWalletSwapController,
+  getDepositSweepPreviewController,
+  postDepositSweepController,
 } from '../../controllers/admin/master.wallet.controller';
 import authenticateUser from '../../middlewares/authenticate.user';
 import authenticateAdmin from '../../middlewares/authenticate.admin';
+import authenticateAdminOrAgent from '../../middlewares/authenticate.admin.or.agent';
 
 const masterWalletRouter = express.Router();
 const adminOnly = [authenticateUser, authenticateAdmin];
+const staffOps = [authenticateUser, authenticateAdminOrAgent];
 
 /**
  * @swagger
@@ -186,9 +190,11 @@ masterWalletRouter.post('/update-all', updateAllMasterWalletsController);
  */
 masterWalletRouter.get('/balances', getMasterWalletsBalancesController);
 
-masterWalletRouter.get('/balances/summary', ...adminOnly, getMasterWalletBalanceSummaryController);
-masterWalletRouter.get('/assets', ...adminOnly, getMasterWalletAssetsController);
-masterWalletRouter.get('/transactions', ...adminOnly, getMasterWalletTransactionsController);
+masterWalletRouter.get('/balances/summary', ...staffOps, getMasterWalletBalanceSummaryController);
+masterWalletRouter.get('/assets', ...staffOps, getMasterWalletAssetsController);
+masterWalletRouter.get('/transactions', ...staffOps, getMasterWalletTransactionsController);
+masterWalletRouter.get('/sweep/preview', ...staffOps, getDepositSweepPreviewController);
+masterWalletRouter.post('/sweep', ...staffOps, postDepositSweepController);
 masterWalletRouter.get('/send/max-debit', ...adminOnly, getMasterWalletMaxDebitController);
 masterWalletRouter.post('/send/estimate', ...adminOnly, postMasterWalletSendEstimateController);
 masterWalletRouter.post('/send', ...adminOnly, postMasterWalletSendController);

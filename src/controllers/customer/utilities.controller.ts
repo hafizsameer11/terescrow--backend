@@ -215,21 +215,26 @@ export const getCryptoRatesByType = async (
       );
     }
 
-    const tiers = await cryptoRateService.getRatesByType(upperType as TransactionType);
+    const txType = upperType as TransactionType;
+    const tiers = await cryptoRateService.getRatesByType(txType);
+    const baseRate = await cryptoRateService.getBaseRate(txType);
 
     if (!tiers.length) {
-      return new ApiResponse(200, { tiers: [], bestRate: null }, 'No rates configured for this type').send(res);
+      return new ApiResponse(
+        200,
+        { tiers: [], bestRate: null, baseRate },
+        'No rates configured for this type'
+      ).send(res);
     }
 
     // "Best" rate = the tier with the highest minAmount (reserved for large trades).
-    // This is the rate displayed before the user enters an amount.
     const bestRate = tiers.reduce((best, tier) =>
       tier.minAmount.greaterThan(best.minAmount) ? tier : best
     , tiers[0]);
 
     return new ApiResponse(
       200,
-      { tiers, bestRate },
+      { tiers, bestRate, baseRate },
       'Crypto rates retrieved successfully'
     ).send(res);
   } catch (error) {

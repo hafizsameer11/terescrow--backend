@@ -102,7 +102,7 @@ export async function sendReceivedAssetToVendorController(
     const txId = req.params.txId;
     if (!txId) return next(ApiError.badRequest('txId required'));
     const adminUser = (req as any).user;
-    if (!adminUser?.id) return next(ApiError.unauthorized('Admin required'));
+    if (!adminUser?.id) return next(ApiError.unauthorized('Authentication required'));
 
     const vendorId = parseInt(String(req.body?.vendorId), 10);
     const amountRaw = req.body?.amount;
@@ -135,7 +135,7 @@ export async function sendReceivedAssetToMasterWalletController(
     const txId = req.params.txId;
     if (!txId) return next(ApiError.badRequest('txId required'));
     const adminUser = (req as any).user;
-    if (!adminUser?.id) return next(ApiError.unauthorized('Admin required'));
+    if (!adminUser?.id) return next(ApiError.unauthorized('Authentication required'));
 
     const amountRaw = req.body?.amount;
     const amount =
@@ -163,7 +163,7 @@ export async function bulkSendReceivedAssetsToVendorController(
 ) {
   try {
     const adminUser = (req as any).user;
-    if (!adminUser?.id) return next(ApiError.unauthorized('Admin required'));
+    if (!adminUser?.id) return next(ApiError.unauthorized('Authentication required'));
 
     const items = req.body?.items;
     if (!Array.isArray(items)) {

@@ -1,5 +1,9 @@
 import { prisma } from '../../utils/prisma';
 import { Prisma } from '@prisma/client';
+import {
+  getSoldTotalsForReceive,
+  getSoldTotalsMapForReceives,
+} from './receive.sold.amount.service';
 
 export interface TrackingListItem {
   id: number;
@@ -28,6 +32,11 @@ export interface TrackingListItem {
     isToken: boolean | null;
     tokenType: string | null;
   } | null;
+  /** Successful SELL volume on same VA after this receive (excludes BUY). */
+  soldAmount: string;
+  soldAmountUsd: string;
+  soldAmountNaira: string;
+  userRetentionUsd: string;
 }
 
 export interface TrackingStep {
@@ -100,6 +109,10 @@ export interface TrackingDetails {
   } | null;
   createdAt: string;
   updatedAt: string;
+  soldAmount: string;
+  soldAmountUsd: string;
+  soldAmountNaira: string;
+  userRetentionUsd: string;
 }
 
 function buildDateFilter(startDate?: string, endDate?: string): Prisma.CryptoTransactionWhereInput {
@@ -192,9 +205,25 @@ export async function getTransactionTrackingList(filters: {
     receivedAssets.map((a) => [a.txId, a.status])
   );
 
+  const soldMap = await getSoldTotalsMapForReceives(
+    rows.map((tx) => ({
+      id: tx.id,
+      userId: tx.userId,
+      virtualAccountId: tx.virtualAccountId,
+      createdAt: tx.createdAt,
+      amountUsd: tx.cryptoReceive!.amountUsd,
+    }))
+  );
+
   const items: TrackingListItem[] = rows.map((tx) => {
     const recv = tx.cryptoReceive!;
     const masterStatus = assetStatusMap.get(recv.txHash) ?? 'unknown';
+    const sold = soldMap.get(tx.id) ?? {
+      soldAmount: '0',
+      soldAmountUsd: '0',
+      soldAmountNaira: '0',
+      userRetentionUsd: recv.amountUsd.toString(),
+    };
     return {
       id: tx.id,
       transactionId: tx.transactionId,
@@ -224,6 +253,10 @@ export async function getTransactionTrackingList(filters: {
             tokenType: tx.virtualAccount.walletCurrency.tokenType,
           }
         : null,
+      soldAmount: sold.soldAmount,
+      soldAmountUsd: sold.soldAmountUsd,
+      soldAmountNaira: sold.soldAmountNaira,
+      userRetentionUsd: sold.userRetentionUsd,
     };
   });
 
@@ -388,6 +421,14 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
     },
   });
 
+  const sold = await getSoldTotalsForReceive({
+    receiveCryptoTxId: tx.id,
+    userId: tx.userId,
+    virtualAccountId: tx.virtualAccountId,
+    receiveCreatedAt: tx.createdAt,
+    receiveAmountUsd: recv.amountUsd,
+  });
+
   return {
     transactionId: tx.transactionId,
     status: tx.status,
@@ -461,5 +502,9 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
       : null,
     createdAt: tx.createdAt.toISOString(),
     updatedAt: tx.updatedAt.toISOString(),
+    soldAmount: sold.soldAmount,
+    soldAmountUsd: sold.soldAmountUsd,
+    soldAmountNaira: sold.soldAmountNaira,
+    userRetentionUsd: sold.userRetentionUsd,
   };
 }

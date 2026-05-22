@@ -1,5 +1,6 @@
 import { prisma } from '../../utils/prisma';
 import { UserRoles } from '@prisma/client';
+import cryptoRateService from '../crypto/crypto.rate.service';
 
 export interface UserBalanceRow {
   id: number;
@@ -35,9 +36,13 @@ export interface UserBalancesResult {
   totalPages: number;
 }
 
-const NGN_TO_USD_DEFAULT = 0.0006; // fallback if no rate
+function unitPrice(value: unknown): number {
+  const n = value != null ? Number(value) : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
 
-function computeUserBalanceRow(u: {
+function computeUserBalanceRow(
+  u: {
   id: number;
   firstname: string;
   lastname: string;
@@ -48,7 +53,10 @@ function computeUserBalanceRow(u: {
     accountBalance: unknown;
     walletCurrency: { price: unknown; nairaPrice: unknown } | null;
   }[];
-}): UserBalanceRow {
+  },
+  /** NGN per $1 (SELL tier) when walletCurrency.nairaPrice is unset — for crypto NGN column only. */
+  ngnPerUsdFallback = 0
+): UserBalanceRow {
   let nairaBalance = 0;
   for (const w of u.fiatWallets) {
     if (w.currency === 'NGN') {
@@ -60,23 +68,34 @@ function computeUserBalanceRow(u: {
   let cryptoNgn = 0;
   for (const va of u.virtualAccounts) {
     const bal = Number(va.availableBalance || va.accountBalance || 0);
+    if (!Number.isFinite(bal) || bal <= 0) continue;
     const wc = va.walletCurrency;
-    if (wc?.price) cryptoUsd += bal * Number(wc.price);
-    if (wc?.nairaPrice) cryptoNgn += bal * Number(wc.nairaPrice);
+    const usdPrice = unitPrice(wc?.price);
+    const nairaPrice = unitPrice(wc?.nairaPrice);
+    const lineUsd = usdPrice > 0 ? bal * usdPrice : 0;
+    cryptoUsd += lineUsd;
+    if (nairaPrice > 0) {
+      cryptoNgn += bal * nairaPrice;
+    } else if (lineUsd > 0 && ngnPerUsdFallback > 0) {
+      cryptoNgn += lineUsd * ngnPerUsdFallback;
+    }
   }
 
-  const totalUsd = cryptoUsd + nairaBalance * NGN_TO_USD_DEFAULT;
-  const totalN = nairaBalance + cryptoNgn;
+  // Totals are not cross-converted: $ = crypto only, N = NGN fiat wallet only.
+  const totalUsd = cryptoUsd;
+  const totalN = nairaBalance;
+
+  const round = (n: number) => Math.round(n * 100) / 100;
 
   return {
     id: u.id,
     name: `${u.firstname} ${u.lastname}`.trim() || u.email,
     email: u.email,
-    totalBalanceUsd: Math.round(totalUsd * 100) / 100,
-    totalBalanceN: Math.round(totalN * 100) / 100,
-    cryptoBalanceUsd: Math.round(cryptoUsd * 100) / 100,
-    cryptoBalanceN: Math.round(cryptoNgn * 100) / 100,
-    nairaBalance: Math.round(nairaBalance * 100) / 100,
+    totalBalanceUsd: round(totalUsd),
+    totalBalanceN: round(totalN),
+    cryptoBalanceUsd: round(cryptoUsd),
+    cryptoBalanceN: round(cryptoNgn),
+    nairaBalance: round(nairaBalance),
   };
 }
 
@@ -147,7 +166,12 @@ export async function getUserBalances(
 
   const { mode, desc, currency } = resolveBalanceSort(filters.sort, filters.balanceCurrency);
 
-  let rows: UserBalanceRow[] = users.map((u) => computeUserBalanceRow(u));
+  const sellRateRow = await cryptoRateService.getRateForAmount('SELL', 1);
+  const ngnPerUsdFallback = sellRateRow ? Number(sellRateRow.rate) : 0;
+
+  let rows: UserBalanceRow[] = users.map((u) =>
+    computeUserBalanceRow(u, Number.isFinite(ngnPerUsdFallback) ? ngnPerUsdFallback : 0)
+  );
 
   if (mode === 'balance') {
     const key = currency;
@@ -203,9 +227,12 @@ export async function getUserBalancesSummary(): Promise<UserBalancesSummary> {
     }
     for (const va of u.virtualAccounts) {
       const bal = Number(va.availableBalance || va.accountBalance || 0);
+      if (!Number.isFinite(bal) || bal <= 0) continue;
       const wc = va.walletCurrency;
-      if (wc?.price) totalCryptoDepositUsd += bal * Number(wc.price);
-      if (wc?.nairaPrice) totalCryptoDepositNgn += bal * Number(wc.nairaPrice);
+      const usdPrice = unitPrice(wc?.price);
+      const nairaPrice = unitPrice(wc?.nairaPrice);
+      if (usdPrice > 0) totalCryptoDepositUsd += bal * usdPrice;
+      if (nairaPrice > 0) totalCryptoDepositNgn += bal * nairaPrice;
     }
   }
 

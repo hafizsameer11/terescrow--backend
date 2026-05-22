@@ -798,6 +798,9 @@ export type DisbursementFeeEstimate = {
   estimatedNetworkFee: string | null;
   estimatedNetworkFeeCurrency: string | null;
   note?: string;
+  soldAmount?: string;
+  soldAmountUsd?: string;
+  userRetentionUsd?: string;
 };
 
 /**
@@ -866,6 +869,15 @@ export async function estimateDisbursementFee(input: {
     note = `Gas estimate preview is not available for ${chainNorm}; fees apply on confirm.`;
   }
 
+  const { getSoldTotalsForReceive } = await import('./receive.sold.amount.service');
+  const sold = await getSoldTotalsForReceive({
+    receiveCryptoTxId: tx.id,
+    userId: tx.userId,
+    virtualAccountId: tx.virtualAccountId,
+    receiveCreatedAt: tx.createdAt,
+    receiveAmountUsd: ctx.recv.amountUsd,
+  });
+
   return {
     receiveTransactionId: input.receiveTransactionId,
     target: input.target,
@@ -876,5 +888,8 @@ export async function estimateDisbursementFee(input: {
     estimatedNetworkFee,
     estimatedNetworkFeeCurrency,
     note,
+    soldAmount: sold.soldAmount,
+    soldAmountUsd: sold.soldAmountUsd,
+    userRetentionUsd: sold.userRetentionUsd,
   };
 }

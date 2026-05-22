@@ -1,6 +1,6 @@
 import express from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
-import authenticateAdmin from '../../middlewares/authenticate.admin';
+import authenticateAdminOrAgent from '../../middlewares/authenticate.admin.or.agent';
 import {
   getTransactionTrackingController,
   getTrackingStepsController,
@@ -12,14 +12,14 @@ import {
 } from '../../controllers/admin/transaction.tracking.controller';
 
 const router = express.Router();
-const adminOnly = [authenticateUser, authenticateAdmin];
+const staffOps = [authenticateUser, authenticateAdminOrAgent];
 
-router.get('/', ...adminOnly, getTransactionTrackingController);
-router.post('/bulk-send-to-vendor', ...adminOnly, bulkSendReceivedAssetsToVendorController);
-router.get('/:txId/steps', ...adminOnly, getTrackingStepsController);
-router.get('/:txId/details', ...adminOnly, getTrackingDetailsController);
-router.get('/:txId/estimate-fee', ...adminOnly, estimateDisbursementFeeController);
-router.post('/:txId/send-to-vendor', ...adminOnly, sendReceivedAssetToVendorController);
-router.post('/:txId/send-to-master-wallet', ...adminOnly, sendReceivedAssetToMasterWalletController);
+router.get('/', ...staffOps, getTransactionTrackingController);
+router.post('/bulk-send-to-vendor', ...staffOps, bulkSendReceivedAssetsToVendorController);
+router.get('/:txId/steps', ...staffOps, getTrackingStepsController);
+router.get('/:txId/details', ...staffOps, getTrackingDetailsController);
+router.get('/:txId/estimate-fee', ...staffOps, estimateDisbursementFeeController);
+router.post('/:txId/send-to-vendor', ...staffOps, sendReceivedAssetToVendorController);
+router.post('/:txId/send-to-master-wallet', ...staffOps, sendReceivedAssetToMasterWalletController);
 
 export default router;

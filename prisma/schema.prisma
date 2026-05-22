@@ -1466,16 +1466,28 @@ model ReceiveTransaction {
   @@map("receive_transactions")
 }
 
+/// Base NGN-per-USD rate for BUY/SELL; tier rows use adjustment_percent on top of this.
+model CryptoRateBase {
+  id              Int      @id @default(autoincrement())
+  transactionType String   @unique @map("transaction_type") @db.VarChar(50)
+  baseRate        Decimal  @map("base_rate") @db.Decimal(20, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("crypto_rate_bases")
+}
+
 model CryptoRate {
-  id              Int                 @id @default(autoincrement())
-  transactionType String              @map("transaction_type") @db.VarChar(50) // BUY, SELL, SWAP, SEND, RECEIVE, GIFT_CARD_BUY
-  minAmount       Decimal             @map("min_amount") @db.Decimal(20, 2) // Minimum USD amount for this rate tier
-  maxAmount       Decimal?            @map("max_amount") @db.Decimal(20, 2) // Maximum USD amount (null for unlimited)
-  rate            Decimal             @db.Decimal(20, 2) // Rate in Naira per $1
-  isActive        Boolean             @default(true) @map("is_active")
-  createdAt       DateTime            @default(now()) @map("created_at")
-  updatedAt       DateTime            @updatedAt @map("updated_at")
-  history         CryptoRateHistory[]
+  id                Int                 @id @default(autoincrement())
+  transactionType   String              @map("transaction_type") @db.VarChar(50) // BUY, SELL, SWAP, SEND, RECEIVE, GIFT_CARD_BUY
+  minAmount         Decimal             @map("min_amount") @db.Decimal(20, 2) // Minimum USD amount for this rate tier
+  maxAmount         Decimal?            @map("max_amount") @db.Decimal(20, 2) // Maximum USD amount (null for unlimited)
+  rate              Decimal             @db.Decimal(20, 2) // Effective NGN per $1 (stored for queries; derived for BUY/SELL)
+  adjustmentPercent Decimal?            @map("adjustment_percent") @db.Decimal(10, 4) // BUY/SELL: +/- % applied to base rate
+  isActive          Boolean             @default(true) @map("is_active")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  history           CryptoRateHistory[]
 
   @@unique([transactionType, minAmount, maxAmount])
   @@index([transactionType])

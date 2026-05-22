@@ -1,13 +1,14 @@
 /**
  * Crypto Rate Controller (Admin)
- * 
- * Handles crypto rate management endpoints
  */
 
 import { Request, Response } from 'express';
-import cryptoRateService, { TransactionType } from '../../services/crypto/crypto.rate.service';
+import cryptoRateService, {
+  TransactionType,
+  parseAdjustmentPercent,
+  usesPercentAdjustment,
+} from '../../services/crypto/crypto.rate.service';
 
-/** Allowed `transaction_type` values in `crypto_rates` (admin + customer utilities). */
 export const CRYPTO_RATE_TRANSACTION_TYPES = [
   'BUY',
   'SELL',
@@ -21,17 +22,15 @@ function isValidRateTransactionType(t: string): t is TransactionType {
   return (CRYPTO_RATE_TRANSACTION_TYPES as readonly string[]).includes(t.toUpperCase());
 }
 
-/**
- * Get all rates (all transaction types)
- */
 export async function getAllRatesController(req: Request, res: Response) {
   try {
-    const rates = await cryptoRateService.getAllRates();
+    const { rates, baseRates } = await cryptoRateService.getAllRates();
 
     return res.status(200).json({
       status: 200,
       message: 'Rates retrieved successfully',
       data: rates,
+      baseRates,
     });
   } catch (error: any) {
     console.error('Error in getAllRatesController:', error);
@@ -42,13 +41,10 @@ export async function getAllRatesController(req: Request, res: Response) {
   }
 }
 
-/**
- * Get rates for a specific transaction type
- */
 export async function getRatesByTypeController(req: Request, res: Response) {
   try {
     const { type } = req.params;
-    
+
     if (!isValidRateTransactionType(type)) {
       return res.status(400).json({
         status: 400,
@@ -56,12 +52,15 @@ export async function getRatesByTypeController(req: Request, res: Response) {
       });
     }
 
-    const rates = await cryptoRateService.getRatesByType(type.toUpperCase() as TransactionType);
+    const tx = type.toUpperCase() as TransactionType;
+    const rates = await cryptoRateService.getRatesByType(tx);
+    const baseRate = await cryptoRateService.getBaseRate(tx);
 
     return res.status(200).json({
       status: 200,
       message: 'Rates retrieved successfully',
       data: rates,
+      baseRate,
     });
   } catch (error: any) {
     console.error('Error in getRatesByTypeController:', error);
@@ -72,18 +71,58 @@ export async function getRatesByTypeController(req: Request, res: Response) {
   }
 }
 
-/**
- * Create a new rate tier
- */
-export async function createRateController(req: Request, res: Response) {
+export async function setBaseRateController(req: Request, res: Response) {
   try {
-    const { transactionType, minAmount, maxAmount, rate } = req.body;
+    const { transactionType, baseRate } = req.body;
     const changedBy = (req as any).user?.id;
 
-    if (!transactionType || minAmount === undefined || !rate) {
+    if (!transactionType || baseRate === undefined) {
       return res.status(400).json({
         status: 400,
-        message: 'Missing required fields: transactionType, minAmount, rate',
+        message: 'Missing required fields: transactionType, baseRate',
+      });
+    }
+
+    if (!isValidRateTransactionType(transactionType)) {
+      return res.status(400).json({
+        status: 400,
+        message: `Invalid transaction type. Must be one of: BUY, SELL`,
+      });
+    }
+
+    const tx = transactionType.toUpperCase() as TransactionType;
+    if (!usesPercentAdjustment(tx)) {
+      return res.status(400).json({
+        status: 400,
+        message: 'Base rate only applies to BUY and SELL',
+      });
+    }
+
+    const result = await cryptoRateService.setBaseRate(tx, parseFloat(baseRate), changedBy);
+
+    return res.status(200).json({
+      status: 200,
+      message: 'Base rate updated; tier effective rates recalculated',
+      data: result,
+    });
+  } catch (error: any) {
+    console.error('Error in setBaseRateController:', error);
+    return res.status(500).json({
+      status: 500,
+      message: error.message || 'Failed to update base rate',
+    });
+  }
+}
+
+export async function createRateController(req: Request, res: Response) {
+  try {
+    const { transactionType, minAmount, maxAmount, rate, adjustmentPercent } = req.body;
+    const changedBy = (req as any).user?.id;
+
+    if (!transactionType || minAmount === undefined) {
+      return res.status(400).json({
+        status: 400,
+        message: 'Missing required fields: transactionType, minAmount',
       });
     }
 
@@ -94,12 +133,26 @@ export async function createRateController(req: Request, res: Response) {
       });
     }
 
+    const tx = transactionType.toUpperCase() as TransactionType;
+    const usesPercent = usesPercentAdjustment(tx);
+
+    if (!usesPercent && rate === undefined) {
+      return res.status(400).json({
+        status: 400,
+        message: 'Missing required field: rate',
+      });
+    }
+
     const newRate = await cryptoRateService.createRate(
       {
-        transactionType: transactionType.toUpperCase() as TransactionType,
+        transactionType: tx,
         minAmount: parseFloat(minAmount),
-        maxAmount: maxAmount ? parseFloat(maxAmount) : null,
-        rate: parseFloat(rate),
+        maxAmount: maxAmount != null && maxAmount !== '' ? parseFloat(maxAmount) : null,
+        rate: rate != null ? parseFloat(rate) : undefined,
+        adjustmentPercent:
+          adjustmentPercent !== undefined
+            ? parseAdjustmentPercent(adjustmentPercent)
+            : undefined,
       },
       changedBy
     );
@@ -118,25 +171,26 @@ export async function createRateController(req: Request, res: Response) {
   }
 }
 
-/**
- * Update an existing rate
- */
 export async function updateRateController(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const { rate } = req.body;
+    const { rate, adjustmentPercent } = req.body;
     const changedBy = (req as any).user?.id;
 
-    if (!rate) {
+    if (rate === undefined && adjustmentPercent === undefined) {
       return res.status(400).json({
         status: 400,
-        message: 'Missing required field: rate',
+        message: 'Provide rate (fixed tiers) or adjustmentPercent (BUY/SELL)',
       });
     }
 
     const updated = await cryptoRateService.updateRate(
-      parseInt(id),
-      { rate: parseFloat(rate) },
+      parseInt(id, 10),
+      {
+        rate: rate !== undefined ? parseFloat(rate) : undefined,
+        adjustmentPercent:
+          adjustmentPercent !== undefined ? adjustmentPercent : undefined,
+      },
       changedBy
     );
 
@@ -154,14 +208,10 @@ export async function updateRateController(req: Request, res: Response) {
   }
 }
 
-/**
- * Delete/Deactivate a rate
- */
 export async function deleteRateController(req: Request, res: Response) {
   try {
     const { id } = req.params;
-
-    await cryptoRateService.deleteRate(parseInt(id));
+    await cryptoRateService.deleteRate(parseInt(id, 10));
 
     return res.status(200).json({
       status: 200,
@@ -176,15 +226,12 @@ export async function deleteRateController(req: Request, res: Response) {
   }
 }
 
-/**
- * Get rate history
- */
 export async function getRateHistoryController(req: Request, res: Response) {
   try {
     const { rateId, transactionType } = req.query;
 
     const history = await cryptoRateService.getRateHistory(
-      rateId ? parseInt(rateId as string) : undefined,
+      rateId ? parseInt(rateId as string, 10) : undefined,
       transactionType ? (transactionType as TransactionType) : undefined
     );
 
@@ -201,4 +248,3 @@ export async function getRateHistoryController(req: Request, res: Response) {
     });
   }
 }
-
