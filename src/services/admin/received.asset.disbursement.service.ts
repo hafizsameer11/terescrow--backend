@@ -812,7 +812,7 @@ export async function estimateDisbursementFee(input: {
   vendorId?: number;
 }): Promise<DisbursementFeeEstimate> {
   const ctx = await loadReceiveDisbursementForOutbound(input.receiveTransactionId);
-  const { tx, recvAmount, chainNorm, baseSymbol, virtualAccount, walletCurrency, isNative } = ctx;
+  const { tx, recv, recvAmount, chainNorm, baseSymbol, virtualAccount, walletCurrency, isNative } = ctx;
 
   let toAddress: string;
   if (input.target === 'vendor') {

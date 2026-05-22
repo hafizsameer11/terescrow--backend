@@ -17,10 +17,11 @@ export type TransactionType =
   | 'GIFT_CARD_BUY';
 
 /** Types that use base rate + adjustment % per USD range. */
-export const PERCENT_ADJUSTMENT_TYPES: TransactionType[] = ['BUY', 'SELL'];
+export const PERCENT_ADJUSTMENT_TYPES = ['BUY', 'SELL'] as const;
+export type PercentAdjustmentType = (typeof PERCENT_ADJUSTMENT_TYPES)[number];
 
-export function usesPercentAdjustment(transactionType: TransactionType): boolean {
-  return PERCENT_ADJUSTMENT_TYPES.includes(transactionType);
+export function usesPercentAdjustment(transactionType: TransactionType): transactionType is PercentAdjustmentType {
+  return (PERCENT_ADJUSTMENT_TYPES as readonly TransactionType[]).includes(transactionType);
 }
 
 export function computeEffectiveRate(baseRate: number, adjustmentPercent: number): number {

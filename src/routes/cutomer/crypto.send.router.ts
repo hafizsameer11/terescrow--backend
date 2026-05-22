@@ -52,7 +52,7 @@ const cryptoSendRouter = express.Router();
  *             properties:
  *               amount:
  *                 type: number
- *                 description: USD value to send (converted with server `walletCurrency.price`). Use `amountInUsd: false` for coin units.
+ *                 description: USD value to send (converted with server walletCurrency.price). Set amountInUsd to false for coin units.
  *                 example: 10.5
  *               amountInUsd:
  *                 type: boolean
@@ -210,7 +210,7 @@ cryptoSendRouter.post(
  *             properties:
  *               amount:
  *                 type: number
- *                 description: USD value to send (converted with server `walletCurrency.price`). Use `amountInUsd: false` for coin units.
+ *                 description: USD value to send (converted with server walletCurrency.price). Set amountInUsd to false for coin units.
  *                 example: 10.5
  *               amountInUsd:
  *                 type: boolean
