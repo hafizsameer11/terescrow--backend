@@ -1,4 +1,5 @@
 import { Decimal } from '@prisma/client/runtime/library';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import { normalizeBlockchain } from './received.asset.disbursement.helpers';
@@ -43,7 +44,20 @@ function normalizeCurrency(c: string): string {
   return String(c || '').trim().toUpperCase();
 }
 
-async function findSweepableReceives(currency: string, blockchain?: string) {
+const receiveSweepInclude = {
+  cryptoReceive: true,
+  user: { select: { firstname: true, lastname: true } },
+  virtualAccount: {
+    include: {
+      depositAddresses: { take: 1, orderBy: { createdAt: 'desc' as const } },
+      walletCurrency: { select: { currency: true } },
+    },
+  },
+} satisfies Prisma.CryptoTransactionInclude;
+
+type ReceiveSweepRow = Prisma.CryptoTransactionGetPayload<{ include: typeof receiveSweepInclude }>;
+
+async function findSweepableReceives(currency: string, blockchain?: string): Promise<ReceiveSweepRow[]> {
   const cur = normalizeCurrency(currency);
   const chainFilter = blockchain?.trim() ? normalizeBlockchain(blockchain) : undefined;
 
@@ -52,22 +66,14 @@ async function findSweepableReceives(currency: string, blockchain?: string) {
       transactionType: 'RECEIVE',
       status: 'successful',
       cryptoReceive: { isNot: null },
-      ...(chainFilter ? { blockchain: { contains: chainFilter, mode: 'insensitive' } } : {}),
+      ...(chainFilter ? { blockchain: chainFilter } : {}),
     },
-    include: {
-      cryptoReceive: true,
-      user: { select: { firstname: true, lastname: true } },
-      virtualAccount: {
-        include: {
-          depositAddresses: { take: 1, orderBy: { createdAt: 'desc' } },
-        },
-      },
-    },
+    include: receiveSweepInclude,
     orderBy: { createdAt: 'desc' },
     take: 500,
   });
 
-  const hashes = receives.map((r) => r.cryptoReceive!.txHash).filter(Boolean);
+  const hashes = receives.map((r) => r.cryptoReceive?.txHash).filter((h): h is string => !!h);
   const assets = hashes.length
     ? await prisma.receivedAsset.findMany({
         where: { txId: { in: hashes }, status: 'inWallet' },
@@ -77,15 +83,14 @@ async function findSweepableReceives(currency: string, blockchain?: string) {
   const inWalletHashes = new Set(assets.map((a) => a.txId));
 
   return receives.filter((tx) => {
-    const recv = tx.cryptoReceive!;
-    if (!inWalletHashes.has(recv.txHash)) return false;
+    const recv = tx.cryptoReceive;
+    if (!recv || !inWalletHashes.has(recv.txHash)) return false;
     const txCur = normalizeCurrency(tx.currency);
-    if (txCur !== cur && !txCur.includes(cur) && !cur.includes(txCur)) {
-      const wc = tx.virtualAccount?.walletCurrency;
-      const wcCur = wc?.currency ? normalizeCurrency(wc.currency) : '';
-      if (wcCur !== cur) return false;
-    }
-    return true;
+    if (txCur === cur) return true;
+    const wcCur = tx.virtualAccount?.walletCurrency?.currency
+      ? normalizeCurrency(tx.virtualAccount.walletCurrency.currency)
+      : '';
+    return wcCur === cur;
   });
 }
 

@@ -875,7 +875,7 @@ export async function estimateDisbursementFee(input: {
     userId: tx.userId,
     virtualAccountId: tx.virtualAccountId,
     receiveCreatedAt: tx.createdAt,
-    receiveAmountUsd: ctx.recv.amountUsd,
+    receiveAmountUsd: recv.amountUsd,
   });
 
   return {
