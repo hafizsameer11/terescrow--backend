@@ -1,6 +1,7 @@
 import express from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
 import authenticateAdmin from '../../middlewares/authenticate.admin';
+import authenticateAdminOrAgent from '../../middlewares/authenticate.admin.or.agent';
 import {
   getVendorsController,
   createVendorController,
@@ -11,8 +12,10 @@ import { body } from 'express-validator';
 
 const router = express.Router();
 const adminOnly = [authenticateUser, authenticateAdmin];
+/** Agents need vendor list for master-wallet deposit sweep (read-only). */
+const staffRead = [authenticateUser, authenticateAdminOrAgent];
 
-router.get('/', ...adminOnly, getVendorsController);
+router.get('/', ...staffRead, getVendorsController);
 router.post(
   '/',
   ...adminOnly,

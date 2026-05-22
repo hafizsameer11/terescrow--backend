@@ -3,7 +3,12 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import { normalizeBlockchain } from './received.asset.disbursement.helpers';
-import { sendReceivedAssetToMasterWallet } from './received.asset.disbursement.service';
+import {
+  sendReceivedAssetToMasterWallet,
+  sendReceivedAssetToVendor,
+} from './received.asset.disbursement.service';
+
+export type DepositSweepTarget = 'master' | 'vendor';
 
 export interface DepositSweepPreviewItem {
   receiveTransactionId: string;
@@ -17,6 +22,8 @@ export interface DepositSweepPreviewItem {
 export interface DepositSweepPreview {
   currency: string;
   blockchain: string;
+  destinationType: DepositSweepTarget;
+  vendorId: number | null;
   destinationAddress: string;
   destinationLabel: string;
   itemCount: number;
@@ -94,24 +101,59 @@ async function findSweepableReceives(currency: string, blockchain?: string): Pro
   });
 }
 
+async function resolveSweepDestination(input: {
+  target: DepositSweepTarget;
+  vendorId?: number;
+  chainNorm: string;
+}): Promise<{ address: string; label: string; vendorId: number | null }> {
+  if (input.target === 'vendor') {
+    const vendorId = input.vendorId;
+    if (!vendorId) throw ApiError.badRequest('vendorId is required when destination is vendor');
+    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) throw ApiError.notFound('Vendor not found');
+    const address = vendor.walletAddress?.trim() || '';
+    if (!address) throw ApiError.badRequest('Vendor has no wallet address');
+    return { address, label: `Vendor: ${vendor.name}`, vendorId };
+  }
+  const masterWallet = await prisma.masterWallet.findUnique({ where: { blockchain: input.chainNorm } });
+  const address = masterWallet?.address?.trim() || '';
+  if (!address) {
+    throw ApiError.badRequest(`Master wallet address is not configured for "${input.chainNorm}"`);
+  }
+  return { address, label: `Master wallet (${input.chainNorm})`, vendorId: null };
+}
+
 export async function getDepositSweepPreview(input: {
   currency: string;
   blockchain?: string;
+  target?: DepositSweepTarget;
+  vendorId?: number;
 }): Promise<DepositSweepPreview> {
   const currency = normalizeCurrency(input.currency);
   if (!currency) throw ApiError.badRequest('currency is required');
+  const target: DepositSweepTarget = input.target === 'vendor' ? 'vendor' : 'master';
 
   const rows = await findSweepableReceives(currency, input.blockchain);
+  const chainNorm = rows.length
+    ? normalizeBlockchain(rows[0].blockchain)
+    : input.blockchain
+      ? normalizeBlockchain(input.blockchain)
+      : 'ethereum';
+
+  const dest = await resolveSweepDestination({
+    target,
+    vendorId: input.vendorId,
+    chainNorm,
+  });
+
   if (rows.length === 0) {
-    const chainNorm = input.blockchain ? normalizeBlockchain(input.blockchain) : 'ethereum';
-    const mw = await prisma.masterWallet.findFirst({
-      where: { blockchain: chainNorm },
-    });
     return {
       currency,
       blockchain: input.blockchain || chainNorm,
-      destinationAddress: mw?.address || '',
-      destinationLabel: `Master wallet (${chainNorm})`,
+      destinationType: target,
+      vendorId: dest.vendorId,
+      destinationAddress: dest.address,
+      destinationLabel: dest.label,
       itemCount: 0,
       totalAmount: '0',
       totalAmountUsd: '0',
@@ -121,12 +163,6 @@ export async function getDepositSweepPreview(input: {
   }
 
   const first = rows[0];
-  const chainNorm = normalizeBlockchain(first.blockchain);
-  const masterWallet = await prisma.masterWallet.findUnique({ where: { blockchain: chainNorm } });
-  const destinationAddress = masterWallet?.address?.trim() || '';
-  if (!destinationAddress) {
-    throw ApiError.badRequest(`Master wallet address is not configured for "${chainNorm}"`);
-  }
 
   let totalAmount = new Decimal(0);
   let totalAmountUsd = new Decimal(0);
@@ -150,8 +186,10 @@ export async function getDepositSweepPreview(input: {
   return {
     currency,
     blockchain: first.blockchain,
-    destinationAddress,
-    destinationLabel: `Master wallet (${chainNorm})`,
+    destinationType: target,
+    vendorId: dest.vendorId,
+    destinationAddress: dest.address,
+    destinationLabel: dest.label,
     itemCount: items.length,
     totalAmount: totalAmount.toString(),
     totalAmountUsd: totalAmountUsd.toString(),
@@ -163,13 +201,18 @@ export async function getDepositSweepPreview(input: {
 export async function executeDepositSweep(input: {
   currency: string;
   blockchain?: string;
+  target?: DepositSweepTarget;
+  vendorId?: number;
   dryRun?: boolean;
   performedByUserId: number;
   performedByRole: string;
 }): Promise<DepositSweepExecuteResult> {
+  const target: DepositSweepTarget = input.target === 'vendor' ? 'vendor' : 'master';
   const preview = await getDepositSweepPreview({
     currency: input.currency,
     blockchain: input.blockchain,
+    target,
+    vendorId: input.vendorId,
   });
 
   const batchId = `sweep-${Date.now()}-${input.performedByUserId}`;
@@ -189,10 +232,17 @@ export async function executeDepositSweep(input: {
 
   for (const item of preview.items) {
     try {
-      const data = await sendReceivedAssetToMasterWallet({
-        receiveTransactionId: item.receiveTransactionId,
-        adminUserId: input.performedByUserId,
-      });
+      const data =
+        target === 'vendor' && preview.vendorId
+          ? await sendReceivedAssetToVendor({
+              receiveTransactionId: item.receiveTransactionId,
+              adminUserId: input.performedByUserId,
+              vendorId: preview.vendorId,
+            })
+          : await sendReceivedAssetToMasterWallet({
+              receiveTransactionId: item.receiveTransactionId,
+              adminUserId: input.performedByUserId,
+            });
       results.push({
         receiveTransactionId: item.receiveTransactionId,
         success: true,

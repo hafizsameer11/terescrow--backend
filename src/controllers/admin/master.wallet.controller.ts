@@ -436,8 +436,15 @@ export const getDepositSweepPreviewController = async (
   try {
     const currency = String(req.query.currency || '').trim();
     const blockchain = req.query.blockchain ? String(req.query.blockchain) : undefined;
+    const target = String(req.query.target || 'master').toLowerCase() === 'vendor' ? 'vendor' : 'master';
+    const vendorId = req.query.vendorId ? parseInt(String(req.query.vendorId), 10) : undefined;
     if (!currency) return next(ApiError.badRequest('currency is required'));
-    const preview = await depositSweepService.getDepositSweepPreview({ currency, blockchain });
+    const preview = await depositSweepService.getDepositSweepPreview({
+      currency,
+      blockchain,
+      target,
+      vendorId: Number.isFinite(vendorId) ? vendorId : undefined,
+    });
     return new ApiResponse(200, preview, 'Sweep preview retrieved').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
@@ -460,11 +467,15 @@ export const postDepositSweepController = async (
     const currency = String(req.body?.currency || '').trim();
     const blockchain = req.body?.blockchain ? String(req.body.blockchain) : undefined;
     const dryRun = req.body?.dryRun === true || req.body?.dryRun === 'true';
+    const target = String(req.body?.target || 'master').toLowerCase() === 'vendor' ? 'vendor' : 'master';
+    const vendorId = req.body?.vendorId != null ? parseInt(String(req.body.vendorId), 10) : undefined;
     if (!currency) return next(ApiError.badRequest('currency is required'));
 
     const result = await depositSweepService.executeDepositSweep({
       currency,
       blockchain,
+      target,
+      vendorId: Number.isFinite(vendorId) ? vendorId : undefined,
       dryRun,
       performedByUserId: staff.id,
       performedByRole: staff.role,
