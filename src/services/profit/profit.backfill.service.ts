@@ -1,6 +1,7 @@
 import { CryptoTxStatus, CryptoTxType, Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import profitLedgerService from './profit.ledger.service';
+import { resolveCryptoSpreadProfitRatesFromStored } from './profit.crypto.rates';
 
 export type LedgerSyncDryOptions = {
   limit?: number;
@@ -107,35 +108,55 @@ class ProfitBackfillService {
       let inserted = false;
 
       if (tx.transactionType === CryptoTxType.BUY && tx.cryptoBuy) {
+        const spreadRates = await resolveCryptoSpreadProfitRatesFromStored({
+          amountUsd: tx.cryptoBuy.amountUsd.toString(),
+          amountNgn: tx.cryptoBuy.amountNaira?.toString(),
+          side: 'BUY',
+          storedBuyTierNgnPerUsd: tx.cryptoBuy.rateNgnToUsd?.toString(),
+        });
         await profitLedgerService.record({
           sourceTransactionType: 'CRYPTO_TRANSACTION',
           sourceTransactionId: tx.transactionId,
           transactionType: 'BUY',
           asset: tx.currency,
           blockchain: tx.blockchain,
-          amount: tx.cryptoBuy.amount.toString(),
+          amount: spreadRates?.spreadAmount ?? tx.cryptoBuy.amountUsd.toString(),
           amountUsd: tx.cryptoBuy.amountUsd.toString(),
           amountNgn: tx.cryptoBuy.amountNaira?.toString() ?? undefined,
-          buyRate: tx.cryptoBuy.rateUsdToCrypto?.toString(),
-          sellRate: tx.cryptoBuy.rateNgnToUsd?.toString(),
+          buyRate: spreadRates?.buyRate,
+          sellRate: spreadRates?.sellRate,
           asOf,
-          meta: { source: 'profit.backfill.service', cryptoId: tx.id },
+          meta: {
+            source: 'profit.backfill.service',
+            cryptoId: tx.id,
+            amountCrypto: tx.cryptoBuy.amount.toString(),
+          },
         });
         inserted = true;
       } else if (tx.transactionType === CryptoTxType.SELL && tx.cryptoSell) {
+        const spreadRates = await resolveCryptoSpreadProfitRatesFromStored({
+          amountUsd: tx.cryptoSell.amountUsd.toString(),
+          amountNgn: tx.cryptoSell.amountNaira?.toString(),
+          side: 'SELL',
+          storedSellTierNgnPerUsd: tx.cryptoSell.rateUsdToNgn?.toString(),
+        });
         await profitLedgerService.record({
           sourceTransactionType: 'CRYPTO_TRANSACTION',
           sourceTransactionId: tx.transactionId,
           transactionType: 'SELL',
           asset: tx.currency,
           blockchain: tx.blockchain,
-          amount: tx.cryptoSell.amount.toString(),
+          amount: spreadRates?.spreadAmount ?? tx.cryptoSell.amountUsd.toString(),
           amountUsd: tx.cryptoSell.amountUsd.toString(),
           amountNgn: tx.cryptoSell.amountNaira?.toString() ?? undefined,
-          buyRate: tx.cryptoSell.rateCryptoToUsd?.toString(),
-          sellRate: tx.cryptoSell.rateUsdToNgn?.toString(),
+          buyRate: spreadRates?.buyRate,
+          sellRate: spreadRates?.sellRate,
           asOf,
-          meta: { source: 'profit.backfill.service', cryptoId: tx.id },
+          meta: {
+            source: 'profit.backfill.service',
+            cryptoId: tx.id,
+            amountCrypto: tx.cryptoSell.amount.toString(),
+          },
         });
         inserted = true;
       } else if (tx.transactionType === CryptoTxType.SEND && tx.cryptoSend) {
@@ -221,6 +242,10 @@ class ProfitBackfillService {
     for (const tx of rows) {
       scanned += 1;
       const type = (tx.type || '').toUpperCase();
+      if (type === 'CRYPTO_BUY' || type === 'CRYPTO_SELL') {
+        skipped += 1;
+        continue;
+      }
       const ledgerType = type === 'WITHDRAW' ? 'WITHDRAWAL' : type;
       const eventKey = `FIAT_TRANSACTION:${tx.id}:${ledgerType}`;
       const existing = await prisma.profitLedger.findUnique({ where: { eventKey } });
@@ -353,6 +378,78 @@ class ProfitBackfillService {
         crypto: crypto.skipped,
         fiat: fiat.skipped,
       },
+    };
+  }
+
+  /**
+   * Delete ledger rows in a window and rebuild from source transactions.
+   * Use after fixing profit rate logic so historical rows get correct NGN/$ spread.
+   */
+  async recomputeLedger(input: {
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+    dryRun?: boolean;
+    transactionType?: string;
+    sourceTransactionType?: string;
+  }) {
+    if (process.env.PROFIT_TRACKER_WRITE_ENABLED === 'false' && !input.dryRun) {
+      throw new Error('Profit tracker writes are disabled (PROFIT_TRACKER_WRITE_ENABLED=false)');
+    }
+
+    const { start, end } = await deriveProfitLedgerSyncWindow({
+      startDate: input.startDate,
+      endDate: input.endDate,
+    });
+
+    const where: Prisma.ProfitLedgerWhereInput = {
+      OR: [
+        { sourceOccurredAt: { gte: start, lte: end } },
+        { sourceOccurredAt: null, createdAt: { gte: start, lte: end } },
+      ],
+    };
+
+    const txType = input.transactionType?.toUpperCase().trim();
+    if (txType) where.transactionType = txType;
+
+    const sourceType = input.sourceTransactionType?.toUpperCase().trim();
+    if (sourceType) where.sourceTransactionType = sourceType;
+
+    const toDelete = await prisma.profitLedger.count({ where });
+
+    if (input.dryRun) {
+      return {
+        dryRun: true,
+        window: { start, end },
+        wouldDelete: toDelete,
+      };
+    }
+
+    const deleted = await prisma.profitLedger.deleteMany({ where });
+    const max = Math.min(Math.max(Number(input.limit ?? 4500) || 4500, 1), 25_000);
+
+    const [crypto, fiat] = await Promise.all([
+      this.syncCryptoLedgerGap({
+        start,
+        end,
+        limit: max,
+        dryRun: false,
+        transactionType: txType,
+      }),
+      this.syncFiatLedgerGap({
+        start,
+        end,
+        limit: Math.floor(max / 2),
+        dryRun: false,
+      }),
+    ]);
+
+    return {
+      dryRun: false,
+      window: { start, end },
+      deleted: deleted.count,
+      crypto,
+      fiat,
     };
   }
 }

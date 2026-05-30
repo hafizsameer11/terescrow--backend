@@ -19,6 +19,7 @@ import { InAppNotificationType } from '@prisma/client';
 import { creditReferralCommission, ReferralService } from '../referral/referral.commission.service';
 import { getDefaultUsdtBlockchain, isUsdtFamilyCurrency } from './crypto.unified.usdt';
 import profitLedgerService from '../profit/profit.ledger.service';
+import { resolveCryptoSpreadForBuy } from '../profit/profit.crypto.rates';
 
 export interface BuyCryptoInput {
   userId: number;
@@ -625,19 +626,28 @@ class CryptoBuyService {
     });
 
     try {
+      const spreadRates = await resolveCryptoSpreadForBuy({
+        amountUsd: result.amountUsd,
+        amountNgn: result.amountNgn,
+        rateNgnToUsd: result.rateNgnToUsd,
+      });
       await profitLedgerService.record({
         sourceTransactionType: 'CRYPTO_TRANSACTION',
         sourceTransactionId: result.transactionId,
         transactionType: 'BUY',
         asset: virtualAccount.currency,
         blockchain: virtualAccount.blockchain,
-        amount: result.amountCrypto,
+        amount: spreadRates?.spreadAmount ?? result.amountUsd,
         amountUsd: result.amountUsd,
         amountNgn: result.amountNgn,
-        buyRate: result.rateUsdToCrypto,
-        sellRate: result.rateNgnToUsd,
+        buyRate: spreadRates?.buyRate ?? result.rateNgnToUsd,
+        sellRate: spreadRates?.sellRate ?? result.rateNgnToUsd,
         asOf: result.occurredAt,
-        meta: { source: 'crypto.buy.service' },
+        meta: {
+          source: 'crypto.buy.service',
+          amountCrypto: result.amountCrypto,
+          rateUsdToCrypto: result.rateUsdToCrypto,
+        },
       });
     } catch (profitErr: any) {
       cryptoLogger.exception('Profit ledger (BUY)', profitErr, { transactionId: result.transactionId });

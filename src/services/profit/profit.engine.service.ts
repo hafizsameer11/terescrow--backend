@@ -1,6 +1,7 @@
 import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../../utils/prisma';
 import { calculateFixedProfit, calculatePercentageProfit, calculateSpreadProfit } from './profit.math';
+import { isPlausibleNgnPerUsd } from './profit.crypto.rates';
 
 export type ProfitComputationInput = {
   transactionType: string;
@@ -39,6 +40,12 @@ export type ProfitComputationResult = {
 function d(v: string | number | Decimal | null | undefined): Decimal | null {
   if (v === null || v === undefined) return null;
   return new Decimal(v);
+}
+
+function plausibleNgnRate(v: Decimal | null): Decimal | null {
+  if (!v || !v.isFinite()) return null;
+  if (!isPlausibleNgnPerUsd(v.toNumber())) return null;
+  return v;
 }
 
 class ProfitEngineService {
@@ -183,8 +190,12 @@ class ProfitEngineService {
       }),
     ]);
 
-    const buyRate = buyRateIn ?? (rateCfg ? new Decimal(rateCfg.baseBuyRate.toString()) : null);
-    const sellRateBase = sellRateIn ?? (rateCfg ? new Decimal(rateCfg.baseSellRate.toString()) : null);
+    const buyRate =
+      plausibleNgnRate(buyRateIn) ??
+      (rateCfg ? plausibleNgnRate(new Decimal(rateCfg.baseBuyRate.toString())) : null);
+    const sellRateBase =
+      plausibleNgnRate(sellRateIn) ??
+      (rateCfg ? plausibleNgnRate(new Decimal(rateCfg.baseSellRate.toString())) : null);
     const discountPercentage = tier ? new Decimal(tier.discountPercentage.toString()) : null;
     const sellRate = sellRateBase
       ? discountPercentage

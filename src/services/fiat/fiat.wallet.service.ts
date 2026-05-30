@@ -12,6 +12,7 @@ class FiatWalletService {
     if (!tx) return;
 
     const type = (tx.type || '').toUpperCase().trim();
+    if (type === 'CRYPTO_BUY' || type === 'CRYPTO_SELL') return;
     const map: Record<string, string> = {
       DEPOSIT: 'DEPOSIT',
       WITHDRAW: 'WITHDRAWAL',

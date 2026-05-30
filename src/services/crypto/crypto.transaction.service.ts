@@ -8,6 +8,8 @@ import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import { isUsdtFamilyCurrency } from './crypto.unified.usdt';
 import profitLedgerService from '../profit/profit.ledger.service';
+import { resolveCryptoSpreadForBuy, resolveCryptoSpreadForSell } from '../profit/profit.crypto.rates';
+import { formatNairaAmount } from '../../utils/nairaAmount';
 
 export type CryptoTxType = 'BUY' | 'SELL' | 'SEND' | 'RECEIVE' | 'SWAP';
 export type CryptoTxStatus = 'pending' | 'processing' | 'successful' | 'failed' | 'cancelled';
@@ -145,19 +147,28 @@ class CryptoTransactionService {
       },
     });
 
+    const spreadRates = await resolveCryptoSpreadForBuy({
+      amountUsd: buyData.amountUsd,
+      amountNgn: buyData.amountNaira,
+      rateNgnToUsd: buyData.rateNgnToUsd?.toString(),
+    });
     await profitLedgerService.record({
       sourceTransactionType: 'CRYPTO_TRANSACTION',
       sourceTransactionId: cryptoTransaction.transactionId,
       transactionType: 'BUY',
       asset: cryptoTransaction.currency,
       blockchain: cryptoTransaction.blockchain,
-      amount: buyData.amount,
+      amount: spreadRates?.spreadAmount ?? buyData.amountUsd,
       amountUsd: buyData.amountUsd,
       amountNgn: buyData.amountNaira,
-      buyRate: buyData.rateNgnToUsd,
-      sellRate: buyData.rateNgnToUsd,
+      buyRate: spreadRates?.buyRate ?? buyData.rateNgnToUsd,
+      sellRate: spreadRates?.sellRate ?? buyData.rateNgnToUsd,
       asOf: cryptoTransaction.createdAt,
-      meta: { cryptoTransactionId: cryptoTransaction.id, child: 'cryptoBuy' },
+      meta: {
+        cryptoTransactionId: cryptoTransaction.id,
+        child: 'cryptoBuy',
+        amountCrypto: buyData.amount,
+      },
     });
 
     return cryptoTransaction;
@@ -206,19 +217,29 @@ class CryptoTransactionService {
       },
     });
 
+    const spreadRates = await resolveCryptoSpreadForSell({
+      amountUsd: sellData.amountUsd,
+      amountNgn: sellData.amountNaira,
+      rateUsdToNgn: sellData.rateUsdToNgn?.toString(),
+    });
     await profitLedgerService.record({
       sourceTransactionType: 'CRYPTO_TRANSACTION',
       sourceTransactionId: cryptoTransaction.transactionId,
       transactionType: 'SELL',
       asset: cryptoTransaction.currency,
       blockchain: cryptoTransaction.blockchain,
-      amount: sellData.amount,
+      amount: spreadRates?.spreadAmount ?? sellData.amountUsd,
       amountUsd: sellData.amountUsd,
       amountNgn: sellData.amountNaira,
-      buyRate: sellData.rateCryptoToUsd,
-      sellRate: sellData.rateUsdToNgn,
+      buyRate: spreadRates?.buyRate ?? sellData.rateUsdToNgn,
+      sellRate: spreadRates?.sellRate ?? sellData.rateUsdToNgn,
       asOf: cryptoTransaction.createdAt,
-      meta: { cryptoTransactionId: cryptoTransaction.id, child: 'cryptoSell' },
+      meta: {
+        cryptoTransactionId: cryptoTransaction.id,
+        child: 'cryptoSell',
+        amountCrypto: sellData.amount,
+        rateCryptoToUsd: sellData.rateCryptoToUsd,
+      },
     });
 
     return cryptoTransaction;
@@ -684,8 +705,8 @@ class CryptoTransactionService {
         to: transaction.cryptoBuy.toAddress || 'Your Crypto wallet',
         amount: `${transaction.cryptoBuy.amount.toString()}${transaction.currency}`,
         amountUsd: `$${transaction.cryptoBuy.amountUsd.toString()}`,
-        amountNaira: `NGN${transaction.cryptoBuy.amountNaira.toString()}`,
-        rate: transaction.cryptoBuy.rate ? `NGN${transaction.cryptoBuy.rate.toString()}/$` : null,
+        amountNaira: `NGN${formatNairaAmount(transaction.cryptoBuy.amountNaira)}`,
+        rate: transaction.cryptoBuy.rate ? `NGN${formatNairaAmount(transaction.cryptoBuy.rate)}/$` : null,
         rateNgnToUsd: transaction.cryptoBuy.rateNgnToUsd ? transaction.cryptoBuy.rateNgnToUsd.toString() : null, // NGN to USD rate
         rateUsdToCrypto: transaction.cryptoBuy.rateUsdToCrypto ? transaction.cryptoBuy.rateUsdToCrypto.toString() : null, // USD to Crypto rate
         txHash: transaction.cryptoBuy.txHash,
@@ -699,8 +720,9 @@ class CryptoTransactionService {
         to: transaction.cryptoSell.toAddress || 'Tercescrow',
         amount: `${transaction.cryptoSell.amount.toString()}${transaction.currency}`,
         amountUsd: `$${transaction.cryptoSell.amountUsd.toString()}`,
-        youReceived: `NGN${transaction.cryptoSell.amountNaira.toString()}`,
-        rate: transaction.cryptoSell.rate ? `NGN${transaction.cryptoSell.rate.toString()}/$` : null,
+        youReceived: `NGN${formatNairaAmount(transaction.cryptoSell.amountNaira)}`,
+        amountNaira: `NGN${formatNairaAmount(transaction.cryptoSell.amountNaira)}`,
+        rate: transaction.cryptoSell.rate ? `NGN${formatNairaAmount(transaction.cryptoSell.rate)}/$` : null,
         rateCryptoToUsd: transaction.cryptoSell.rateCryptoToUsd ? transaction.cryptoSell.rateCryptoToUsd.toString() : null, // Crypto to USD rate
         rateUsdToNgn: transaction.cryptoSell.rateUsdToNgn ? transaction.cryptoSell.rateUsdToNgn.toString() : null, // USD to NGN rate
         txHash: transaction.cryptoSell.txHash,
@@ -715,9 +737,9 @@ class CryptoTransactionService {
         amount: `${transaction.cryptoSend.amount.toString()}${transaction.currency}`,
         amountUsd: `$${transaction.cryptoSend.amountUsd.toString()}`,
         amountNaira: transaction.cryptoSend.amountNaira 
-          ? `NGN${transaction.cryptoSend.amountNaira.toString()}` 
+          ? `NGN${formatNairaAmount(transaction.cryptoSend.amountNaira)}` 
           : null,
-        rate: transaction.cryptoSend.rate ? `NGN${transaction.cryptoSend.rate.toString()}/$` : null,
+        rate: transaction.cryptoSend.rate ? `NGN${formatNairaAmount(transaction.cryptoSend.rate)}/$` : null,
         txHash: transaction.cryptoSend.txHash,
         networkFee: transaction.cryptoSend.networkFee?.toString(),
       };
@@ -731,7 +753,7 @@ class CryptoTransactionService {
         amount: `${transaction.cryptoReceive.amount.toString()}${transaction.currency}`,
         amountUsd: `$${transaction.cryptoReceive.amountUsd.toString()}`,
         amountNaira: transaction.cryptoReceive.amountNaira 
-          ? `NGN${transaction.cryptoReceive.amountNaira.toString()}` 
+          ? `NGN${formatNairaAmount(transaction.cryptoReceive.amountNaira)}` 
           : null,
         rate: transaction.cryptoReceive.rate ? `$${transaction.cryptoReceive.rate.toString()}` : null,
         txHash: transaction.cryptoReceive.txHash,

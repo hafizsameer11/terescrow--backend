@@ -18,6 +18,7 @@ import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
 import { creditReferralCommission, ReferralService } from '../referral/referral.commission.service';
 import profitLedgerService from '../profit/profit.ledger.service';
+import { resolveCryptoSpreadForSell } from '../profit/profit.crypto.rates';
 import {
   allocateUsdtDebit,
   decimalFromBalance,
@@ -886,19 +887,28 @@ class CryptoSellService {
     });
 
     try {
+      const spreadRates = await resolveCryptoSpreadForSell({
+        amountUsd: result.amountUsd,
+        amountNgn: result.amountNgn,
+        rateUsdToNgn: result.rateUsdToNgn,
+      });
       await profitLedgerService.record({
         sourceTransactionType: 'CRYPTO_TRANSACTION',
         sourceTransactionId: result.transactionId,
         transactionType: 'SELL',
         asset: virtualAccount.currency,
         blockchain: virtualAccount.blockchain,
-        amount: result.amountCrypto,
+        amount: spreadRates?.spreadAmount ?? result.amountUsd,
         amountUsd: result.amountUsd,
         amountNgn: result.amountNgn,
-        buyRate: cryptoPrice.toString(),
-        sellRate: new Decimal(usdToNgnRate.rate.toString()).toString(),
+        buyRate: spreadRates?.buyRate ?? new Decimal(usdToNgnRate.rate.toString()).toString(),
+        sellRate: spreadRates?.sellRate ?? new Decimal(usdToNgnRate.rate.toString()).toString(),
         asOf: result.occurredAt,
-        meta: { source: 'crypto.sell.service' },
+        meta: {
+          source: 'crypto.sell.service',
+          amountCrypto: result.amountCrypto,
+          rateCryptoToUsd: result.rateCryptoToUsd,
+        },
       });
     } catch (profitErr: any) {
       cryptoLogger.exception('Profit ledger (SELL)', profitErr, { transactionId: result.transactionId });

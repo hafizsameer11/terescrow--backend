@@ -10,7 +10,7 @@ export function formatNairaAmount(value: string | number | Decimal | null | unde
     return String(value);
   }
   if (!Number.isFinite(n)) return String(value);
-  return String(Math.round(n));
+  return String(Math.round(n)).toLocaleString('en-US');
 }
 
 export function roundNairaAmount(value: number): number {

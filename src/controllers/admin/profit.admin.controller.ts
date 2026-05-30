@@ -153,3 +153,25 @@ export async function reconcileProfitLedgerController(req: Request, res: Respons
     return next(ApiError.internal(error.message || 'Failed to reconcile profit ledger'));
   }
 }
+
+export async function recomputeProfitLedgerController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const dryRun = req.body?.dryRun === true;
+    const limit = req.body?.limit ? Number(req.body.limit) : undefined;
+    const data = await profitBackfillService.recomputeLedger({
+      startDate: typeof req.body?.startDate === 'string' ? req.body.startDate : undefined,
+      endDate: typeof req.body?.endDate === 'string' ? req.body.endDate : undefined,
+      limit,
+      dryRun,
+      transactionType: typeof req.body?.transactionType === 'string' ? req.body.transactionType : undefined,
+      sourceTransactionType:
+        typeof req.body?.sourceTransactionType === 'string' ? req.body.sourceTransactionType : undefined,
+    });
+    const message = dryRun
+      ? `Recompute dry run: ${data.wouldDelete ?? 0} ledger row(s) would be rebuilt`
+      : `Recomputed ledger: deleted ${data.deleted ?? 0} row(s) and replayed sources`;
+    return res.status(200).json(new ApiResponse(200, data, message));
+  } catch (error: any) {
+    return next(ApiError.internal(error.message || 'Failed to recompute profit ledger'));
+  }
+}

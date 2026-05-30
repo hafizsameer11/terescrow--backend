@@ -10,6 +10,7 @@ import {
   getProfitStatsController,
   previewProfitController,
   reconcileProfitLedgerController,
+  recomputeProfitLedgerController,
   updateDiscountTierController,
   updateProfitConfigController,
   updateRateConfigController,
@@ -29,6 +30,7 @@ profitAdminRouter.post('/preview', authenticateUser, previewProfitController);
 profitAdminRouter.get('/ledger', authenticateUser, getProfitLedgerController);
 profitAdminRouter.get('/stats', authenticateUser, getProfitStatsController);
 profitAdminRouter.post('/backfill', authenticateUser, backfillProfitLedgerController);
+profitAdminRouter.post('/recompute', authenticateUser, recomputeProfitLedgerController);
 profitAdminRouter.get('/reconcile', authenticateUser, reconcileProfitLedgerController);
 
 export default profitAdminRouter;
