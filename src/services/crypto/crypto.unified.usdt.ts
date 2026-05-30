@@ -7,7 +7,7 @@ import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 
 /** Prisma/`unknown` balances → Decimal without passing `unknown` into the constructor (TS Value type). */
-function decimalFromBalance(value: unknown): Decimal {
+export function decimalFromBalance(value: unknown): Decimal {
   if (value == null || value === '') return new Decimal('0');
   if (value instanceof Decimal) return value;
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') {
@@ -103,6 +103,43 @@ export function primaryUsdtVirtualAccountId(accounts: UsdtVirtualAccountLike[]):
   const def = getDefaultUsdtBlockchain();
   const preferred = accounts.find((a) => a.blockchain.toLowerCase() === def);
   return (preferred ?? accounts[0]).id;
+}
+
+/** Prefer the chain with the most spendable USDT (sell debits unified pool). */
+export function pickPrimaryUsdtAccountForSell(accounts: UsdtVirtualAccountLike[]): UsdtVirtualAccountLike | null {
+  if (!accounts.length) return null;
+  const withBalance = accounts
+    .filter((a) => decimalFromBalance(a.availableBalance).gt(0))
+    .sort(
+      (a, b) =>
+        decimalFromBalance(b.availableBalance).cmp(decimalFromBalance(a.availableBalance))
+    );
+  if (withBalance.length) return withBalance[0];
+  const def = getDefaultUsdtBlockchain();
+  return accounts.find((a) => a.blockchain.toLowerCase() === def) ?? accounts[0];
+}
+
+/** Split a USDT sell amount across family accounts (highest balance first). */
+export function allocateUsdtDebit(
+  accounts: UsdtVirtualAccountLike[],
+  amount: Decimal
+): Array<{ account: UsdtVirtualAccountLike; debitAmount: Decimal }> {
+  if (amount.lte(0)) return [];
+  const sorted = [...accounts].sort(
+    (a, b) =>
+      decimalFromBalance(b.availableBalance).cmp(decimalFromBalance(a.availableBalance))
+  );
+  let remaining = amount;
+  const allocations: Array<{ account: UsdtVirtualAccountLike; debitAmount: Decimal }> = [];
+  for (const account of sorted) {
+    if (remaining.lte(0)) break;
+    const bal = decimalFromBalance(account.availableBalance);
+    if (bal.lte(0)) continue;
+    const debitAmount = Decimal.min(bal, remaining);
+    allocations.push({ account, debitAmount });
+    remaining = remaining.minus(debitAmount);
+  }
+  return allocations;
 }
 
 /** Resolve DB currency for send: UI sends USDT + network; ledger uses USDT / USDT_TRON / USDT_BSC. */

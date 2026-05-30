@@ -1,6 +1,7 @@
 import { Decimal } from '@prisma/client/runtime/library';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
+import { formatCryptoAmount } from '../../utils/cryptoAmount';
 import ApiError from '../../utils/ApiError';
 import { normalizeBlockchain } from './received.asset.disbursement.helpers';
 import {
@@ -176,7 +177,7 @@ export async function getDepositSweepPreview(input: {
     return {
       receiveTransactionId: tx.transactionId,
       customerName: tx.user ? `${tx.user.firstname} ${tx.user.lastname}`.trim() : '',
-      amount: recv.amount.toString(),
+      amount: formatCryptoAmount(recv.amount),
       amountUsd: recv.amountUsd.toString(),
       txHash: recv.txHash,
       depositAddress: deposit || '',

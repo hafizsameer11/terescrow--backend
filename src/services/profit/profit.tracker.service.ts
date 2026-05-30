@@ -1,7 +1,8 @@
 import type { Prisma } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../../utils/prisma';
 import profitBackfillService from './profit.backfill.service';
+import { formatCryptoAmount } from '../../utils/cryptoAmount';
+import { formatNairaAmount } from '../../utils/nairaAmount';
 
 type ListFilters = {
   page?: number;
@@ -88,7 +89,14 @@ class ProfitTrackerService {
     ]);
 
     return {
-      items,
+      items: items.map((row) => ({
+        ...row,
+        amount: formatCryptoAmount(row.amount),
+        amountNgn: row.amountNgn != null ? formatNairaAmount(row.amountNgn) : null,
+        profitNgn: formatNairaAmount(row.profitNgn),
+        buyRate: row.buyRate != null ? formatNairaAmount(row.buyRate) : null,
+        sellRate: row.sellRate != null ? formatNairaAmount(row.sellRate) : null,
+      })),
       total,
       page,
       limit,
@@ -148,18 +156,18 @@ class ProfitTrackerService {
     ]);
 
     return {
-      totalProfit: (sumRows._sum.profitNgn || new Decimal(0)).toString(),
-      profitToday: (today._sum.profitNgn || new Decimal(0)).toString(),
-      profitThisWeek: (week._sum.profitNgn || new Decimal(0)).toString(),
-      profitThisMonth: (month._sum.profitNgn || new Decimal(0)).toString(),
+      totalProfit: formatNairaAmount(sumRows._sum.profitNgn),
+      profitToday: formatNairaAmount(today._sum.profitNgn),
+      profitThisWeek: formatNairaAmount(week._sum.profitNgn),
+      profitThisMonth: formatNairaAmount(month._sum.profitNgn),
       byTransactionType: byTypeRows.map((r) => ({
         transactionType: r.transactionType,
-        totalProfit: (r._sum.profitNgn || new Decimal(0)).toString(),
+        totalProfit: formatNairaAmount(r._sum.profitNgn),
         count: r._count.id,
       })),
       byAsset: byAssetRows.map((r) => ({
         asset: r.asset || 'UNKNOWN',
-        totalProfit: (r._sum.profitNgn || new Decimal(0)).toString(),
+        totalProfit: formatNairaAmount(r._sum.profitNgn),
         count: r._count.id,
       })),
     };

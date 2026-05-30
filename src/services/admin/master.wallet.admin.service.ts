@@ -1,4 +1,5 @@
 import { prisma } from '../../utils/prisma';
+import { formatCryptoAmount } from '../../utils/cryptoAmount';
 import tatumService from '../tatum/tatum.service';
 import { getTronTrc20Balance, getTronTrxBalance } from '../tron/tron.tatum.service';
 import {
@@ -251,10 +252,10 @@ export async function getMasterWalletAssets(walletId?: string): Promise<AssetIte
       isToken: wc.isToken,
       displayLabel,
       sharedMasterWalletNote,
-      balance,
+      balance: formatCryptoAmount(balance),
       usdValue: usdVal,
       address: mw.address,
-      tercescrowBalance: balance,
+      tercescrowBalance: formatCryptoAmount(balance),
       tercescrowUsd: usdVal,
     });
   }
@@ -287,7 +288,7 @@ export async function getMasterWalletTransactions(
     status: String(r.status ?? 'pending').toLowerCase(),
     type: r.type,
     wallet: r.walletId,
-    amount: r.amount.toString(),
+    amount: formatCryptoAmount(r.amount),
     date: r.createdAt.toISOString(),
     assetSymbol: r.assetSymbol,
     walletId: r.walletId,

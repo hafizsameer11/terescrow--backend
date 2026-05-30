@@ -24,8 +24,13 @@ export function usesPercentAdjustment(transactionType: TransactionType): transac
   return (PERCENT_ADJUSTMENT_TYPES as readonly TransactionType[]).includes(transactionType);
 }
 
+export function roundNairaRate(value: number): number {
+  if (!Number.isFinite(value)) return value;
+  return Math.round(value);
+}
+
 export function computeEffectiveRate(baseRate: number, adjustmentPercent: number): number {
-  return baseRate * (1 + adjustmentPercent / 100);
+  return roundNairaRate(baseRate * (1 + adjustmentPercent / 100));
 }
 
 export function parseAdjustmentPercent(value: unknown): number {
@@ -76,13 +81,13 @@ class CryptoRateService {
     const row = await prisma.cryptoRateBase.findUnique({
       where: { transactionType },
     });
-    return row ? Number(row.baseRate) : null;
+    return row ? roundNairaRate(Number(row.baseRate)) : null;
   }
 
   /** If BUY/SELL tiers exist but no base row yet, seed base from the lowest-USD tier rate. */
   private async bootstrapBaseRateIfMissing(transactionType: TransactionType): Promise<number | null> {
     const existing = await prisma.cryptoRateBase.findUnique({ where: { transactionType } });
-    if (existing) return Number(existing.baseRate);
+    if (existing) return roundNairaRate(Number(existing.baseRate));
 
     const anchor = await prisma.cryptoRate.findFirst({
       where: { transactionType, isActive: true },
@@ -90,7 +95,7 @@ class CryptoRateService {
     });
     if (!anchor) return null;
 
-    const baseRate = Number(anchor.rate);
+    const baseRate = roundNairaRate(Number(anchor.rate));
     await prisma.cryptoRateBase.create({
       data: { transactionType, baseRate },
     });
@@ -122,13 +127,14 @@ class CryptoRateService {
       throw new Error('Base rate only applies to BUY and SELL');
     }
     if (!Number.isFinite(baseRate) || baseRate <= 0) {
-      throw new Error('Base rate must be a positive number');
+      throw new Error('Base rate must be a positive whole number');
     }
+    const roundedBase = roundNairaRate(baseRate);
 
     await prisma.cryptoRateBase.upsert({
       where: { transactionType },
-      create: { transactionType, baseRate },
-      update: { baseRate },
+      create: { transactionType, baseRate: roundedBase },
+      update: { baseRate: roundedBase },
     });
 
     const tiers = await prisma.cryptoRate.findMany({
@@ -137,7 +143,7 @@ class CryptoRateService {
 
     for (const tier of tiers) {
       const adj = tier.adjustmentPercent != null ? Number(tier.adjustmentPercent) : 0;
-      const effective = computeEffectiveRate(baseRate, adj);
+      const effective = computeEffectiveRate(roundedBase, adj);
       await this.updateRate(
         tier.id,
         { rate: effective, adjustmentPercent: adj },
@@ -146,7 +152,7 @@ class CryptoRateService {
       );
     }
 
-    return { transactionType, baseRate };
+    return { transactionType, baseRate: roundedBase };
   }
 
   private async resolveEffectiveRate(
@@ -154,11 +160,11 @@ class CryptoRateService {
     tier: { rate: Decimal; adjustmentPercent: Decimal | null }
   ): Promise<number> {
     if (!usesPercentAdjustment(transactionType)) {
-      return Number(tier.rate);
+      return roundNairaRate(Number(tier.rate));
     }
     const base = await this.getBaseRate(transactionType);
     if (base == null) {
-      return Number(tier.rate);
+      return roundNairaRate(Number(tier.rate));
     }
     const adj = tier.adjustmentPercent != null ? Number(tier.adjustmentPercent) : 0;
     return computeEffectiveRate(base, adj);
@@ -180,10 +186,11 @@ class CryptoRateService {
       if (adj == null && base != null && usesPercentAdjustment(transactionType)) {
         adj = ((Number(row.rate) / base) - 1) * 100;
       }
-      const effective =
+      const effective = roundNairaRate(
         base != null && adj != null
           ? computeEffectiveRate(base, adj)
-          : Number(row.rate);
+          : Number(row.rate)
+      );
       return {
         ...row,
         rate: effective,
@@ -287,6 +294,7 @@ class CryptoRateService {
       }
       rate = data.rate;
     }
+    rate = roundNairaRate(rate);
 
     const created = await prisma.cryptoRate.create({
       data: {
@@ -348,6 +356,7 @@ class CryptoRateService {
     } else if (newRate === undefined) {
       newRate = Number(existing.rate);
     }
+    newRate = roundNairaRate(newRate);
 
     const updated = await prisma.cryptoRate.update({
       where: { id: rateId },
@@ -390,7 +399,13 @@ class CryptoRateService {
       where,
       orderBy: { createdAt: 'desc' },
       take: 100,
-    });
+    }).then((rows) =>
+      rows.map((row) => ({
+        ...row,
+        oldRate: row.oldRate != null ? roundNairaRate(Number(row.oldRate)) : null,
+        newRate: roundNairaRate(Number(row.newRate)),
+      }))
+    );
   }
 }
 

@@ -2,6 +2,8 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import profitEngineService from './profit.engine.service';
+import { formatCryptoAmount } from '../../utils/cryptoAmount';
+import { formatNairaAmount } from '../../utils/nairaAmount';
 
 function toDecimal(value: any, field: string): Decimal {
   try {
@@ -125,7 +127,7 @@ class ProfitAdminService {
   }
 
   async preview(input: any) {
-    return profitEngineService.compute({
+    const result = await profitEngineService.compute({
       transactionType: String(input.transactionType || '').toUpperCase().trim(),
       asset: input.asset ? String(input.asset).toUpperCase().trim() : null,
       blockchain: input.blockchain ? String(input.blockchain).toLowerCase().trim() : null,
@@ -136,6 +138,14 @@ class ProfitAdminService {
       buyRate: input.buyRate ?? null,
       sellRate: input.sellRate ?? null,
     });
+    return {
+      ...result,
+      amount: formatCryptoAmount(result.amount),
+      amountNgn: result.amountNgn != null ? formatNairaAmount(result.amountNgn) : null,
+      profitNgn: formatNairaAmount(result.profitNgn),
+      buyRate: result.buyRate != null ? formatNairaAmount(result.buyRate) : null,
+      sellRate: result.sellRate != null ? formatNairaAmount(result.sellRate) : null,
+    };
   }
 }
 

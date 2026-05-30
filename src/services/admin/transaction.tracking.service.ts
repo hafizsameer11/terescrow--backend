@@ -1,5 +1,6 @@
 import { prisma } from '../../utils/prisma';
 import { Prisma } from '@prisma/client';
+import { formatCryptoAmount } from '../../utils/cryptoAmount';
 import {
   getSoldTotalsForReceive,
   getSoldTotalsMapForReceives,
@@ -235,7 +236,7 @@ export async function getTransactionTrackingList(filters: {
       status: tx.status,
       masterWalletStatus: masterStatus,
       txHash: recv.txHash,
-      amount: recv.amount.toString(),
+      amount: formatCryptoAmount(recv.amount),
       amountUsd: recv.amountUsd.toString(),
       amountNaira: recv.amountNaira?.toString() ?? '0',
       currency: tx.currency,
@@ -292,7 +293,7 @@ export async function getTrackingSteps(txId: string): Promise<TrackingStep[]> {
       txHash: recv.txHash,
       fromAddress: recv.fromAddress,
       toAddress: recv.toAddress,
-      amount: recv.amount.toString(),
+      amount: formatCryptoAmount(recv.amount),
       currency: tx.currency,
       blockchain: tx.blockchain,
       blockNumber: recv.blockNumber?.toString() ?? null,
@@ -361,7 +362,7 @@ export async function getTrackingSteps(txId: string): Promise<TrackingStep[]> {
         disbursementId: d.id,
         disbursementType: d.disbursementType,
         toAddress: d.toAddress,
-        amount: d.amount.toString(),
+        amount: formatCryptoAmount(d.amount),
         currency: d.currency,
         txHash: d.txHash,
         ledger: 'received_asset_disbursement',
@@ -435,7 +436,7 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
     masterWalletStatus: receivedAsset?.status ?? 'unknown',
     currency: tx.currency,
     blockchain: tx.blockchain,
-    amount: recv.amount.toString(),
+    amount: formatCryptoAmount(recv.amount),
     amountUsd: recv.amountUsd.toString(),
     amountNaira: recv.amountNaira?.toString() ?? '0',
     fromAddress: recv.fromAddress,
@@ -467,7 +468,7 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
       id: d.id,
       disbursementType: d.disbursementType,
       status: d.status,
-      amount: d.amount.toString(),
+      amount: formatCryptoAmount(d.amount),
       amountUsd: d.amountUsd?.toString() ?? null,
       currency: d.currency,
       blockchain: d.blockchain,

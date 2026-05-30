@@ -6,6 +6,7 @@ import { Request, Response } from 'express';
 import cryptoRateService, {
   TransactionType,
   parseAdjustmentPercent,
+  roundNairaRate,
   usesPercentAdjustment,
 } from '../../services/crypto/crypto.rate.service';
 
@@ -98,7 +99,7 @@ export async function setBaseRateController(req: Request, res: Response) {
       });
     }
 
-    const result = await cryptoRateService.setBaseRate(tx, parseFloat(baseRate), changedBy);
+    const result = await cryptoRateService.setBaseRate(tx, roundNairaRate(parseFloat(baseRate)), changedBy);
 
     return res.status(200).json({
       status: 200,
@@ -148,7 +149,7 @@ export async function createRateController(req: Request, res: Response) {
         transactionType: tx,
         minAmount: parseFloat(minAmount),
         maxAmount: maxAmount != null && maxAmount !== '' ? parseFloat(maxAmount) : null,
-        rate: rate != null ? parseFloat(rate) : undefined,
+        rate: rate != null ? roundNairaRate(parseFloat(rate)) : undefined,
         adjustmentPercent:
           adjustmentPercent !== undefined
             ? parseAdjustmentPercent(adjustmentPercent)
@@ -187,7 +188,7 @@ export async function updateRateController(req: Request, res: Response) {
     const updated = await cryptoRateService.updateRate(
       parseInt(id, 10),
       {
-        rate: rate !== undefined ? parseFloat(rate) : undefined,
+        rate: rate !== undefined ? roundNairaRate(parseFloat(rate)) : undefined,
         adjustmentPercent:
           adjustmentPercent !== undefined ? adjustmentPercent : undefined,
       },

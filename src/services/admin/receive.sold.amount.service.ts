@@ -1,4 +1,5 @@
 import { Decimal } from '@prisma/client/runtime/library';
+import { formatCryptoAmount } from '../../utils/cryptoAmount';
 import { prisma } from '../../utils/prisma';
 
 export interface ReceiveSoldTotals {
@@ -71,7 +72,7 @@ export async function getSoldTotalsForReceive(input: {
   const retention = Decimal.max(recvUsd.minus(soldAmountUsd), new Decimal(0));
 
   return {
-    soldAmount: soldAmount.toString(),
+    soldAmount: formatCryptoAmount(soldAmount),
     soldAmountUsd: soldAmountUsd.toString(),
     soldAmountNaira: soldAmountNaira.toString(),
     userRetentionUsd: retention.toString(),

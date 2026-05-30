@@ -18,6 +18,15 @@ import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
 import { creditReferralCommission, ReferralService } from '../referral/referral.commission.service';
 import profitLedgerService from '../profit/profit.ledger.service';
+import {
+  allocateUsdtDebit,
+  decimalFromBalance,
+  fetchUsdtFamilyVirtualAccounts,
+  isUsdtFamilyCurrency,
+  pickPrimaryUsdtAccountForSell,
+  sumUsdtBalances,
+  type UsdtVirtualAccountLike,
+} from './crypto.unified.usdt';
 
 export type SellAmountType = 'CRYPTO' | 'USD';
 
@@ -168,27 +177,47 @@ class CryptoSellService {
     }
 
     // Get user's virtual account with deposit address (outside transaction)
-    // Use the matched walletCurrency's currency value (might be "USDT_TRON" instead of "USDT")
-    const virtualAccount = await prisma.virtualAccount.findFirst({
-      where: {
-        userId,
-        currency: walletCurrency.currency, // Use the actual currency from wallet_currencies
-        blockchain: blockchainLower,
-      },
-      include: {
-        depositAddresses: {
-          take: 1,
-          orderBy: { createdAt: 'desc' },
-        },
-      },
-    });
+    const isUnifiedUsdtSell = isUsdtFamilyCurrency(currencyUpper);
+    let usdtFamilyAccounts: UsdtVirtualAccountLike[] = [];
+    let usdtDebitAllocations: Array<{ account: UsdtVirtualAccountLike; debitAmount: Decimal }> = [];
 
-    if (!virtualAccount) {
-      throw new Error(`Virtual account not found for ${currency} on ${blockchain}. Please contact support.`);
+    let virtualAccount = isUnifiedUsdtSell
+      ? null
+      : await prisma.virtualAccount.findFirst({
+          where: {
+            userId,
+            currency: walletCurrency.currency,
+            blockchain: blockchainLower,
+          },
+          include: {
+            depositAddresses: {
+              take: 1,
+              orderBy: { createdAt: 'desc' },
+            },
+          },
+        });
+
+    if (isUnifiedUsdtSell) {
+      usdtFamilyAccounts = await fetchUsdtFamilyVirtualAccounts(userId);
+      if (!usdtFamilyAccounts.length) {
+        throw new Error(`Virtual account not found for ${currency}. Please contact support.`);
+      }
+      virtualAccount = pickPrimaryUsdtAccountForSell(usdtFamilyAccounts) as NonNullable<typeof virtualAccount>;
     }
 
-    const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
-    if (!depositAddress) {
+    if (!virtualAccount) {
+      throw new Error(
+        isUnifiedUsdtSell
+          ? `Virtual account not found for ${currency}. Please contact support.`
+          : `Virtual account not found for ${currency} on ${blockchain}. Please contact support.`
+      );
+    }
+
+    const depositAddress =
+      virtualAccount.depositAddresses?.[0]?.address ||
+      usdtFamilyAccounts.find((a) => a.depositAddresses?.[0]?.address)?.depositAddresses?.[0]?.address ||
+      null;
+    if (!depositAddress && !isUnifiedUsdtSell) {
       throw new Error(`Deposit address not found for ${currency} on ${blockchain}. Please contact support.`);
     }
 
@@ -198,9 +227,24 @@ class CryptoSellService {
     // Resolve input amount by type: CRYPTO amount or USD notional
     const { amountCryptoDecimal, amountUsd } = this.resolveSellAmounts(amount, cryptoPrice, amountType);
 
-    // Check sufficient crypto balance
-    const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
-    if (cryptoBalanceBefore.lessThan(amountCryptoDecimal)) {
+    // Check sufficient crypto balance (unified USDT pool vs single-chain)
+    const cryptoBalanceBefore = isUnifiedUsdtSell
+      ? sumUsdtBalances(usdtFamilyAccounts)
+      : new Decimal(virtualAccount.availableBalance || '0');
+
+    if (isUnifiedUsdtSell) {
+      usdtDebitAllocations = allocateUsdtDebit(usdtFamilyAccounts, amountCryptoDecimal);
+      if (usdtDebitAllocations.length === 0) {
+        throw new Error('Insufficient crypto balance');
+      }
+      const allocatedTotal = usdtDebitAllocations.reduce(
+        (sum, row) => sum.plus(row.debitAmount),
+        new Decimal('0')
+      );
+      if (allocatedTotal.lessThan(amountCryptoDecimal)) {
+        throw new Error('Insufficient crypto balance');
+      }
+    } else if (cryptoBalanceBefore.lessThan(amountCryptoDecimal)) {
       throw new Error('Insufficient crypto balance');
     }
 
@@ -683,14 +727,28 @@ class CryptoSellService {
     // Now execute the database transaction
     const result = await prisma.$transaction(async (tx) => {
 
-      // Step 1: Debit virtual account (crypto)
-      await tx.virtualAccount.update({
-        where: { id: virtualAccount.id },
-        data: {
-          availableBalance: cryptoBalanceAfter.toString(),
-          accountBalance: cryptoBalanceAfter.toString(),
-        },
-      });
+      // Step 1: Debit virtual account(s) (crypto)
+      if (isUnifiedUsdtSell && usdtDebitAllocations.length > 0) {
+        for (const { account, debitAmount } of usdtDebitAllocations) {
+          const before = decimalFromBalance(account.availableBalance);
+          const after = before.minus(debitAmount);
+          await tx.virtualAccount.update({
+            where: { id: account.id },
+            data: {
+              availableBalance: after.toString(),
+              accountBalance: after.toString(),
+            },
+          });
+        }
+      } else {
+        await tx.virtualAccount.update({
+          where: { id: virtualAccount.id },
+          data: {
+            availableBalance: cryptoBalanceAfter.toString(),
+            accountBalance: cryptoBalanceAfter.toString(),
+          },
+        });
+      }
 
       // Step 2: Credit fiat wallet (NGN) with final amount after gas fees
       // Create fiat transaction first
@@ -955,30 +1013,52 @@ class CryptoSellService {
     }
 
     // Get user's virtual account for this crypto with deposit address
-    const virtualAccount = await prisma.virtualAccount.findFirst({
-      where: {
-        userId,
-        currency: currency.toUpperCase(),
-        blockchain: blockchain.toLowerCase(),
-      },
-      include: {
-        depositAddresses: {
-          take: 1,
-          orderBy: { createdAt: 'desc' },
-        },
-      },
-    });
+    const currencyUpper = currency.toUpperCase();
+    const isUnifiedUsdt = isUsdtFamilyCurrency(currencyUpper);
+    let usdtFamilyAccounts: UsdtVirtualAccountLike[] = [];
+    let virtualAccount = isUnifiedUsdt
+      ? null
+      : await prisma.virtualAccount.findFirst({
+          where: {
+            userId,
+            currency: currencyUpper,
+            blockchain: blockchain.toLowerCase(),
+          },
+          include: {
+            depositAddresses: {
+              take: 1,
+              orderBy: { createdAt: 'desc' },
+            },
+          },
+        });
 
-    if (!virtualAccount) {
-      throw new Error(`Virtual account not found for ${currency} on ${blockchain}`);
+    if (isUnifiedUsdt) {
+      usdtFamilyAccounts = await fetchUsdtFamilyVirtualAccounts(userId);
+      if (!usdtFamilyAccounts.length) {
+        throw new Error(`Virtual account not found for ${currency}`);
+      }
+      virtualAccount = pickPrimaryUsdtAccountForSell(usdtFamilyAccounts) as NonNullable<typeof virtualAccount>;
     }
 
-    const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
-    if (!depositAddress) {
+    if (!virtualAccount) {
+      throw new Error(
+        isUnifiedUsdt
+          ? `Virtual account not found for ${currency}`
+          : `Virtual account not found for ${currency} on ${blockchain}`
+      );
+    }
+
+    const depositAddress =
+      virtualAccount.depositAddresses?.[0]?.address ||
+      usdtFamilyAccounts.find((a) => a.depositAddresses?.[0]?.address)?.depositAddresses?.[0]?.address ||
+      null;
+    if (!depositAddress && !isUnifiedUsdt) {
       throw new Error(`Deposit address not found for ${currency} on ${blockchain}. Please contact support.`);
     }
 
-    const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
+    const cryptoBalanceBefore = isUnifiedUsdt
+      ? sumUsdtBalances(usdtFamilyAccounts)
+      : new Decimal(virtualAccount.availableBalance || '0');
 
     // Get user's fiat wallet
     const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
