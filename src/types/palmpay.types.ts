@@ -77,6 +77,22 @@ export interface PalmPayQueryPayStatusRequest {
   orderNo?: string; // PalmPay order number
 }
 
+export interface PalmPayQueryMerchantBalanceRequest {
+  requestTime: number;
+  version: string;
+  nonceStr: string;
+  merchantId: string;
+}
+
+export interface PalmPayQueryMerchantBalanceResponse {
+  availableBalance: number;
+  frozenBalance: number;
+  /** API docs typo: currentBlance */
+  currentBalance?: number;
+  currentBlance?: number;
+  unSettleBalance: number;
+}
+
 // Response Types
 export interface PalmPayBaseResponse<T> {
   respCode: string; // "00000000" = success

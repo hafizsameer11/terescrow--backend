@@ -12,6 +12,7 @@ import {
   getMasterWalletsBalancesController,
   getDepositAddressController,
   getMasterWalletBalanceSummaryController,
+  getPalmpayMerchantBalanceController,
   getMasterWalletAssetsController,
   getMasterWalletTransactionsController,
   getMasterWalletMaxDebitController,
@@ -191,6 +192,7 @@ masterWalletRouter.post('/update-all', updateAllMasterWalletsController);
 masterWalletRouter.get('/balances', getMasterWalletsBalancesController);
 
 masterWalletRouter.get('/balances/summary', ...staffOps, getMasterWalletBalanceSummaryController);
+masterWalletRouter.get('/palmpay/balance', ...staffOps, getPalmpayMerchantBalanceController);
 masterWalletRouter.get('/assets', ...staffOps, getMasterWalletAssetsController);
 masterWalletRouter.get('/transactions', ...staffOps, getMasterWalletTransactionsController);
 masterWalletRouter.get('/sweep/preview', ...staffOps, getDepositSweepPreviewController);

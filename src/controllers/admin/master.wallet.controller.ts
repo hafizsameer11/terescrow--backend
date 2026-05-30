@@ -11,6 +11,7 @@ import tatumService from '../../services/tatum/tatum.service';
 import depositAddressService from '../../services/tatum/deposit.address.service';
 import * as masterWalletAdminService from '../../services/admin/master.wallet.admin.service';
 import * as depositSweepService from '../../services/admin/deposit.sweep.service';
+import { palmpayMerchantService } from '../../services/palmpay/palmpay.merchant.service';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 
@@ -276,7 +277,30 @@ export const getMasterWalletBalanceSummaryController = async (
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to get balance summary'));
   }
-};/**
+};
+
+/**
+ * Live PalmPay merchant balance
+ * GET /api/admin/master-wallet/palmpay/balance
+ */
+export const getPalmpayMerchantBalanceController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const balance = await palmpayMerchantService.queryMerchantBalance();
+    if (!balance) {
+      throw ApiError.badRequest('PalmPay merchant ID is not configured (PALMPAY_MERCHANT_ID)');
+    }
+    return new ApiResponse(200, { balance }, 'PalmPay merchant balance retrieved').send(res);
+  } catch (error: any) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal(error.message || 'Failed to get PalmPay merchant balance'));
+  }
+};
+
+/**
  * Get assets list (optional walletId)
  * GET /api/admin/master-wallet/assets
  */

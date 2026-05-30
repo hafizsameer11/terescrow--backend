@@ -7,6 +7,7 @@ import {
   executeMasterWalletOnChainSend,
   type MasterWalletSendEstimate,
 } from './master.wallet.outbound.service';
+import { palmpayMerchantService } from '../palmpay/palmpay.merchant.service';
 
 export { estimateMasterWalletSend, type MasterWalletSendEstimate };
 
@@ -157,6 +158,33 @@ export async function getMasterWalletBalanceSummary(): Promise<BalanceSummaryIte
   const roundedUsd = Math.round(totalUsd * 100) / 100;
   const roundedNgn = Math.round(totalNgn);
 
+  let palmpayEntry: BalanceSummaryItem = {
+    walletId: 'palmpay',
+    label: 'Palmpay',
+    totalUsd: 0,
+    totalNgn: 0,
+  };
+
+  try {
+    const palmpayBalance = await palmpayMerchantService.queryMerchantBalance();
+    if (palmpayBalance) {
+      palmpayEntry = {
+        walletId: 'palmpay',
+        label: 'Palmpay',
+        totalUsd: 0,
+        totalNgn: Math.round(palmpayBalance.availableBalanceNgn),
+        palmpayAvailableNgn: Math.round(palmpayBalance.availableBalanceNgn),
+        palmpayFrozenNgn: Math.round(palmpayBalance.frozenBalanceNgn),
+        palmpayCurrentNgn: Math.round(palmpayBalance.currentBalanceNgn),
+        palmpayUnsettledNgn: Math.round(palmpayBalance.unSettleBalanceNgn),
+        palmpayMerchantId: palmpayBalance.merchantId,
+      };
+    }
+  } catch (err: any) {
+    console.error('[MasterWallet] PalmPay merchant balance failed:', err?.message ?? err);
+    palmpayEntry.palmpayError = err?.message ?? 'Failed to fetch PalmPay balance';
+  }
+
   return [
     {
       walletId: 'tercescrow',
@@ -171,14 +199,7 @@ export async function getMasterWalletBalanceSummary(): Promise<BalanceSummaryIte
       totalUsd: 0,
       totalNgn: 0,
     },
-    {
-      walletId: 'palmpay',
-      label: 'Palmpay',
-      totalUsd: 0,
-      totalNgn: 0,
-      accountName: undefined,
-      accountNumber: undefined,
-    },
+    palmpayEntry,
   ];
 }
 
