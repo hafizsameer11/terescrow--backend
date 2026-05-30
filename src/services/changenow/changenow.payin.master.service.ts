@@ -37,8 +37,9 @@ export async function payinMasterWalletEvmToChangeNow(input: {
   payinAddress: string;
   amountFrom: Decimal;
   changeNowSwapOrderDbId: number;
+  adminUserId: number;
 }): Promise<{ masterWalletTxId: number; txHash: string }> {
-  const { masterWalletBlockchain, walletCurrencyId, payinAddress, amountFrom, changeNowSwapOrderDbId } =
+  const { masterWalletBlockchain, walletCurrencyId, payinAddress, amountFrom, changeNowSwapOrderDbId, adminUserId } =
     input;
 
   const wc = await prisma.walletCurrency.findUnique({ where: { id: walletCurrencyId } });
@@ -138,6 +139,8 @@ export async function payinMasterWalletEvmToChangeNow(input: {
       toAddress: payinAddress,
       txHash,
       status: 'successful',
+      performedByUserId: adminUserId,
+      notes: `ChangeNOW swap order #${changeNowSwapOrderDbId}`,
     },
   });
 

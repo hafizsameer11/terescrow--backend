@@ -72,6 +72,7 @@ model User {
   referralWithdrawals  ReferralWithdrawal[]
   adminExchangePayoutAddresses AdminExchangePayoutAddress[]
   changeNowSwapOrders          ChangeNowSwapOrder[]          @relation("AdminChangeNowSwaps")
+  masterWalletTransactionsPerformed MasterWalletTransaction[] @relation("MasterWalletTxPerformedBy")
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
@@ -843,6 +844,7 @@ model Vendor {
   updatedAt        DateTime        @updatedAt
   walletCurrency   WalletCurrency? @relation(fields: [walletCurrencyId], references: [id], onDelete: SetNull)
   receivedAssetDisbursements ReceivedAssetDisbursement[]
+  masterWalletTransactions   MasterWalletTransaction[]
 
   @@index([currency])
   @@index([walletCurrencyId])
@@ -1021,6 +1023,7 @@ enum UserRoles {
 
 enum ChatStatus {
   pending
+  processing
   successful
   declined
   unsucessful
@@ -1128,22 +1131,29 @@ model MasterWallet {
 }
 
 model MasterWalletTransaction {
-  id             Int       @id @default(autoincrement())
-  walletId       String    @map("wallet_id") @db.VarChar(50)
-  type           String    @db.VarChar(50)
-  assetSymbol    String    @map("asset_symbol") @db.VarChar(20)
-  amount         Decimal   @db.Decimal(20, 8)
-  toAddress      String?   @map("to_address") @db.VarChar(255)
-  txHash         String?   @map("tx_hash") @db.VarChar(255)
-  status         String    @default("pending") @db.VarChar(50)
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id                 Int       @id @default(autoincrement())
+  walletId           String    @map("wallet_id") @db.VarChar(50)
+  type               String    @db.VarChar(50)
+  assetSymbol        String    @map("asset_symbol") @db.VarChar(20)
+  amount             Decimal   @db.Decimal(20, 8)
+  toAddress          String?   @map("to_address") @db.VarChar(255)
+  txHash             String?   @map("tx_hash") @db.VarChar(255)
+  status             String    @default("pending") @db.VarChar(50)
+  performedByUserId  Int?      @map("performed_by_user_id")
+  vendorId           Int?      @map("vendor_id")
+  notes              String?   @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
+  performedBy         User?                 @relation("MasterWalletTxPerformedBy", fields: [performedByUserId], references: [id], onDelete: SetNull)
+  vendor              Vendor?               @relation(fields: [vendorId], references: [id], onDelete: SetNull)
   changeNowSwapOrders ChangeNowSwapOrder[]
 
   @@index([walletId])
   @@index([assetSymbol])
   @@index([createdAt])
+  @@index([performedByUserId])
+  @@index([vendorId])
   @@map("master_wallet_transactions")
 }
 

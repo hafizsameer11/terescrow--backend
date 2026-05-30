@@ -387,6 +387,7 @@ export async function createSwapOrder(input: {
         payinAddress: payin.address,
         amountFrom: amountDec,
         changeNowSwapOrderDbId: order.id,
+        adminUserId: input.adminUserId,
       });
       await prisma.changeNowSwapOrder.update({
         where: { id: order.id },

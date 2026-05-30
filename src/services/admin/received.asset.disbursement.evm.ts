@@ -307,6 +307,7 @@ export async function executeEvmVendorDisbursement(params: {
         toAddress: depositAddress,
         txHash: topUpHash,
         status: 'successful',
+        performedByUserId: adminUserId,
       },
     });
 

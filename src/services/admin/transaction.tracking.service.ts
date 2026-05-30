@@ -6,6 +6,20 @@ import {
   getSoldTotalsMapForReceives,
 } from './receive.sold.amount.service';
 
+function formatStaffRole(role: string | null | undefined): string {
+  const r = String(role ?? '').toLowerCase();
+  if (r === 'admin') return 'Admin';
+  if (r === 'agent') return 'Agent';
+  if (r === 'customer') return 'Customer';
+  return r ? r.charAt(0).toUpperCase() + r.slice(1) : 'Staff';
+}
+
+function mapStaffActor(user: { id: number; firstname: string; lastname: string; role: string } | null | undefined) {
+  if (!user) return undefined;
+  const name = `${user.firstname ?? ''} ${user.lastname ?? ''}`.trim() || `User #${user.id}`;
+  return { userId: user.id, name, role: formatStaffRole(user.role) };
+}
+
 export interface TrackingListItem {
   id: number;
   transactionId: string;
@@ -59,6 +73,11 @@ export interface TrackingDisbursementItem {
   txHash: string | null;
   vendor: { id: number; name: string; walletAddress: string } | null;
   adminUserId: number;
+  performedBy?: {
+    userId: number;
+    name: string;
+    role: string;
+  };
   networkFee: string | null;
   createdAt: string;
 }
@@ -344,6 +363,9 @@ export async function getTrackingSteps(txId: string): Promise<TrackingStep[]> {
   const disbursements = await prisma.receivedAssetDisbursement.findMany({
     where: { cryptoTransactionId: tx.id },
     orderBy: { createdAt: 'asc' },
+    include: {
+      admin: { select: { id: true, firstname: true, lastname: true, role: true } },
+    },
   });
 
   for (const d of disbursements) {
@@ -366,6 +388,11 @@ export async function getTrackingSteps(txId: string): Promise<TrackingStep[]> {
         currency: d.currency,
         txHash: d.txHash,
         ledger: 'received_asset_disbursement',
+        performedBy: d.admin
+          ? `${d.admin.firstname} ${d.admin.lastname}`.trim() + ` (${formatStaffRole(d.admin.role)})`
+          : d.adminUserId
+            ? `User #${d.adminUserId}`
+            : null,
       },
     });
   }
@@ -419,6 +446,7 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
     orderBy: { createdAt: 'desc' },
     include: {
       vendor: { select: { id: true, name: true, walletAddress: true } },
+      admin: { select: { id: true, firstname: true, lastname: true, role: true } },
     },
   });
 
@@ -482,6 +510,7 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
           }
         : null,
       adminUserId: d.adminUserId,
+      performedBy: mapStaffActor(d.admin),
       networkFee: d.networkFee?.toString() ?? null,
       createdAt: d.createdAt.toISOString(),
     })),

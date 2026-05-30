@@ -104,41 +104,65 @@ export interface MasterWalletTxItem {
   date: string;
   assetSymbol: string;
   walletId: string;
+  txHash?: string;
+  performedBy?: {
+    userId: number;
+    name: string;
+    role: string;
+  };
+  vendor?: {
+    id: number;
+    name: string;
+  };
+  notes?: string;
+}
+
+function formatStaffRole(role: string | null | undefined): string {
+  const r = String(role ?? '').toLowerCase();
+  if (r === 'admin') return 'Admin';
+  if (r === 'agent') return 'Agent';
+  if (r === 'customer') return 'Customer';
+  return r ? r.charAt(0).toUpperCase() + r.slice(1) : 'Staff';
+}
+
+function mapPerformer(user: { id: number; firstname: string; lastname: string; role: string } | null | undefined) {
+  if (!user) return undefined;
+  const name = `${user.firstname ?? ''} ${user.lastname ?? ''}`.trim() || `User #${user.id}`;
+  return {
+    userId: user.id,
+    name,
+    role: formatStaffRole(user.role),
+  };
 }
 
 export async function getMasterWalletBalanceSummary(): Promise<BalanceSummaryItem[]> {
-  const [wallets, currencies] = await Promise.all([
-    prisma.masterWallet.findMany(),
-    prisma.walletCurrency.findMany({ where: { isToken: false } }),
-  ]);
+  const assets = await getMasterWalletAssets('tercescrow');
   let totalUsd = 0;
   let totalNgn = 0;
   let totalBtc = 0;
 
-  for (const w of wallets) {
-    if (!w.address) continue;
-    const wc = currencies.find((c) => c.blockchain === w.blockchain);
-    const usdPrice = wc?.price ? Number(wc.price) : 0;
+  const currencies = await prisma.walletCurrency.findMany();
+  const priceById = new Map(currencies.map((c) => [c.id, c]));
+
+  for (const a of assets) {
+    totalUsd += a.usdValue ?? 0;
+    const wc = a.walletCurrencyId != null ? priceById.get(a.walletCurrencyId) : undefined;
     const nairaPrice = wc?.nairaPrice ? Number(wc.nairaPrice) : 0;
-    try {
-      const balance = await tatumService.getAddressBalance(w.blockchain, w.address, false);
-      if (balance?.balance !== undefined) {
-        const bal = parseFloat(String(balance.balance));
-        totalUsd += bal * usdPrice;
-        totalNgn += bal * nairaPrice;
-        if (w.blockchain?.toLowerCase() === 'bitcoin') totalBtc += bal;
-      }
-    } catch (_) {
-      // skip
-    }
+    const balNum = parseFloat(String(a.tercescrowBalance ?? a.balance ?? '0').replace(/,/g, '')) || 0;
+    totalNgn += balNum * nairaPrice;
+    const sym = normalizeCurrencyTicker(a.currency ?? a.symbol ?? '');
+    if (sym === 'BTC') totalBtc += balNum;
   }
+
+  const roundedUsd = Math.round(totalUsd * 100) / 100;
+  const roundedNgn = Math.round(totalNgn);
 
   return [
     {
       walletId: 'tercescrow',
       label: 'Tercescrow',
-      totalUsd: Math.round(totalUsd * 100) / 100,
-      totalNgn: Math.round(totalNgn * 100) / 100,
+      totalUsd: roundedUsd,
+      totalNgn: roundedNgn,
       totalBtc: totalBtc > 0 ? Math.round(totalBtc * 1e8) / 1e8 : undefined,
     },
     {
@@ -264,6 +288,7 @@ export async function getMasterWalletAssets(walletId?: string): Promise<AssetIte
     a.balance = a.tercescrowBalance ?? '0';
     a.usdValue = a.tercescrowUsd ?? 0;
   }
+  assets.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
   return assets;
 }
 
@@ -281,19 +306,37 @@ export async function getMasterWalletTransactions(
     where,
     orderBy: { createdAt: 'desc' },
     take: 100,
+    include: {
+      performedBy: { select: { id: true, firstname: true, lastname: true, role: true } },
+      vendor: { select: { id: true, name: true } },
+      changeNowSwapOrders: {
+        take: 1,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          admin: { select: { id: true, firstname: true, lastname: true, role: true } },
+        },
+      },
+    },
   });
-  return rows.map((r: any) => ({
-    id: r.id,
-    to: r.toAddress,
-    status: String(r.status ?? 'pending').toLowerCase(),
-    type: r.type,
-    wallet: r.walletId,
-    amount: formatCryptoAmount(r.amount),
-    date: r.createdAt.toISOString(),
-    assetSymbol: r.assetSymbol,
-    walletId: r.walletId,
-    txHash: r.txHash ?? undefined,
-  }));
+  return rows.map((r: any) => {
+    const swapAdmin = r.changeNowSwapOrders?.[0]?.admin;
+    const performedBy = mapPerformer(r.performedBy) ?? mapPerformer(swapAdmin);
+    return {
+      id: r.id,
+      to: r.toAddress,
+      status: String(r.status ?? 'pending').toLowerCase(),
+      type: r.type,
+      wallet: r.walletId,
+      amount: formatCryptoAmount(r.amount),
+      date: r.createdAt.toISOString(),
+      assetSymbol: r.assetSymbol,
+      walletId: r.walletId,
+      txHash: r.txHash ?? undefined,
+      performedBy,
+      vendor: r.vendor ? { id: r.vendor.id, name: r.vendor.name } : undefined,
+      notes: r.notes ?? undefined,
+    };
+  });
 }
 
 export async function createMasterWalletSend(params: {
@@ -303,6 +346,7 @@ export async function createMasterWalletSend(params: {
   network: string;
   symbol: string;
   vendorId?: number;
+  performedByUserId?: number;
 }): Promise<{
   success: boolean;
   txId?: number;
@@ -328,6 +372,8 @@ export async function createMasterWalletSend(params: {
       amount,
       toAddress: params.address.trim(),
       status: 'pending',
+      performedByUserId: params.performedByUserId ?? null,
+      vendorId: params.vendorId ?? null,
     },
   });
 
@@ -367,6 +413,7 @@ export async function createMasterWalletSwap(params: {
   fromAmount: string;
   toAmount: string;
   receivingWallet?: string;
+  performedByUserId?: number;
 }): Promise<{ success: boolean; txId?: number; error?: string }> {
   const walletId = 'tercescrow';
   const record = await mwTxModel.create({
@@ -376,6 +423,7 @@ export async function createMasterWalletSwap(params: {
       assetSymbol: params.fromSymbol,
       amount: params.fromAmount,
       status: 'pending',
+      performedByUserId: params.performedByUserId ?? null,
     },
   });
   return { success: true, txId: record.id };

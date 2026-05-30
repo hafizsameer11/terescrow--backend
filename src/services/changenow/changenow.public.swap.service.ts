@@ -219,6 +219,7 @@ export async function executePublicMasterEthToUsdtSwap(input: {
       payinAddress: payin.address,
       amountFrom: amountDec,
       changeNowSwapOrderDbId: order.id,
+      adminUserId,
     });
     await prisma.changeNowSwapOrder.update({
       where: { id: order.id },

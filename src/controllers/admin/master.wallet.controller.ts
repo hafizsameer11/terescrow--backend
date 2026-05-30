@@ -380,6 +380,7 @@ export const postMasterWalletSendController = async (
   next: NextFunction
 ) => {
   try {
+    const staff = staffUser(req);
     const { address, amountCrypto, amountDollar, network, symbol, vendorId } = req.body;
     if (!address || !symbol || !network) {
       return next(ApiError.badRequest('address, symbol, and network are required'));
@@ -391,6 +392,7 @@ export const postMasterWalletSendController = async (
       network,
       symbol,
       vendorId,
+      performedByUserId: staff?.id,
     });
     if (!result.success) {
       return next(
@@ -501,6 +503,7 @@ export const postMasterWalletSwapController = async (
   next: NextFunction
 ) => {
   try {
+    const staff = staffUser(req);
     const { fromSymbol, toSymbol, fromAmount, toAmount, receivingWallet } = req.body;
     if (!fromSymbol || !toSymbol || !fromAmount || !toAmount) {
       return next(ApiError.badRequest('fromSymbol, toSymbol, fromAmount, toAmount are required'));
@@ -511,6 +514,7 @@ export const postMasterWalletSwapController = async (
       fromAmount,
       toAmount,
       receivingWallet,
+      performedByUserId: staff?.id,
     });
     if (!result.success) {
       return next(ApiError.badRequest(result.error ?? 'Swap failed'));

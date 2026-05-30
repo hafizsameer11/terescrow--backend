@@ -201,6 +201,7 @@ export async function executeTronVendorDisbursement(params: {
         toAddress: depositAddress,
         txHash: topHash,
         status: 'successful',
+        performedByUserId: adminUserId,
       },
     });
 

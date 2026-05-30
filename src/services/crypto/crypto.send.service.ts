@@ -350,6 +350,7 @@ class CryptoSendService {
           toAddress,
           txHash,
           status: 'successful',
+          performedByUserId: userId,
         },
       });
     } catch (mwErr: any) {

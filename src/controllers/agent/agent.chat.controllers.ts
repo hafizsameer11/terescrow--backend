@@ -55,6 +55,11 @@ export const sendToCustomerController = async (
       },
       select: {
         id: true,
+        chatDetails: {
+          select: {
+            status: true,
+          },
+        },
         participants: {
           where: {
             userId: {
@@ -71,13 +76,22 @@ export const sendToCustomerController = async (
     });
     //update chat updatedAt to current one
     if (chat) {
-      const updatedChat = await prisma.chat.update({
+      await prisma.chat.update({
         where: {
           id: chat.id,
         },
         data: {
           updatedAt: new Date(),
-        }
+          ...(chat.chatDetails?.status === ChatStatus.pending
+            ? {
+                chatDetails: {
+                  update: {
+                    status: ChatStatus.processing,
+                  },
+                },
+              }
+            : {}),
+        },
       });
     }
     //mark all previous messages as read for the receiver sender
