@@ -1,6 +1,7 @@
+import { Decimal } from '@prisma/client/runtime/library';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
-import profitEngineService, { ProfitComputationInput } from './profit.engine.service';
+import profitEngineService, { ProfitComputationInput, ProfitComputationResult } from './profit.engine.service';
 
 export type RecordProfitInput = ProfitComputationInput & {
   sourceTransactionType: string;
@@ -9,6 +10,13 @@ export type RecordProfitInput = ProfitComputationInput & {
   notes?: string;
   eventKey?: string;
   meta?: Prisma.InputJsonValue;
+  /** Skip profit engine and use these values (e.g. precomputed deposit service fee). */
+  forcedProfit?: {
+    profitType: 'FIXED' | 'PERCENTAGE' | 'SPREAD';
+    profitValue: string | number | Decimal;
+    profitNgn: string | number | Decimal;
+    notes?: string;
+  };
 };
 
 function buildEventKey(input: RecordProfitInput): string {
@@ -23,7 +31,24 @@ class ProfitLedgerService {
       return null;
     }
 
-    const computed = await profitEngineService.compute(input);
+    const computed: ProfitComputationResult = input.forcedProfit
+      ? {
+          transactionType: input.transactionType.toUpperCase().trim(),
+          asset: input.asset?.toUpperCase().trim() ?? null,
+          blockchain: input.blockchain?.toLowerCase().trim() ?? null,
+          service: input.service?.toLowerCase().trim() ?? null,
+          amount: new Decimal(input.amount),
+          amountUsd: input.amountUsd != null ? new Decimal(input.amountUsd) : null,
+          amountNgn: input.amountNgn != null ? new Decimal(input.amountNgn) : null,
+          buyRate: input.buyRate != null ? new Decimal(input.buyRate) : null,
+          sellRate: input.sellRate != null ? new Decimal(input.sellRate) : null,
+          discountPercentage: null,
+          profitType: input.forcedProfit.profitType,
+          profitValue: new Decimal(input.forcedProfit.profitValue),
+          profitNgn: new Decimal(input.forcedProfit.profitNgn),
+          notes: input.forcedProfit.notes ?? input.notes ?? 'Precomputed profit.',
+        }
+      : await profitEngineService.compute(input);
     const eventKey = buildEventKey(input);
 
     const occurredAt = input.asOf ?? new Date();

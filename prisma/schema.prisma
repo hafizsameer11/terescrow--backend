@@ -1634,8 +1634,15 @@ model CryptoReceive {
   cryptoTransactionId Int      @unique @map("crypto_transaction_id")
   fromAddress         String   @map("from_address") @db.VarChar(255)
   toAddress           String   @map("to_address") @db.VarChar(255)
-  amount              Decimal  @db.Decimal(20, 8) // Crypto amount received
+  amount              Decimal  @db.Decimal(20, 8) // Legacy: gross on-chain amount received
+  grossAmount         Decimal? @map("gross_amount") @db.Decimal(20, 8)
+  creditedAmount      Decimal? @map("credited_amount") @db.Decimal(20, 8)
   amountUsd           Decimal  @map("amount_usd") @db.Decimal(20, 8)
+  grossAmountUsd      Decimal? @map("gross_amount_usd") @db.Decimal(20, 8)
+  creditedAmountUsd   Decimal? @map("credited_amount_usd") @db.Decimal(20, 8)
+  serviceFeePercent   Decimal? @map("service_fee_percent") @db.Decimal(8, 4)
+  serviceFeeAmount    Decimal? @map("service_fee_amount") @db.Decimal(20, 8)
+  serviceFeeUsd       Decimal? @map("service_fee_usd") @db.Decimal(20, 8)
   amountNaira         Decimal? @map("amount_naira") @db.Decimal(20, 8)
   rate                Decimal? @db.Decimal(20, 8) // NGN per USD rate
   txHash              String   @unique @map("tx_hash") @db.VarChar(255)
@@ -1650,6 +1657,17 @@ model CryptoReceive {
   @@index([txHash])
   @@index([toAddress])
   @@map("crypto_receive")
+}
+
+model CryptoDepositFeeConfig {
+  id              Int      @id @default(autoincrement())
+  feePercent      Decimal  @default(0) @map("fee_percent") @db.Decimal(8, 4)
+  isActive        Boolean  @default(true) @map("is_active")
+  updatedByUserId Int?     @map("updated_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("crypto_deposit_fee_config")
 }
 
 // Crypto Swap Transaction

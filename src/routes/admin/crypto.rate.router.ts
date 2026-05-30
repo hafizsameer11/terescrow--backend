@@ -14,6 +14,8 @@ import {
   updateRateController,
   deleteRateController,
   getRateHistoryController,
+  getCryptoDepositFeeController,
+  updateCryptoDepositFeeController,
 } from '../../controllers/admin/crypto.rate.controller';
 
 const cryptoRateRouter = express.Router();
@@ -57,6 +59,9 @@ cryptoRateRouter.get('/rates', authenticateUser, getAllRatesController);
  *         description: Rate history retrieved successfully
  */
 cryptoRateRouter.get('/rates/history', authenticateUser, getRateHistoryController);
+
+cryptoRateRouter.get('/deposit-fee', authenticateUser, getCryptoDepositFeeController);
+cryptoRateRouter.put('/deposit-fee', authenticateUser, updateCryptoDepositFeeController);
 
 cryptoRateRouter.put('/rates/base', authenticateUser, setBaseRateController);
 

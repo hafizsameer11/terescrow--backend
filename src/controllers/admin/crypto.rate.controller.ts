@@ -9,6 +9,10 @@ import cryptoRateService, {
   roundNairaRate,
   usesPercentAdjustment,
 } from '../../services/crypto/crypto.rate.service';
+import {
+  getCryptoDepositFeeConfig,
+  updateCryptoDepositFeeConfig,
+} from '../../services/crypto/crypto.deposit.fee.service';
 
 export const CRYPTO_RATE_TRANSACTION_TYPES = [
   'BUY',
@@ -246,6 +250,52 @@ export async function getRateHistoryController(req: Request, res: Response) {
     return res.status(500).json({
       status: 500,
       message: error.message || 'Failed to retrieve rate history',
+    });
+  }
+}
+
+export async function getCryptoDepositFeeController(req: Request, res: Response) {
+  try {
+    const config = await getCryptoDepositFeeConfig();
+    return res.status(200).json({
+      status: 200,
+      message: 'Crypto deposit fee config retrieved',
+      data: config,
+    });
+  } catch (error: any) {
+    console.error('Error in getCryptoDepositFeeController:', error);
+    return res.status(500).json({
+      status: 500,
+      message: error.message || 'Failed to retrieve deposit fee config',
+    });
+  }
+}
+
+export async function updateCryptoDepositFeeController(req: Request, res: Response) {
+  try {
+    const { feePercent, isActive } = req.body ?? {};
+    if (feePercent === undefined || feePercent === null) {
+      return res.status(400).json({ status: 400, message: 'feePercent is required' });
+    }
+
+    const adminUserId = (req as any).user?.id as number | undefined;
+    const config = await updateCryptoDepositFeeConfig({
+      feePercent: Number(feePercent),
+      isActive: isActive !== undefined ? Boolean(isActive) : undefined,
+      updatedByUserId: adminUserId,
+    });
+
+    return res.status(200).json({
+      status: 200,
+      message: 'Crypto deposit fee config updated',
+      data: config,
+    });
+  } catch (error: any) {
+    console.error('Error in updateCryptoDepositFeeController:', error);
+    const status = error.message?.includes('between 0 and 100') ? 400 : 500;
+    return res.status(status).json({
+      status,
+      message: error.message || 'Failed to update deposit fee config',
     });
   }
 }

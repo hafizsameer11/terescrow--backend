@@ -2,6 +2,8 @@ import { prisma } from '../../utils/prisma';
 import { formatCryptoAmount } from '../../utils/cryptoAmount';
 import tatumService from '../tatum/tatum.service';
 import { getTronTrc20Balance, getTronTrxBalance } from '../tron/tron.tatum.service';
+import { UserRoles } from '@prisma/client';
+import cryptoRateService from '../crypto/crypto.rate.service';
 import {
   estimateMasterWalletSend,
   executeMasterWalletOnChainSend,
@@ -75,6 +77,12 @@ export interface BalanceSummaryItem {
   totalBtc?: number;
   accountName?: string;
   accountNumber?: string;
+  palmpayAvailableNgn?: number;
+  palmpayFrozenNgn?: number;
+  palmpayCurrentNgn?: number;
+  palmpayUnsettledNgn?: number;
+  palmpayMerchantId?: string;
+  palmpayError?: string;
 }
 
 export interface AssetItem {
@@ -116,6 +124,26 @@ export interface MasterWalletTxItem {
     name: string;
   };
   notes?: string;
+}
+
+export interface UserPendingAssetItem {
+  walletCurrencyId: number;
+  symbol: string;
+  currency: string;
+  blockchain: string;
+  displayLabel: string;
+  isToken: boolean;
+  totalBalance: string;
+  totalUsd: number;
+  totalNgn: number;
+  userCount: number;
+}
+
+export interface UserPendingCryptoSummary {
+  totalUsd: number;
+  totalNgn: number;
+  usersWithBalance: number;
+  assets: UserPendingAssetItem[];
 }
 
 function formatStaffRole(role: string | null | undefined): string {
@@ -311,6 +339,124 @@ export async function getMasterWalletAssets(walletId?: string): Promise<AssetIte
   }
   assets.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
   return assets;
+}
+
+function unitPrice(value: unknown): number {
+  const n = value != null ? Number(value) : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Total crypto held in customer virtual accounts (not sold / withdrawn yet). */
+export async function getUserPendingCryptoBalances(): Promise<UserPendingCryptoSummary> {
+  const sellRateRow = await cryptoRateService.getRateForAmount('SELL', 1);
+  const ngnPerUsdFallback = sellRateRow ? Number(sellRateRow.rate) : 0;
+
+  const virtualAccounts = await prisma.virtualAccount.findMany({
+    where: {
+      active: true,
+      frozen: false,
+      user: { role: UserRoles.customer },
+    },
+    select: {
+      userId: true,
+      availableBalance: true,
+      accountBalance: true,
+      currencyId: true,
+      walletCurrency: {
+        select: {
+          id: true,
+          currency: true,
+          symbol: true,
+          blockchain: true,
+          price: true,
+          nairaPrice: true,
+          isToken: true,
+        },
+      },
+    },
+  });
+
+  type Agg = {
+    walletCurrencyId: number;
+    currency: string;
+    symbol: string;
+    blockchain: string;
+    isToken: boolean;
+    totalBalance: number;
+    totalUsd: number;
+    totalNgn: number;
+    userIds: Set<number>;
+  };
+
+  const byCurrency = new Map<number, Agg>();
+  const usersWithBalance = new Set<number>();
+
+  for (const va of virtualAccounts) {
+    const wc = va.walletCurrency;
+    if (!wc) continue;
+
+    const bal = parseFloat(String(va.availableBalance || va.accountBalance || '0').replace(/,/g, '')) || 0;
+    if (bal <= 0) continue;
+
+    usersWithBalance.add(va.userId);
+
+    let agg = byCurrency.get(wc.id);
+    if (!agg) {
+      agg = {
+        walletCurrencyId: wc.id,
+        currency: wc.currency,
+        symbol: wc.symbol || wc.currency,
+        blockchain: wc.blockchain,
+        isToken: Boolean(wc.isToken),
+        totalBalance: 0,
+        totalUsd: 0,
+        totalNgn: 0,
+        userIds: new Set<number>(),
+      };
+      byCurrency.set(wc.id, agg);
+    }
+
+    agg.totalBalance += bal;
+    agg.userIds.add(va.userId);
+
+    const usdPrice = unitPrice(wc.price);
+    const nairaPrice = unitPrice(wc.nairaPrice);
+    if (usdPrice > 0) agg.totalUsd += bal * usdPrice;
+    if (nairaPrice > 0) {
+      agg.totalNgn += bal * nairaPrice;
+    } else if (usdPrice > 0 && ngnPerUsdFallback > 0) {
+      agg.totalNgn += bal * usdPrice * ngnPerUsdFallback;
+    }
+  }
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const round0 = (n: number) => Math.round(n);
+
+  const assets: UserPendingAssetItem[] = [...byCurrency.values()]
+    .map((a) => ({
+      walletCurrencyId: a.walletCurrencyId,
+      symbol: a.symbol,
+      currency: a.currency,
+      blockchain: a.blockchain,
+      displayLabel: formatDisplayLabel(a.currency, a.blockchain, a.isToken),
+      isToken: a.isToken,
+      totalBalance: formatCryptoAmount(String(a.totalBalance)),
+      totalUsd: round2(a.totalUsd),
+      totalNgn: round0(a.totalNgn),
+      userCount: a.userIds.size,
+    }))
+    .filter((a) => parseFloat(a.totalBalance.replace(/,/g, '')) > 0)
+    .sort((a, b) => b.totalUsd - a.totalUsd);
+
+  const totalUsd = round2(assets.reduce((s, a) => s + a.totalUsd, 0));
+  const totalNgn = round0(assets.reduce((s, a) => s + a.totalNgn, 0));
+
+  return {
+    totalUsd,
+    totalNgn,
+    usersWithBalance: usersWithBalance.size,
+    assets,
+  };
 }
 
 export async function getMasterWalletTransactions(

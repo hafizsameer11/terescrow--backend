@@ -9,6 +9,10 @@ import virtualAccountService from '../../services/tatum/virtual.account.service'
 import { TatumWebhookPayload } from '../../services/tatum/tatum.service';
 import tatumLogger from '../../utils/tatum.logger';
 import cryptoTransactionService from '../../services/crypto/crypto.transaction.service';
+import {
+  computeCryptoDepositFee,
+  getCryptoDepositFeePercent,
+} from '../../services/crypto/crypto.deposit.fee.service';
 import { Decimal } from '@prisma/client/runtime/library';
 import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
@@ -465,17 +469,50 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       currency,
     });
 
-    // Update virtual account balance - credit the received amount
+    const grossAmount = new Decimal(amount);
+
+    const walletCurrency = await prisma.walletCurrency.findFirst({
+      where: {
+        currency: currency.toUpperCase(),
+        blockchain: virtualAccount.blockchain.toLowerCase(),
+      },
+    });
+    const cryptoPrice = walletCurrency?.price
+      ? new Decimal(walletCurrency.price.toString())
+      : new Decimal('1');
+    const grossUsd = grossAmount.mul(cryptoPrice);
+
+    const cryptoRate = await prisma.cryptoRate.findFirst({
+      where: { transactionType: 'RECEIVE', isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const usdToNgnRate = cryptoRate?.rate
+      ? new Decimal(cryptoRate.rate.toString())
+      : new Decimal('1400');
+
+    const feePercent = await getCryptoDepositFeePercent();
+    const feeBreakdown = computeCryptoDepositFee({
+      grossCrypto: grossAmount,
+      grossUsd,
+      feePercent,
+      usdToNgnRate,
+    });
+    const creditedAmount = feeBreakdown.creditedCrypto;
+    const hasFee = feeBreakdown.feeUsd.gt(0);
+
+    // Update virtual account balance - credit net amount after service fee
     tatumLogger.info('Updating virtual account balance', {
       accountId,
       virtualAccountId: virtualAccount.id,
       currency: virtualAccount.currency,
-      amount,
+      grossAmount: grossAmount.toString(),
+      creditedAmount: creditedAmount.toString(),
+      serviceFeePercent: feeBreakdown.feePercent.toString(),
+      serviceFeeUsd: feeBreakdown.feeUsd.toString(),
     });
 
     const currentBalance = new Decimal(virtualAccount.accountBalance || '0');
-    const receivedAmount = new Decimal(amount);
-    const newBalance = currentBalance.plus(receivedAmount);
+    const newBalance = currentBalance.plus(creditedAmount);
 
     const updatedVirtualAccount = await prisma.virtualAccount.update({
       where: { id: virtualAccount.id },
@@ -484,12 +521,13 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         availableBalance: newBalance.toString(),
       },
     });
-    
+
     tatumLogger.balanceUpdate(accountId, updatedVirtualAccount, {
       virtualAccountId: virtualAccount.id,
       currency: virtualAccount.currency,
       balanceBefore: currentBalance.toString(),
-      amountReceived: receivedAmount.toString(),
+      amountReceived: creditedAmount.toString(),
+      grossReceived: grossAmount.toString(),
       balanceAfter: newBalance.toString(),
       reference,
       txId,
@@ -545,18 +583,24 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       txId,
     });
 
+    const depositNotifBody = hasFee
+      ? `You received ${grossAmount.toString()} ${currency.toUpperCase()} (~$${grossUsd.toFixed(2)}). Service fee (${feeBreakdown.feePercent.toString()}%): $${feeBreakdown.feeUsd.toFixed(2)}. Credited: ${creditedAmount.toString()} ${currency.toUpperCase()}.`
+      : `You received ${grossAmount.toString()} ${currency.toUpperCase()}. Your balance has been updated.`;
+
     // Send push notification for balance update and transaction creation
     try {
       await sendPushNotification({
         userId: virtualAccount.userId,
         title: 'Crypto Deposit Received',
-        body: `You received ${receivedAmount.toString()} ${currency.toUpperCase()}. Your balance has been updated.`,
+        body: depositNotifBody,
         sound: 'default',
         priority: 'high',
         data: {
           type: 'crypto_receive',
           transactionId: receiveTransaction.id.toString(),
-          amount: receivedAmount.toString(),
+          amount: creditedAmount.toString(),
+          grossAmount: grossAmount.toString(),
+          serviceFeeUsd: feeBreakdown.feeUsd.toString(),
           currency: currency.toUpperCase(),
           txHash: txId || '',
         },
@@ -566,7 +610,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         data: {
           userId: virtualAccount.userId,
           title: 'Crypto Deposit Received',
-          description: `You received ${receivedAmount.toString()} ${currency.toUpperCase()}. Transaction: ${txId || 'N/A'}`,
+          description: depositNotifBody,
           type: InAppNotificationType.customeer,
         },
       });
@@ -574,7 +618,8 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       tatumLogger.info('Balance update and transaction notification sent', {
         userId: virtualAccount.userId,
         receiveTransactionId: receiveTransaction.id,
-        amount: receivedAmount.toString(),
+        grossAmount: grossAmount.toString(),
+        creditedAmount: creditedAmount.toString(),
         currency,
       });
     } catch (notifError: any) {
@@ -587,29 +632,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
 
     // Create CryptoReceive transaction record
     try {
-      // Get wallet currency for price calculation
-      const walletCurrency = await prisma.walletCurrency.findFirst({
-        where: {
-          currency: currency.toUpperCase(),
-          blockchain: virtualAccount.blockchain.toLowerCase(),
-        },
-      });
-
-      // Calculate USD amount
-      const amountDecimal = new Decimal(amount);
-      const cryptoPrice = walletCurrency?.price ? new Decimal(walletCurrency.price.toString()) : new Decimal('1');
-      const amountUsd = amountDecimal.mul(cryptoPrice);
-
-      // Get USD to NGN rate for amountNaira (optional)
-      const cryptoRate = await prisma.cryptoRate.findFirst({
-        where: {
-          transactionType: 'RECEIVE',
-          isActive: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-      const usdToNgnRate = cryptoRate?.rate ? new Decimal(cryptoRate.rate.toString()) : new Decimal('1400');
-      const amountNaira = amountUsd.mul(usdToNgnRate);
+      const amountNaira = grossUsd.mul(usdToNgnRate);
 
       // Generate transaction ID
       const transactionId = `RECEIVE-${Date.now()}-${virtualAccount.userId}-${Math.random().toString(36).substr(2, 9)}`;
@@ -621,10 +644,17 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         transactionId,
         fromAddress: from || '',
         toAddress: to || '',
-        amount: amountDecimal.toString(),
-        amountUsd: amountUsd.toString(),
+        amount: grossAmount.toString(),
+        amountUsd: grossUsd.toString(),
         amountNaira: amountNaira.toString(),
         rate: cryptoPrice.toString(),
+        grossAmount: grossAmount.toString(),
+        creditedAmount: creditedAmount.toString(),
+        grossAmountUsd: grossUsd.toString(),
+        creditedAmountUsd: feeBreakdown.creditedUsd.toString(),
+        serviceFeePercent: hasFee ? feeBreakdown.feePercent.toString() : undefined,
+        serviceFeeAmount: hasFee ? feeBreakdown.feeCrypto.toString() : undefined,
+        serviceFeeUsd: hasFee ? feeBreakdown.feeUsd.toString() : undefined,
         txHash: txId || '',
         blockNumber: blockHeight ? BigInt(blockHeight) : undefined,
         confirmations: 0,
@@ -637,25 +667,32 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         userId: virtualAccount.userId,
         virtualAccountId: virtualAccount.id,
         currency,
-        amount: amountDecimal.toString(),
-        amountUsd: amountUsd.toString(),
+        grossAmount: grossAmount.toString(),
+        creditedAmount: creditedAmount.toString(),
+        grossAmountUsd: grossUsd.toString(),
         txHash: txId,
       });
 
       // Send enhanced notification with USD value (optional - first notification already sent above)
-      // This provides additional details like USD value if available
       try {
+        const enhancedBody = hasFee
+          ? `Deposit confirmed: $${grossUsd.toFixed(2)} received, $${feeBreakdown.feeUsd.toFixed(2)} fee, $${feeBreakdown.creditedUsd.toFixed(2)} credited.`
+          : `Your deposit of ${grossAmount.toString()} ${currency.toUpperCase()} is worth $${grossUsd.toFixed(2)}`;
+
         await sendPushNotification({
           userId: virtualAccount.userId,
           title: 'Crypto Deposit Confirmed',
-          body: `Your deposit of ${amountDecimal.toString()} ${currency.toUpperCase()} is worth $${amountUsd.toFixed(2)}`,
+          body: enhancedBody,
           sound: 'default',
           priority: 'high',
           data: {
             type: 'crypto_receive_enhanced',
             transactionId: cryptoReceiveTx.transactionId,
-            amount: amountDecimal.toString(),
-            amountUsd: amountUsd.toString(),
+            amount: creditedAmount.toString(),
+            grossAmount: grossAmount.toString(),
+            amountUsd: feeBreakdown.creditedUsd.toString(),
+            grossAmountUsd: grossUsd.toString(),
+            serviceFeeUsd: feeBreakdown.feeUsd.toString(),
             currency: currency.toUpperCase(),
             txHash: txId || '',
           },
@@ -664,7 +701,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         tatumLogger.info('Enhanced receive transaction notification sent', {
           userId: virtualAccount.userId,
           transactionId: cryptoReceiveTx.transactionId,
-          amountUsd: amountUsd.toString(),
+          creditedAmountUsd: feeBreakdown.creditedUsd.toString(),
         });
       } catch (notifError: any) {
         tatumLogger.exception('Send enhanced receive notification', notifError, {

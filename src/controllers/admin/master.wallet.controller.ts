@@ -301,6 +301,24 @@ export const getPalmpayMerchantBalanceController = async (
 };
 
 /**
+ * Total crypto held in customer wallets (virtual accounts), not yet sold.
+ * GET /api/admin/master-wallet/user-pending-balances
+ */
+export const getUserPendingCryptoBalancesController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const data = await masterWalletAdminService.getUserPendingCryptoBalances();
+    return new ApiResponse(200, data, 'User pending crypto balances retrieved').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to get user pending crypto balances'));
+  }
+};
+
+/**
  * Get assets list (optional walletId)
  * GET /api/admin/master-wallet/assets
  */

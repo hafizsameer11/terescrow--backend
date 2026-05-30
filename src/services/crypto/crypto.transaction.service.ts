@@ -75,6 +75,13 @@ interface CreateCryptoReceiveData {
   blockNumber?: bigint | number;
   confirmations?: number;
   status?: CryptoTxStatus;
+  grossAmount?: string | number;
+  creditedAmount?: string | number;
+  grossAmountUsd?: string | number;
+  creditedAmountUsd?: string | number;
+  serviceFeePercent?: string | number;
+  serviceFeeAmount?: string | number;
+  serviceFeeUsd?: string | number;
 }
 
 interface CreateCryptoSwapData {
@@ -314,6 +321,14 @@ class CryptoTransactionService {
       ? await prisma.virtualAccount.findUnique({ where: { id: virtualAccountId } })
       : null;
 
+    const grossCrypto = new Decimal(receiveData.grossAmount ?? receiveData.amount);
+    const creditedCrypto = new Decimal(receiveData.creditedAmount ?? receiveData.amount);
+    const grossUsd = new Decimal(receiveData.grossAmountUsd ?? receiveData.amountUsd);
+    const creditedUsd = new Decimal(receiveData.creditedAmountUsd ?? receiveData.amountUsd);
+    const feeCrypto = receiveData.serviceFeeAmount != null ? new Decimal(receiveData.serviceFeeAmount) : grossCrypto.minus(creditedCrypto);
+    const feeUsd = receiveData.serviceFeeUsd != null ? new Decimal(receiveData.serviceFeeUsd) : grossUsd.minus(creditedUsd);
+    const feePercent = receiveData.serviceFeePercent != null ? new Decimal(receiveData.serviceFeePercent) : new Decimal(0);
+
     const cryptoTransaction = await prisma.cryptoTransaction.create({
       data: {
         userId,
@@ -327,8 +342,15 @@ class CryptoTransactionService {
           create: {
             fromAddress: receiveData.fromAddress,
             toAddress: receiveData.toAddress,
-            amount: new Decimal(receiveData.amount),
-            amountUsd: new Decimal(receiveData.amountUsd),
+            amount: grossCrypto,
+            grossAmount: grossCrypto,
+            creditedAmount: creditedCrypto,
+            amountUsd: grossUsd,
+            grossAmountUsd: grossUsd,
+            creditedAmountUsd: creditedUsd,
+            serviceFeePercent: feePercent.gt(0) ? feePercent : null,
+            serviceFeeAmount: feeCrypto.gt(0) ? feeCrypto : null,
+            serviceFeeUsd: feeUsd.gt(0) ? feeUsd : null,
             amountNaira: receiveData.amountNaira ? new Decimal(receiveData.amountNaira) : null,
             rate: receiveData.rate ? new Decimal(receiveData.rate) : null,
             txHash: receiveData.txHash,
@@ -347,19 +369,39 @@ class CryptoTransactionService {
       },
     });
 
-    await profitLedgerService.record({
-      sourceTransactionType: 'CRYPTO_TRANSACTION',
-      sourceTransactionId: cryptoTransaction.transactionId,
-      transactionType: 'RECEIVE',
-      asset: cryptoTransaction.currency,
-      blockchain: cryptoTransaction.blockchain,
-      amount: receiveData.amount,
-      amountUsd: receiveData.amountUsd,
-      amountNgn: receiveData.amountNaira,
-      service: 'crypto_receive',
-      asOf: cryptoTransaction.createdAt,
-      meta: { cryptoTransactionId: cryptoTransaction.id, child: 'cryptoReceive' },
-    });
+    if (feeUsd.gt(0)) {
+      const feeNgn =
+        receiveData.amountNaira && grossUsd.gt(0)
+          ? new Decimal(receiveData.amountNaira).mul(feeUsd).div(grossUsd)
+          : null;
+
+      await profitLedgerService.record({
+        sourceTransactionType: 'CRYPTO_TRANSACTION',
+        sourceTransactionId: cryptoTransaction.transactionId,
+        transactionType: 'RECEIVE',
+        asset: cryptoTransaction.currency,
+        blockchain: cryptoTransaction.blockchain,
+        service: 'crypto_deposit_fee',
+        amount: feeUsd.toString(),
+        amountUsd: feeUsd.toString(),
+        amountNgn: feeNgn?.toString(),
+        asOf: cryptoTransaction.createdAt,
+        eventKey: `CRYPTO_TRANSACTION:${cryptoTransaction.transactionId}:DEPOSIT_FEE`,
+        forcedProfit: {
+          profitType: 'PERCENTAGE',
+          profitValue: feeUsd.toString(),
+          profitNgn: feeNgn?.toString() ?? feeUsd.toString(),
+          notes: `Crypto deposit service fee (${feePercent.toString()}%).`,
+        },
+        meta: {
+          cryptoTransactionId: cryptoTransaction.id,
+          child: 'cryptoReceive',
+          feePercent: feePercent.toString(),
+          grossAmountUsd: grossUsd.toString(),
+          creditedAmountUsd: creditedUsd.toString(),
+        },
+      });
+    }
 
     return cryptoTransaction;
   }
@@ -746,18 +788,32 @@ class CryptoTransactionService {
     }
 
     if (transaction.cryptoReceive) {
+      const recv = transaction.cryptoReceive;
+      const grossUsd = recv.grossAmountUsd ?? recv.amountUsd;
+      const creditedUsd = recv.creditedAmountUsd ?? recv.amountUsd;
+      const grossCrypto = recv.grossAmount ?? recv.amount;
+      const creditedCrypto = recv.creditedAmount ?? recv.amount;
+      const feeUsd = recv.serviceFeeUsd;
+      const feeCrypto = recv.serviceFeeAmount;
+      const feePct = recv.serviceFeePercent;
+
       return {
         ...base,
-        from: transaction.cryptoReceive.fromAddress,
-        to: transaction.cryptoReceive.toAddress || 'Your Crypto wallet',
-        amount: `${transaction.cryptoReceive.amount.toString()}${transaction.currency}`,
-        amountUsd: `$${transaction.cryptoReceive.amountUsd.toString()}`,
-        amountNaira: transaction.cryptoReceive.amountNaira 
-          ? `NGN${formatNairaAmount(transaction.cryptoReceive.amountNaira)}` 
-          : null,
-        rate: transaction.cryptoReceive.rate ? `$${transaction.cryptoReceive.rate.toString()}` : null,
-        txHash: transaction.cryptoReceive.txHash,
-        confirmations: transaction.cryptoReceive.confirmations,
+        from: recv.fromAddress,
+        to: recv.toAddress || 'Your Crypto wallet',
+        amount: `${creditedCrypto.toString()}${transaction.currency}`,
+        amountUsd: `$${creditedUsd.toString()}`,
+        grossAmount: `${grossCrypto.toString()}${transaction.currency}`,
+        grossAmountUsd: `$${grossUsd.toString()}`,
+        creditedAmount: `${creditedCrypto.toString()}${transaction.currency}`,
+        creditedAmountUsd: `$${creditedUsd.toString()}`,
+        serviceFeeAmount: feeCrypto ? `${feeCrypto.toString()}${transaction.currency}` : null,
+        serviceFeeUsd: feeUsd ? `$${feeUsd.toString()}` : null,
+        serviceFeePercent: feePct ? `${feePct.toString()}%` : null,
+        amountNaira: recv.amountNaira ? `NGN${formatNairaAmount(recv.amountNaira)}` : null,
+        rate: recv.rate ? `$${recv.rate.toString()}` : null,
+        txHash: recv.txHash,
+        confirmations: recv.confirmations,
       };
     }
 
