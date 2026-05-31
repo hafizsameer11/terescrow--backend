@@ -1176,6 +1176,7 @@ model WalletCurrency {
   changeNowTicker WalletCurrencyChangeNowTicker?
   vendors         Vendor[]
   adminPayoutAddresses AdminExchangePayoutAddress[]
+  depositFeeRule       CryptoDepositFeeRule?
 
   @@map("wallet_currencies")
 }
@@ -1670,6 +1671,18 @@ model CryptoDepositFeeConfig {
   updatedAt             DateTime @updatedAt @map("updated_at")
 
   @@map("crypto_deposit_fee_config")
+}
+
+model CryptoDepositFeeRule {
+  id               Int      @id @default(autoincrement())
+  walletCurrencyId Int      @unique @map("wallet_currency_id")
+  feePercent       Decimal  @map("fee_percent") @db.Decimal(8, 4)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  walletCurrency WalletCurrency @relation(fields: [walletCurrencyId], references: [id], onDelete: Cascade)
+
+  @@map("crypto_deposit_fee_rules")
 }
 
 // Crypto Swap Transaction

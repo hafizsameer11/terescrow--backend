@@ -19,6 +19,7 @@ export type DepositFeeWalletCurrencyOption = {
   symbol: string;
   displayLabel: string;
   isToken: boolean;
+  feePercent: number | null;
 };
 
 const CONFIG_ID = 1;
@@ -46,14 +47,9 @@ function formatCurrencyLabel(currency: string, blockchain: string, isToken: bool
   return `${c} (${chainLabel})`;
 }
 
-function parseWalletCurrencyIds(raw: unknown): number[] {
-  if (!Array.isArray(raw)) return [];
-  const ids: number[] = [];
-  for (const v of raw) {
-    const n = typeof v === 'number' ? v : Number(v);
-    if (Number.isInteger(n) && n > 0) ids.push(n);
-  }
-  return [...new Set(ids)];
+function clampFeePercent(value: number): number {
+  if (!Number.isFinite(value) || value < 0) return 0;
+  return Math.min(100, value);
 }
 
 async function loadConfigRow() {
@@ -64,7 +60,7 @@ async function loadConfigRow() {
         id: CONFIG_ID,
         feePercent: 0,
         isActive: true,
-        applyToAllCurrencies: true,
+        applyToAllCurrencies: false,
         walletCurrencyIds: [],
       },
     });
@@ -72,21 +68,16 @@ async function loadConfigRow() {
   return row;
 }
 
-function feeAppliesToWalletCurrency(
-  row: { applyToAllCurrencies: boolean; walletCurrencyIds: unknown },
-  walletCurrencyId: number | null | undefined
-): boolean {
-  if (row.applyToAllCurrencies) return true;
-  const ids = parseWalletCurrencyIds(row.walletCurrencyIds);
-  if (ids.length === 0) return false;
-  if (walletCurrencyId == null) return false;
-  return ids.includes(walletCurrencyId);
-}
-
 export async function listDepositFeeWalletCurrencyOptions(): Promise<DepositFeeWalletCurrencyOption[]> {
-  const rows = await prisma.walletCurrency.findMany({
-    orderBy: [{ blockchain: 'asc' }, { isToken: 'asc' }, { currency: 'asc' }],
-  });
+  const [rows, rules] = await Promise.all([
+    prisma.walletCurrency.findMany({
+      orderBy: [{ blockchain: 'asc' }, { isToken: 'asc' }, { currency: 'asc' }],
+    }),
+    prisma.cryptoDepositFeeRule.findMany(),
+  ]);
+
+  const feeByCurrencyId = new Map(rules.map((r) => [r.walletCurrencyId, Number(r.feePercent.toString())]));
+
   return rows.map((wc) => ({
     id: wc.id,
     currency: wc.currency,
@@ -94,6 +85,7 @@ export async function listDepositFeeWalletCurrencyOptions(): Promise<DepositFeeW
     symbol: wc.symbol || wc.currency,
     displayLabel: formatCurrencyLabel(wc.currency, wc.blockchain, wc.isToken),
     isToken: wc.isToken,
+    feePercent: feeByCurrencyId.has(wc.id) ? feeByCurrencyId.get(wc.id)! : null,
   }));
 }
 
@@ -105,11 +97,15 @@ export async function getCryptoDepositFeePercent(): Promise<Decimal> {
 export async function getCryptoDepositFeePercentForWalletCurrency(
   walletCurrencyId: number | null | undefined
 ): Promise<Decimal> {
-  const row = await loadConfigRow();
-  if (!row.isActive) return new Decimal(0);
-  if (!feeAppliesToWalletCurrency(row, walletCurrencyId)) return new Decimal(0);
+  const config = await loadConfigRow();
+  if (!config.isActive || walletCurrencyId == null) return new Decimal(0);
 
-  const pct = new Decimal(row.feePercent.toString());
+  const rule = await prisma.cryptoDepositFeeRule.findUnique({
+    where: { walletCurrencyId },
+  });
+  if (!rule) return new Decimal(0);
+
+  const pct = new Decimal(rule.feePercent.toString());
   if (!pct.isFinite() || pct.lte(0)) return new Decimal(0);
   return Decimal.min(pct, new Decimal(100));
 }
@@ -148,65 +144,81 @@ export function computeCryptoDepositFee(params: {
 
 export async function getCryptoDepositFeeConfig() {
   const row = await loadConfigRow();
-  const walletCurrencyIds = parseWalletCurrencyIds(row.walletCurrencyIds);
-  const availableCurrencies = await listDepositFeeWalletCurrencyOptions();
+  const currencies = await listDepositFeeWalletCurrencyOptions();
+  const configuredRules = currencies
+    .filter((c) => c.feePercent != null && c.feePercent > 0)
+    .map((c) => ({
+      walletCurrencyId: c.id,
+      feePercent: c.feePercent as number,
+      displayLabel: c.displayLabel,
+    }));
 
   return {
-    feePercent: Number(row.feePercent.toString()),
     isActive: row.isActive,
-    applyToAllCurrencies: row.applyToAllCurrencies,
-    walletCurrencyIds,
-    availableCurrencies,
+    currencies,
+    configuredRules,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
-export async function updateCryptoDepositFeeConfig(input: {
+export type DepositFeeRuleInput = {
+  walletCurrencyId: number;
   feePercent: number;
+};
+
+export async function updateCryptoDepositFeeConfig(input: {
   isActive?: boolean;
-  applyToAllCurrencies?: boolean;
-  walletCurrencyIds?: number[];
+  rules?: DepositFeeRuleInput[];
   updatedByUserId?: number;
 }) {
-  const pct = Number(input.feePercent);
-  if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
-    throw new Error('Fee percent must be between 0 and 100');
+  if (!Array.isArray(input.rules)) {
+    throw new Error('rules array is required');
   }
 
-  const applyToAll = input.applyToAllCurrencies ?? true;
-  let walletCurrencyIds = parseWalletCurrencyIds(input.walletCurrencyIds ?? []);
+  const normalizedRules: DepositFeeRuleInput[] = [];
+  const seen = new Set<number>();
 
-  if (!applyToAll && walletCurrencyIds.length === 0) {
-    throw new Error('Select at least one wallet currency, or enable apply to all currencies');
+  for (const raw of input.rules) {
+    const walletCurrencyId = Number(raw.walletCurrencyId);
+    const feePercent = clampFeePercent(Number(raw.feePercent));
+    if (!Number.isInteger(walletCurrencyId) || walletCurrencyId <= 0) continue;
+    if (seen.has(walletCurrencyId)) continue;
+    seen.add(walletCurrencyId);
+    if (feePercent <= 0) continue;
+    normalizedRules.push({ walletCurrencyId, feePercent });
   }
 
-  const row = await prisma.cryptoDepositFeeConfig.upsert({
-    where: { id: CONFIG_ID },
-    create: {
-      id: CONFIG_ID,
-      feePercent: pct,
-      isActive: input.isActive ?? true,
-      applyToAllCurrencies: applyToAll,
-      walletCurrencyIds: applyToAll ? [] : walletCurrencyIds,
-      updatedByUserId: input.updatedByUserId ?? null,
-    },
-    update: {
-      feePercent: pct,
-      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-      applyToAllCurrencies: applyToAll,
-      walletCurrencyIds: applyToAll ? [] : walletCurrencyIds,
-      updatedByUserId: input.updatedByUserId ?? null,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.cryptoDepositFeeConfig.upsert({
+      where: { id: CONFIG_ID },
+      create: {
+        id: CONFIG_ID,
+        feePercent: 0,
+        isActive: input.isActive ?? true,
+        applyToAllCurrencies: false,
+        walletCurrencyIds: [],
+        updatedByUserId: input.updatedByUserId ?? null,
+      },
+      update: {
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        feePercent: 0,
+        applyToAllCurrencies: false,
+        walletCurrencyIds: [],
+        updatedByUserId: input.updatedByUserId ?? null,
+      },
+    });
+
+    await tx.cryptoDepositFeeRule.deleteMany({});
+
+    if (normalizedRules.length > 0) {
+      await tx.cryptoDepositFeeRule.createMany({
+        data: normalizedRules.map((r) => ({
+          walletCurrencyId: r.walletCurrencyId,
+          feePercent: r.feePercent,
+        })),
+      });
+    }
   });
 
-  const savedIds = parseWalletCurrencyIds(row.walletCurrencyIds);
-
-  return {
-    feePercent: Number(row.feePercent.toString()),
-    isActive: row.isActive,
-    applyToAllCurrencies: row.applyToAllCurrencies,
-    walletCurrencyIds: savedIds,
-    availableCurrencies: await listDepositFeeWalletCurrencyOptions(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
+  return getCryptoDepositFeeConfig();
 }

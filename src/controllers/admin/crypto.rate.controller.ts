@@ -273,20 +273,18 @@ export async function getCryptoDepositFeeController(req: Request, res: Response)
 
 export async function updateCryptoDepositFeeController(req: Request, res: Response) {
   try {
-    const { feePercent, isActive, applyToAllCurrencies, walletCurrencyIds } = req.body ?? {};
-    if (feePercent === undefined || feePercent === null) {
-      return res.status(400).json({ status: 400, message: 'feePercent is required' });
+    const { isActive, rules } = req.body ?? {};
+    if (!Array.isArray(rules)) {
+      return res.status(400).json({ status: 400, message: 'rules array is required' });
     }
 
     const adminUserId = (req as any).user?.id as number | undefined;
     const config = await updateCryptoDepositFeeConfig({
-      feePercent: Number(feePercent),
       isActive: isActive !== undefined ? Boolean(isActive) : undefined,
-      applyToAllCurrencies:
-        applyToAllCurrencies !== undefined ? Boolean(applyToAllCurrencies) : undefined,
-      walletCurrencyIds: Array.isArray(walletCurrencyIds)
-        ? walletCurrencyIds.map((id: unknown) => Number(id)).filter((n: number) => Number.isInteger(n) && n > 0)
-        : undefined,
+      rules: rules.map((r: { walletCurrencyId?: unknown; feePercent?: unknown }) => ({
+        walletCurrencyId: Number(r.walletCurrencyId),
+        feePercent: Number(r.feePercent),
+      })),
       updatedByUserId: adminUserId,
     });
 
@@ -298,8 +296,7 @@ export async function updateCryptoDepositFeeController(req: Request, res: Respon
   } catch (error: any) {
     console.error('Error in updateCryptoDepositFeeController:', error);
     const msg = error.message || 'Failed to update deposit fee config';
-    const status =
-      msg.includes('between 0 and 100') || msg.includes('Select at least one') ? 400 : 500;
+    const status = msg.includes('required') || msg.includes('between 0 and 100') ? 400 : 500;
     return res.status(status).json({
       status,
       message: msg,
