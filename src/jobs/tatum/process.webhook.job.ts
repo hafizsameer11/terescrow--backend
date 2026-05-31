@@ -11,7 +11,7 @@ import tatumLogger from '../../utils/tatum.logger';
 import cryptoTransactionService from '../../services/crypto/crypto.transaction.service';
 import {
   computeCryptoDepositFee,
-  getCryptoDepositFeePercent,
+  getCryptoDepositFeePercentForWalletCurrency,
 } from '../../services/crypto/crypto.deposit.fee.service';
 import { Decimal } from '@prisma/client/runtime/library';
 import { sendPushNotification } from '../../utils/pushService';
@@ -477,6 +477,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         blockchain: virtualAccount.blockchain.toLowerCase(),
       },
     });
+    const walletCurrencyId = virtualAccount.currencyId ?? walletCurrency?.id ?? null;
     const cryptoPrice = walletCurrency?.price
       ? new Decimal(walletCurrency.price.toString())
       : new Decimal('1');
@@ -490,7 +491,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       ? new Decimal(cryptoRate.rate.toString())
       : new Decimal('1400');
 
-    const feePercent = await getCryptoDepositFeePercent();
+    const feePercent = await getCryptoDepositFeePercentForWalletCurrency(walletCurrencyId);
     const feeBreakdown = computeCryptoDepositFee({
       grossCrypto: grossAmount,
       grossUsd,

@@ -1660,12 +1660,14 @@ model CryptoReceive {
 }
 
 model CryptoDepositFeeConfig {
-  id              Int      @id @default(autoincrement())
-  feePercent      Decimal  @default(0) @map("fee_percent") @db.Decimal(8, 4)
-  isActive        Boolean  @default(true) @map("is_active")
-  updatedByUserId Int?     @map("updated_by_user_id")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id                    Int      @id @default(autoincrement())
+  feePercent            Decimal  @default(0) @map("fee_percent") @db.Decimal(8, 4)
+  isActive              Boolean  @default(true) @map("is_active")
+  applyToAllCurrencies  Boolean  @default(true) @map("apply_to_all_currencies")
+  walletCurrencyIds     Json?    @map("wallet_currency_ids")
+  updatedByUserId       Int?     @map("updated_by_user_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
   @@map("crypto_deposit_fee_config")
 }
