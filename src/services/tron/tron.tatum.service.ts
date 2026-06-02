@@ -6,7 +6,6 @@ import axios from 'axios';
 import cryptoLogger from '../../utils/crypto.logger';
 import {
   getTronTrc20BalanceFromTronScan,
-  isTronScanConfigured,
   resolveTronTokenContractAddress,
 } from './tronscan.service';
 
@@ -49,15 +48,13 @@ export async function getTronTrc20Balance(
 ): Promise<string> {
   const resolvedContract = resolveTronTokenContractAddress(contractAddress);
 
-  if (isTronScanConfigured()) {
-    try {
-      return await getTronTrc20BalanceFromTronScan(holderAddress, resolvedContract, decimals);
-    } catch (err: any) {
-      console.warn(
-        '[Tron] TronScan TRC20 balance failed, falling back to Tatum:',
-        err?.message ?? err
-      );
-    }
+  try {
+    return await getTronTrc20BalanceFromTronScan(holderAddress, resolvedContract, decimals);
+  } catch (err: any) {
+    console.warn(
+      '[Tron] TronScan TRC20 balance failed, falling back to Tatum:',
+      err?.message ?? err
+    );
   }
 
   const endpoint = `${baseUrl}/tron/account/${encodeURIComponent(holderAddress)}`;

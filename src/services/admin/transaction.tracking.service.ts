@@ -1,6 +1,7 @@
 import { prisma } from '../../utils/prisma';
 import { Prisma } from '@prisma/client';
 import { formatCryptoAmount } from '../../utils/cryptoAmount';
+import { fetchOnChainTokenBalance } from '../crypto/onchain.balance.service';
 import {
   getSoldTotalsForReceive,
   getSoldTotalsMapForReceives,
@@ -52,6 +53,8 @@ export interface TrackingListItem {
   soldAmountUsd: string;
   soldAmountNaira: string;
   userRetentionUsd: string;
+  /** Live on-chain balance at customer deposit address (Tron USDT via TronScan). */
+  onChainDepositBalance?: string | null;
 }
 
 export interface TrackingStep {
@@ -133,6 +136,8 @@ export interface TrackingDetails {
   soldAmountUsd: string;
   soldAmountNaira: string;
   userRetentionUsd: string;
+  /** Live on-chain balance at customer deposit address (Tron USDT via TronScan). */
+  onChainDepositBalance?: string | null;
 }
 
 function buildDateFilter(startDate?: string, endDate?: string): Prisma.CryptoTransactionWhereInput {
@@ -145,6 +150,41 @@ function buildDateFilter(startDate?: string, endDate?: string): Prisma.CryptoTra
     filter.lte = end;
   }
   return { createdAt: filter };
+}
+
+function isTronUsdtReceive(currency: string, blockchain: string, walletCurrency?: { currency?: string | null; isToken?: boolean | null } | null): boolean {
+  const chain = String(blockchain ?? '').toLowerCase();
+  if (chain !== 'tron' && chain !== 'trx') return false;
+  const cur = String(currency ?? '').toUpperCase();
+  const wcCur = String(walletCurrency?.currency ?? '').toUpperCase();
+  return cur.includes('USDT') || wcCur.includes('USDT') || walletCurrency?.isToken === true;
+}
+
+async function fetchReceiveDepositOnChainBalance(input: {
+  blockchain: string;
+  currency: string;
+  toAddress?: string | null;
+  depositAddress?: string | null;
+  walletCurrency?: {
+    contractAddress?: string | null;
+    decimals?: number | null;
+    isToken?: boolean | null;
+    currency?: string | null;
+  } | null;
+}): Promise<string | null> {
+  if (!isTronUsdtReceive(input.currency, input.blockchain, input.walletCurrency)) return null;
+
+  const address = String(input.depositAddress ?? input.toAddress ?? '').trim();
+  if (!address) return null;
+
+  const balance = await fetchOnChainTokenBalance({
+    blockchain: input.blockchain,
+    address,
+    contractAddress: input.walletCurrency?.contractAddress ?? 'USDT_TRON',
+    decimals: input.walletCurrency?.decimals ?? 6,
+    isToken: true,
+  });
+  return formatCryptoAmount(balance);
 }
 
 export async function getTransactionTrackingList(filters: {
@@ -192,12 +232,16 @@ export async function getTransactionTrackingList(filters: {
         cryptoReceive: true,
         virtualAccount: {
           include: {
+            depositAddresses: { take: 1, orderBy: { createdAt: 'desc' } },
             walletCurrency: {
               select: {
                 symbol: true,
                 name: true,
                 isToken: true,
                 tokenType: true,
+                currency: true,
+                contractAddress: true,
+                decimals: true,
               },
             },
           },
@@ -235,7 +279,8 @@ export async function getTransactionTrackingList(filters: {
     }))
   );
 
-  const items: TrackingListItem[] = rows.map((tx) => {
+  const items: TrackingListItem[] = await Promise.all(
+    rows.map(async (tx) => {
     const recv = tx.cryptoReceive!;
     const masterStatus = assetStatusMap.get(recv.txHash) ?? 'unknown';
     const sold = soldMap.get(tx.id) ?? {
@@ -244,6 +289,14 @@ export async function getTransactionTrackingList(filters: {
       soldAmountNaira: '0',
       userRetentionUsd: recv.amountUsd.toString(),
     };
+    const depositAddress = tx.virtualAccount?.depositAddresses?.[0]?.address ?? recv.toAddress;
+    const onChainDepositBalance = await fetchReceiveDepositOnChainBalance({
+      blockchain: tx.blockchain,
+      currency: tx.currency,
+      toAddress: recv.toAddress,
+      depositAddress,
+      walletCurrency: tx.virtualAccount?.walletCurrency,
+    });
     return {
       id: tx.id,
       transactionId: tx.transactionId,
@@ -277,8 +330,10 @@ export async function getTransactionTrackingList(filters: {
       soldAmountUsd: sold.soldAmountUsd,
       soldAmountNaira: sold.soldAmountNaira,
       userRetentionUsd: sold.userRetentionUsd,
+      onChainDepositBalance,
     };
-  });
+  })
+  );
 
   return {
     items,
@@ -421,12 +476,16 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
           accountId: true,
           currency: true,
           blockchain: true,
+          depositAddresses: { take: 1, orderBy: { createdAt: 'desc' } },
           walletCurrency: {
             select: {
               symbol: true,
               name: true,
               isToken: true,
               tokenType: true,
+              currency: true,
+              contractAddress: true,
+              decimals: true,
             },
           },
         },
@@ -456,6 +515,15 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
     virtualAccountId: tx.virtualAccountId,
     receiveCreatedAt: tx.createdAt,
     receiveAmountUsd: recv.amountUsd,
+  });
+
+  const depositAddress = tx.virtualAccount?.depositAddresses?.[0]?.address ?? recv.toAddress;
+  const onChainDepositBalance = await fetchReceiveDepositOnChainBalance({
+    blockchain: tx.blockchain,
+    currency: tx.currency,
+    toAddress: recv.toAddress,
+    depositAddress,
+    walletCurrency: tx.virtualAccount?.walletCurrency,
   });
 
   return {
@@ -536,5 +604,6 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
     soldAmountUsd: sold.soldAmountUsd,
     soldAmountNaira: sold.soldAmountNaira,
     userRetentionUsd: sold.userRetentionUsd,
+    onChainDepositBalance,
   };
 }

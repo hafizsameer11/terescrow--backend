@@ -3,11 +3,12 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import { formatCryptoAmount } from '../../utils/cryptoAmount';
 import ApiError from '../../utils/ApiError';
-import { normalizeBlockchain } from './received.asset.disbursement.helpers';
+import { extractBaseSymbol, normalizeBlockchain } from './received.asset.disbursement.helpers';
 import {
   sendReceivedAssetToMasterWallet,
   sendReceivedAssetToVendor,
 } from './received.asset.disbursement.service';
+import { fetchOnChainTokenBalance } from '../crypto/onchain.balance.service';
 
 export type DepositSweepTarget = 'master' | 'vendor';
 
@@ -18,6 +19,8 @@ export interface DepositSweepPreviewItem {
   amountUsd: string;
   txHash: string;
   depositAddress: string;
+  /** Live on-chain balance at deposit address (Tron USDT via TronScan). */
+  onChainAmount?: string | null;
 }
 
 export interface DepositSweepPreview {
@@ -30,6 +33,8 @@ export interface DepositSweepPreview {
   itemCount: number;
   totalAmount: string;
   totalAmountUsd: string;
+  /** Sum of unique deposit-address on-chain balances (what is physically on chain). */
+  totalOnChainAmount?: string | null;
   items: DepositSweepPreviewItem[];
   dryRun: boolean;
 }
@@ -52,13 +57,27 @@ function normalizeCurrency(c: string): string {
   return String(c || '').trim().toUpperCase();
 }
 
+function sweepCurrencyMatches(filterCurrency: string, txCurrency: string, wcCurrency?: string | null): boolean {
+  const base = extractBaseSymbol(filterCurrency);
+  if (extractBaseSymbol(txCurrency) === base) return true;
+  if (wcCurrency && extractBaseSymbol(wcCurrency) === base) return true;
+  return false;
+}
+
 const receiveSweepInclude = {
   cryptoReceive: true,
   user: { select: { firstname: true, lastname: true } },
   virtualAccount: {
     include: {
       depositAddresses: { take: 1, orderBy: { createdAt: 'desc' as const } },
-      walletCurrency: { select: { currency: true } },
+      walletCurrency: {
+        select: {
+          currency: true,
+          contractAddress: true,
+          decimals: true,
+          isToken: true,
+        },
+      },
     },
   },
 } satisfies Prisma.CryptoTransactionInclude;
@@ -93,13 +112,39 @@ async function findSweepableReceives(currency: string, blockchain?: string): Pro
   return receives.filter((tx) => {
     const recv = tx.cryptoReceive;
     if (!recv || !inWalletHashes.has(recv.txHash)) return false;
-    const txCur = normalizeCurrency(tx.currency);
-    if (txCur === cur) return true;
-    const wcCur = tx.virtualAccount?.walletCurrency?.currency
-      ? normalizeCurrency(tx.virtualAccount.walletCurrency.currency)
-      : '';
-    return wcCur === cur;
+    const wcCur = tx.virtualAccount?.walletCurrency?.currency ?? '';
+    return sweepCurrencyMatches(cur, tx.currency, wcCur);
   });
+}
+
+async function fetchDepositOnChainAmount(tx: ReceiveSweepRow): Promise<string | null> {
+  const recv = tx.cryptoReceive;
+  if (!recv) return null;
+  const deposit = tx.virtualAccount?.depositAddresses?.[0]?.address || recv.toAddress;
+  if (!deposit) return null;
+
+  const wc = tx.virtualAccount?.walletCurrency;
+  const chainNorm = normalizeBlockchain(tx.blockchain).toLowerCase();
+  const isTronToken =
+    (chainNorm === 'tron' || chainNorm === 'trx') &&
+    (extractBaseSymbol(tx.currency) === 'USDT' ||
+      (wc?.currency ? extractBaseSymbol(wc.currency) === 'USDT' : false) ||
+      wc?.isToken === true);
+
+  if (!isTronToken && wc?.isToken !== true) return null;
+
+  try {
+    const balance = await fetchOnChainTokenBalance({
+      blockchain: tx.blockchain,
+      address: deposit,
+      contractAddress: wc?.contractAddress ?? (isTronToken ? 'USDT_TRON' : null),
+      decimals: wc?.decimals ?? 6,
+      isToken: wc?.isToken ?? isTronToken,
+    });
+    return formatCryptoAmount(balance);
+  } catch {
+    return null;
+  }
 }
 
 async function resolveSweepDestination(input: {
@@ -158,6 +203,7 @@ export async function getDepositSweepPreview(input: {
       itemCount: 0,
       totalAmount: '0',
       totalAmountUsd: '0',
+      totalOnChainAmount: '0',
       items: [],
       dryRun: true,
     };
@@ -165,24 +211,41 @@ export async function getDepositSweepPreview(input: {
 
   const first = rows[0];
 
+  const items: DepositSweepPreviewItem[] = await Promise.all(
+    rows.map(async (tx) => {
+      const recv = tx.cryptoReceive!;
+      const deposit = tx.virtualAccount?.depositAddresses?.[0]?.address || recv.toAddress;
+      const onChainAmount = await fetchDepositOnChainAmount(tx);
+      return {
+        receiveTransactionId: tx.transactionId,
+        customerName: tx.user ? `${tx.user.firstname} ${tx.user.lastname}`.trim() : '',
+        amount: formatCryptoAmount(recv.amount),
+        amountUsd: recv.amountUsd.toString(),
+        txHash: recv.txHash,
+        depositAddress: deposit || '',
+        onChainAmount,
+      };
+    })
+  );
+
   let totalAmount = new Decimal(0);
   let totalAmountUsd = new Decimal(0);
-  const items: DepositSweepPreviewItem[] = rows.map((tx) => {
-    const recv = tx.cryptoReceive!;
-    const amt = new Decimal(recv.amount.toString());
-    const amtUsd = new Decimal(recv.amountUsd.toString());
-    totalAmount = totalAmount.plus(amt);
-    totalAmountUsd = totalAmountUsd.plus(amtUsd);
-    const deposit = tx.virtualAccount?.depositAddresses?.[0]?.address || recv.toAddress;
-    return {
-      receiveTransactionId: tx.transactionId,
-      customerName: tx.user ? `${tx.user.firstname} ${tx.user.lastname}`.trim() : '',
-      amount: formatCryptoAmount(recv.amount),
-      amountUsd: recv.amountUsd.toString(),
-      txHash: recv.txHash,
-      depositAddress: deposit || '',
-    };
-  });
+  const onChainByAddress = new Map<string, Decimal>();
+  for (const item of items) {
+    totalAmount = totalAmount.plus(item.amount);
+    totalAmountUsd = totalAmountUsd.plus(item.amountUsd);
+    const deposit = item.depositAddress?.trim().toLowerCase();
+    if (deposit && item.onChainAmount != null && !onChainByAddress.has(deposit)) {
+      onChainByAddress.set(deposit, new Decimal(item.onChainAmount));
+    }
+  }
+
+  let totalOnChainAmount: string | null = null;
+  if (onChainByAddress.size > 0) {
+    let sum = new Decimal(0);
+    for (const v of onChainByAddress.values()) sum = sum.plus(v);
+    totalOnChainAmount = sum.toString();
+  }
 
   return {
     currency,
@@ -194,6 +257,7 @@ export async function getDepositSweepPreview(input: {
     itemCount: items.length,
     totalAmount: totalAmount.toString(),
     totalAmountUsd: totalAmountUsd.toString(),
+    totalOnChainAmount,
     items,
     dryRun: true,
   };

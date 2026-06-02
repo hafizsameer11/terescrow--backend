@@ -21,6 +21,8 @@ import { executeBtcVendorDisbursement } from './received.asset.disbursement.btc'
 import { executeLtcVendorDisbursement } from './received.asset.disbursement.ltc';
 import { executeDogeVendorDisbursement } from './received.asset.disbursement.doge';
 import { executeSolVendorDisbursement } from './received.asset.disbursement.sol';
+import { fetchOnChainTokenBalance } from '../crypto/onchain.balance.service';
+import { formatCryptoAmount } from '../../utils/cryptoAmount';
 
 function decryptPrivateKey(encryptedKey: string): string {
   const algorithm = 'aes-256-cbc';
@@ -801,6 +803,8 @@ export type DisbursementFeeEstimate = {
   soldAmount?: string;
   soldAmountUsd?: string;
   userRetentionUsd?: string;
+  /** Live on-chain balance at customer deposit address (Tron USDT via TronScan). */
+  onChainDepositBalance?: string | null;
 };
 
 /**
@@ -878,6 +882,27 @@ export async function estimateDisbursementFee(input: {
     receiveAmountUsd: recv.amountUsd,
   });
 
+  let onChainDepositBalance: string | null = null;
+  const chainNormLower = chainNorm.toLowerCase();
+  const isTronUsdt =
+    (chainNormLower === 'tron' || chainNormLower === 'trx') &&
+    (baseSymbol === 'USDT' || walletCurrency?.isToken === true);
+  try {
+    const contractAddress =
+      walletCurrency?.contractAddress ??
+      (isTronUsdt ? 'USDT_TRON' : null);
+    const bal = await fetchOnChainTokenBalance({
+      blockchain: tx.blockchain,
+      address: depositAddress,
+      contractAddress,
+      decimals: walletCurrency?.decimals ?? (baseSymbol === 'USDT' ? 6 : undefined),
+      isToken: !isNative,
+    });
+    onChainDepositBalance = formatCryptoAmount(bal);
+  } catch {
+    onChainDepositBalance = null;
+  }
+
   return {
     receiveTransactionId: input.receiveTransactionId,
     target: input.target,
@@ -891,5 +916,6 @@ export async function estimateDisbursementFee(input: {
     soldAmount: sold.soldAmount,
     soldAmountUsd: sold.soldAmountUsd,
     userRetentionUsd: sold.userRetentionUsd,
+    onChainDepositBalance,
   };
 }

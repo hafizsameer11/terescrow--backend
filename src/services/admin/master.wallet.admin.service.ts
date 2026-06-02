@@ -1,7 +1,6 @@
 import { prisma } from '../../utils/prisma';
 import { formatCryptoAmount } from '../../utils/cryptoAmount';
-import tatumService from '../tatum/tatum.service';
-import { getTronTrc20Balance, getTronTrxBalance } from '../tron/tron.tatum.service';
+import { fetchOnChainTokenBalance } from '../crypto/onchain.balance.service';
 import { UserRoles } from '@prisma/client';
 import cryptoRateService from '../crypto/crypto.rate.service';
 import {
@@ -238,29 +237,15 @@ export async function getMasterWalletBalanceSummary(): Promise<BalanceSummaryIte
 async function fetchTokenBalanceForCurrency(
   blockchain: string,
   address: string,
-  wc: { contractAddress: string | null; decimals: number; currency: string }
+  wc: { contractAddress: string | null; decimals: number; currency: string; isToken?: boolean }
 ): Promise<string> {
-  const chain = chainKey(blockchain);
-  if (chain === 'tron' || chain === 'trx') {
-    if (!wc.contractAddress) return '0';
-    try {
-      return await getTronTrc20Balance(address, wc.contractAddress, wc.decimals ?? 6);
-    } catch {
-      return '0';
-    }
-  }
-  try {
-    const tokens = await tatumService.getSupportedTokenBalances(blockchain, address);
-    const match = (tokens ?? []).find(
-      (t: { contractAddress?: string }) =>
-        t.contractAddress &&
-        wc.contractAddress &&
-        String(t.contractAddress).toLowerCase() === String(wc.contractAddress).toLowerCase()
-    );
-    return match?.amount != null ? String(match.amount) : '0';
-  } catch {
-    return '0';
-  }
+  return fetchOnChainTokenBalance({
+    blockchain,
+    address,
+    contractAddress: wc.contractAddress,
+    decimals: wc.decimals,
+    isToken: wc.isToken ?? true,
+  });
 }
 
 export async function getMasterWalletAssets(walletId?: string): Promise<AssetItem[]> {
@@ -293,12 +278,14 @@ export async function getMasterWalletAssets(walletId?: string): Promise<AssetIte
     try {
       if (!wc.isToken) {
         if (!nativeBalCache.has(chain)) {
-          if (chain === 'tron' || chain === 'trx') {
-            nativeBalCache.set(chain, await getTronTrxBalance(mw.address));
-          } else {
-            const bal = await tatumService.getAddressBalance(wc.blockchain, mw.address, false);
-            nativeBalCache.set(chain, bal?.balance ? String(bal.balance) : '0');
-          }
+          nativeBalCache.set(
+            chain,
+            await fetchOnChainTokenBalance({
+              blockchain: wc.blockchain,
+              address: mw.address,
+              isToken: false,
+            })
+          );
         }
         balance = nativeBalCache.get(chain) ?? '0';
       } else {
@@ -306,6 +293,7 @@ export async function getMasterWalletAssets(walletId?: string): Promise<AssetIte
           contractAddress: wc.contractAddress,
           decimals: wc.decimals,
           currency: wc.currency,
+          isToken: wc.isToken,
         });
       }
     } catch {
