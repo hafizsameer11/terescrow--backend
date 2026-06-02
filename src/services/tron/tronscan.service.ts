@@ -55,9 +55,8 @@ function formatRawBalance(rawBalance: string | number, decimals: number): string
 }
 
 function rowToHumanBalance(row: TronScanTrc20Row, fallbackDecimals: number): string {
-  if (row.amount != null && Number.isFinite(row.amount)) {
-    return String(row.amount);
-  }
+  // TronScan `amount` is a priced/converted field (often TRX-equivalent), not token quantity.
+  // Always derive human balance from raw `balance` + `tokenDecimal`.
   if (row.balance == null) return '0';
   const decimals = row.tokenDecimal ?? fallbackDecimals;
   return formatRawBalance(row.balance, decimals);
