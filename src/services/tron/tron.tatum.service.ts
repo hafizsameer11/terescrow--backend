@@ -4,6 +4,11 @@
 
 import axios from 'axios';
 import cryptoLogger from '../../utils/crypto.logger';
+import {
+  getTronTrc20BalanceFromTronScan,
+  isTronScanConfigured,
+  resolveTronTokenContractAddress,
+} from './tronscan.service';
 
 const baseUrl = 'https://api.tatum.io/v3';
 
@@ -42,18 +47,34 @@ export async function getTronTrc20Balance(
   contractAddress: string,
   decimals: number = 6
 ): Promise<string> {
+  const resolvedContract = resolveTronTokenContractAddress(contractAddress);
+
+  if (isTronScanConfigured()) {
+    try {
+      return await getTronTrc20BalanceFromTronScan(holderAddress, resolvedContract, decimals);
+    } catch (err: any) {
+      console.warn(
+        '[Tron] TronScan TRC20 balance failed, falling back to Tatum:',
+        err?.message ?? err
+      );
+    }
+  }
+
   const endpoint = `${baseUrl}/tron/account/${encodeURIComponent(holderAddress)}`;
   const response = await axios.get(endpoint, {
     headers: { 'x-api-key': apiKey(), accept: 'application/json' },
   });
   const d = response.data as any;
-  const want = contractAddress.replace(/^0x/, '').toLowerCase();
+  const want = resolvedContract.replace(/^0x/, '').toLowerCase();
   const trc20 = d.trc20;
   if (!Array.isArray(trc20)) return '0';
   for (const row of trc20) {
     if (row && typeof row === 'object') {
       for (const [k, v] of Object.entries(row)) {
-        if (k.replace(/^0x/, '').toLowerCase() === want || k.toLowerCase() === contractAddress.toLowerCase()) {
+        if (
+          k.replace(/^0x/, '').toLowerCase() === want ||
+          k.toLowerCase() === resolvedContract.toLowerCase()
+        ) {
           const raw = BigInt(String(v));
           const div = BigInt(10) ** BigInt(decimals);
           const whole = Number(raw) / Number(div);
