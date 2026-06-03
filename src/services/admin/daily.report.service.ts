@@ -128,19 +128,19 @@ export async function getReportById(reportId: number) {
   if (!log) return null;
   const checkIn = log.checkInTime;
   const checkOut = log.checkOutTime;
-  let activeHours = 0;
+  let activeHours: number | null = null;
   if (checkIn && checkOut) {
-    activeHours = (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60);
+    activeHours = Math.round(((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60)) * 100) / 100;
   }
   return {
     id: log.id,
-    date: log.date,
+    date: log.date.toISOString().slice(0, 10),
     agentName: log.user ? `${log.user.firstname} ${log.user.lastname}`.trim() : '',
     position: 'Agent',
     shift: log.shift,
     clockInTime: checkIn?.toISOString() ?? null,
     clockOutTime: checkOut?.toISOString() ?? null,
-    activeHours: Math.round(activeHours * 100) / 100,
+    activeHours,
     totalChatSessions: 0,
     avgResponseTimeSec: 0,
     giftCard: { count: 0, amount: 0 },
@@ -278,15 +278,23 @@ export async function checkIn(userId: number, shift: string, timestamp?: Date) {
   const ts = timestamp ? new Date(timestamp) : new Date();
   const date = new Date(ts);
   date.setHours(0, 0, 0, 0);
-  const existing = await attendanceModel.findUnique({
-    where: { userId_date: { userId, date } },
+
+  const active = await attendanceModel.findFirst({
+    where: {
+      userId,
+      date,
+      checkInTime: { not: null },
+      checkOutTime: null,
+    },
+    orderBy: { checkInTime: 'desc' },
   });
-  if (existing) {
+  if (active) {
     return await attendanceModel.update({
-      where: { id: existing.id },
-      data: { checkInTime: ts, checkOutTime: null, shift, status: 'checked_in' },
+      where: { id: active.id },
+      data: { shift, status: 'checked_in' },
     });
   }
+
   return await attendanceModel.create({
     data: {
       userId,
@@ -302,10 +310,17 @@ export async function checkOut(userId: number, timestamp?: Date) {
   const ts = timestamp ? new Date(timestamp) : new Date();
   const date = new Date(ts);
   date.setHours(0, 0, 0, 0);
-  const log = await attendanceModel.findUnique({
-    where: { userId_date: { userId, date } },
+
+  const log = await attendanceModel.findFirst({
+    where: {
+      userId,
+      date,
+      checkInTime: { not: null },
+      checkOutTime: null,
+    },
+    orderBy: { checkInTime: 'desc' },
   });
-  if (!log) throw new Error('No check-in found for today');
+  if (!log) throw new Error('No active check-in found for today');
   return await attendanceModel.update({
     where: { id: log.id },
     data: { checkOutTime: ts, status: 'checked_out' },
