@@ -24,7 +24,11 @@ export interface UserBalanceRow {
 export interface UserAssetBalanceRow {
   currency: string;
   blockchain: string;
+  /** Display ticker e.g. USDT — not an icon path. */
   symbol: string | null;
+  /** Relative icon path e.g. wallet_symbols/TUSDT.png */
+  iconUrl: string | null;
+  isToken: boolean | null;
   virtualBalance: string;
   onChainBalance: string;
   totalBalance: string;
@@ -267,6 +271,28 @@ export async function getUserBalancesSummary(): Promise<UserBalancesSummary> {
   };
 }
 
+function resolveAssetDisplay(
+  currency: string,
+  blockchain: string,
+  walletCurrency: { symbol: string | null; name: string | null; isToken: boolean | null } | null
+): { symbol: string; iconUrl: string | null } {
+  const raw = String(walletCurrency?.symbol ?? '').trim();
+  const isIconPath = /\.(png|jpe?g|gif|webp|svg)$/i.test(raw) || raw.includes('/');
+  const iconUrl = isIconPath ? raw : null;
+  const name = String(walletCurrency?.name ?? '').trim();
+  if (name && /^[A-Za-z0-9]{2,10}$/.test(name)) {
+    return { symbol: name.toUpperCase(), iconUrl };
+  }
+  if (raw && !isIconPath) {
+    return { symbol: raw.toUpperCase(), iconUrl: null };
+  }
+  const c = String(currency ?? '').trim().toUpperCase();
+  if (c.includes('_')) {
+    return { symbol: c.split('_')[0], iconUrl };
+  }
+  return { symbol: c || '—', iconUrl };
+}
+
 export async function getUserAssetBalances(userId: number): Promise<UserAssetBalanceRow[]> {
   const accounts = await prisma.virtualAccount.findMany({
     where: { userId },
@@ -292,10 +318,13 @@ export async function getUserAssetBalances(userId: number): Promise<UserAssetBal
       const o = Number(onChainBal.toString());
       const t = Number(totalBal.toString());
       const round = (n: number) => Math.round(n * 100) / 100;
+      const display = resolveAssetDisplay(va.currency, va.blockchain, va.walletCurrency);
       return {
         currency: va.currency,
         blockchain: va.blockchain,
-        symbol: va.walletCurrency?.symbol ?? null,
+        symbol: display.symbol,
+        iconUrl: display.iconUrl,
+        isToken: va.walletCurrency?.isToken ?? null,
         virtualBalance: virtualBal.toString(),
         onChainBalance: onChainBal.toString(),
         totalBalance: totalBal.toString(),

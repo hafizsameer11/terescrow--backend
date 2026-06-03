@@ -15,16 +15,15 @@ export type VirtualAccountBalanceFields = {
 };
 
 export function getVirtualBalance(va: VirtualAccountBalanceFields): Decimal {
-  return decimalFromBalance(va.virtualBalance);
+  const virtual = decimalFromBalance(va.virtualBalance);
+  const onChain = decimalFromBalance(va.onChainBalance);
+  if (virtual.gt(0) || onChain.gt(0)) return virtual;
+  // Legacy / unsplit rows: treat entire balance as virtual (not on-chain deposit)
+  return decimalFromBalance(va.availableBalance ?? va.accountBalance);
 }
 
 export function getOnChainBalance(va: VirtualAccountBalanceFields): Decimal {
-  const onChain = decimalFromBalance(va.onChainBalance);
-  const virtual = getVirtualBalance(va);
-  if (onChain.gt(0)) return onChain;
-  if (virtual.gt(0)) return onChain;
-  // Pre-dual-bucket or not yet split: treat legacy total as on-chain
-  return decimalFromBalance(va.availableBalance ?? va.accountBalance);
+  return decimalFromBalance(va.onChainBalance);
 }
 
 export function getTotalBalance(va: VirtualAccountBalanceFields): Decimal {
