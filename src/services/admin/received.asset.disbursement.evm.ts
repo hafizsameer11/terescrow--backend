@@ -3,6 +3,10 @@ import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import cryptoLogger from '../../utils/crypto.logger';
 import { sendEvmTatumTransaction, type EvmTatumPath } from '../tatum/evm.tatum.transaction.service';
+import {
+  EvmTxConfirmationError,
+  waitForEvmTxConfirmation,
+} from '../tatum/evm.transaction.confirmation.service';
 import { getEvmFungibleTokenBalance, getEvmNativeBalance } from '../tatum/evm.tatum.balance.service';
 import type { DecryptFn } from './received.asset.disbursement.helpers';
 
@@ -154,11 +158,23 @@ export async function executeEvmVendorDisbursement(params: {
         testnet: false,
       });
     } catch (e: any) {
-      await prisma.receivedAssetDisbursement.update({
-        where: { id: pending.id },
-        data: { status: 'failed', notes: e?.message?.slice(0, 2000) ?? 'chain error' },
-      });
+      await failPendingDisbursement(pending.id, e?.message?.slice(0, 2000) ?? 'chain error');
       throw ApiError.internal(e?.message || 'Blockchain transfer failed');
+    }
+
+    try {
+      await waitForEvmTxConfirmation({ evmPath, txHash, testnet: false });
+    } catch (e: unknown) {
+      const note =
+        e instanceof EvmTxConfirmationError
+          ? `${e.reason}: ${e.message}`
+          : e instanceof Error
+            ? e.message
+            : 'On-chain confirmation failed';
+      await failPendingDisbursement(pending.id, note.slice(0, 2000));
+      throw ApiError.internal(
+        'Transfer was broadcast but not confirmed on-chain. Deposit status unchanged — you may retry after verifying the address.'
+      );
     }
 
     await finalizeDisbursementDb({
@@ -364,11 +380,23 @@ export async function executeEvmVendorDisbursement(params: {
       testnet: false,
     });
   } catch (e: any) {
-    await prisma.receivedAssetDisbursement.update({
-      where: { id: pending.id },
-      data: { status: 'failed', notes: e?.message?.slice(0, 2000) ?? 'chain error' },
-    });
+    await failPendingDisbursement(pending.id, e?.message?.slice(0, 2000) ?? 'chain error');
     throw ApiError.internal(e?.message || 'Blockchain transfer failed');
+  }
+
+  try {
+    await waitForEvmTxConfirmation({ evmPath, txHash, testnet: false });
+  } catch (e: unknown) {
+    const note =
+      e instanceof EvmTxConfirmationError
+        ? `${e.reason}: ${e.message}`
+        : e instanceof Error
+          ? e.message
+          : 'On-chain confirmation failed';
+    await failPendingDisbursement(pending.id, note.slice(0, 2000));
+    throw ApiError.internal(
+      'Transfer was broadcast but not confirmed on-chain. Deposit status unchanged — you may retry after verifying the address.'
+    );
   }
 
   amountSentToVendor = recvAmount;
@@ -405,6 +433,13 @@ export async function executeEvmVendorDisbursement(params: {
     networkFee: gasFeeForLedger.toString(),
     ...(gasFundingTxHash ? { gasFundingTxHash } : {}),
   };
+}
+
+async function failPendingDisbursement(pendingId: number, notes: string): Promise<void> {
+  await prisma.receivedAssetDisbursement.update({
+    where: { id: pendingId },
+    data: { status: 'failed', notes: notes.slice(0, 2000) },
+  });
 }
 
 async function finalizeDisbursementDb(params: {
