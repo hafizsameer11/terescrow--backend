@@ -94,9 +94,22 @@ class EthereumGasService {
   }
 
   /**
-   * Estimate gas fee for a transaction
-   * Uses Tatum V4 API: POST /v4/blockchainOperations/gas
-   * 
+   * Tatum v4 POST /blockchainOperations/gas only accepts mainnet chain codes
+   * (ETH, BSC, POL_ETH, …) — not testnets like ETH_SEPOLIA.
+   */
+  private resolveV4GasChain(chain: 'ETH' | 'BSC' | 'MATIC', testnet: boolean): string {
+    if (testnet) {
+      console.warn(
+        `[Gas] Testnet estimate requested for ${chain}; v4 gas API uses mainnet ${chain} as approximation`
+      );
+    }
+    if (chain === 'MATIC') return 'POL_ETH';
+    return chain;
+  }
+
+  /**
+   * Estimate gas fee for a transaction via Tatum v4 POST /blockchainOperations/gas.
+   *
    * @param from From address
    * @param to To address
    * @param amount Amount to send (in ETH)
@@ -114,7 +127,7 @@ class EthereumGasService {
       const cleanFrom = from.startsWith('0x') ? from : `0x${from}`;
       const cleanTo = to.startsWith('0x') ? to : `0x${to}`;
 
-      const chain = testnet ? 'ETH_SEPOLIA' : 'ETH';
+      const chain = this.resolveV4GasChain('ETH', testnet);
 
       const response = await axios.post<GasFeeEstimateResponse>(
         `${this.baseUrl}/blockchainOperations/gas`,
@@ -169,14 +182,7 @@ class EthereumGasService {
       const cleanFrom = from.startsWith('0x') ? from : `0x${from}`;
       const cleanTo = to.startsWith('0x') ? to : `0x${to}`;
 
-      let chainParam: string;
-      if (testnet) {
-        if (chain === 'ETH') chainParam = 'ETH_SEPOLIA';
-        else if (chain === 'BSC') chainParam = 'BSC_TESTNET';
-        else chainParam = 'MATIC_AMOY';
-      } else {
-        chainParam = chain;
-      }
+      const chainParam = this.resolveV4GasChain(chain, testnet);
 
       const response = await axios.post<GasFeeEstimateResponse>(
         `${this.baseUrl}/blockchainOperations/gas`,

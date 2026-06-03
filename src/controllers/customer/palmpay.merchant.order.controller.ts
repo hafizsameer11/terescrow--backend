@@ -4,6 +4,7 @@ import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { palmpayCheckout } from '../../services/palmpay/palmpay.checkout.service';
 import { palmpayConfig } from '../../services/palmpay/palmpay.config';
+import { toCustomerSafeError } from '../../utils/customerSafeError';
 
 /**
  * Create merchant order with bank transfer
@@ -112,11 +113,8 @@ export const createMerchantOrderController = async (
         'Merchant order created successfully'
       )
     );
-  } catch (error: any) {
-    console.error('Create merchant order error:', error);
-    return next(
-      ApiError.internal(error.message || 'Failed to create merchant order')
-    );
+  } catch (error: unknown) {
+    return next(toCustomerSafeError(error, 'Create merchant order error:'));
   }
 };
 

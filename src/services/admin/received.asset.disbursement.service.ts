@@ -858,7 +858,7 @@ export async function estimateDisbursementFee(input: {
         depositAddress,
         toAddress,
         recvAmount.toString(),
-        !isNative
+        false
       );
       const gasLimit = Math.ceil(parseInt(gasEstimate.gasLimit, 10) * 1.1);
       const gasFeeNative = new Decimal(

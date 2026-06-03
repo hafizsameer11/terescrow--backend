@@ -8,9 +8,9 @@ import {
   sendTronTrx,
   sendTronTrc20,
 } from '../tron/tron.tatum.service';
+import { trc20GasConfigForAsset } from '../tron/tron.gas.config';
 import type { DecryptFn } from './received.asset.disbursement.helpers';
 
-const MIN_TRX_FOR_TRC20 = new Decimal('25');
 const NATIVE_TRX_FEE_RESERVE = new Decimal('3');
 
 export async function executeTronVendorDisbursement(params: {
@@ -155,6 +155,8 @@ export async function executeTronVendorDisbursement(params: {
     throw ApiError.internal('TRC20 contract address not configured');
   }
   const decimals = wc.decimals ?? 6;
+  const gasCfg = trc20GasConfigForAsset(baseSymbol);
+  const targetTrx = gasCfg.targetTrxOnDeposit;
 
   const tokenBalStr = await getTronTrc20Balance(depositAddress, wc.contractAddress, decimals);
   const tokenBal = new Decimal(tokenBalStr);
@@ -165,9 +167,9 @@ export async function executeTronVendorDisbursement(params: {
   }
 
   let trxBal = new Decimal(await getTronTrxBalance(depositAddress));
-  if (trxBal.lessThan(MIN_TRX_FOR_TRC20)) {
-    const shortfall = MIN_TRX_FOR_TRC20.minus(trxBal);
-    const trxToSend = shortfall.plus(new Decimal('2'));
+  if (trxBal.lessThan(targetTrx)) {
+    const shortfall = targetTrx.minus(trxBal);
+    const trxToSend = shortfall.plus(gasCfg.topUpBufferTrx);
 
     const masterWallet = await prisma.masterWallet.findUnique({
       where: { blockchain: 'tron' },
@@ -209,7 +211,7 @@ export async function executeTronVendorDisbursement(params: {
     for (let i = 0; i < 12 && !ok; i++) {
       if (i > 0) await new Promise((r) => setTimeout(r, 3000));
       trxBal = new Decimal(await getTronTrxBalance(depositAddress));
-      if (trxBal.gte(MIN_TRX_FOR_TRC20)) ok = true;
+      if (trxBal.gte(targetTrx)) ok = true;
     }
     if (!ok) {
       throw ApiError.internal(`TRX top-up (${topHash}) not confirmed in time; retry disbursement`);
@@ -243,7 +245,7 @@ export async function executeTronVendorDisbursement(params: {
       amount: recvAmount.toString(),
       contractAddress: wc.contractAddress,
       fromPrivateKey: pk,
-      feeLimitTrx: 80,
+      feeLimitTrx: gasCfg.feeLimitTrx,
     });
   } catch (e: any) {
     await prisma.receivedAssetDisbursement.update({

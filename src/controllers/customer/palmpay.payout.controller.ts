@@ -8,6 +8,7 @@ import { palmpayPayout } from '../../services/palmpay/palmpay.payout.service';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { palmpayConfig } from '../../services/palmpay/palmpay.config';
 import { getCustomerRestrictions, isFeatureFrozen, FEATURE_WITHDRAWAL } from '../../utils/customer.restrictions';
+import { toCustomerSafeError } from '../../utils/customerSafeError';
 
 /**
  * Get bank list
@@ -26,9 +27,8 @@ export const getBankListController = async (
     return res.status(200).json(
       new ApiResponse(200, banks, 'Bank list retrieved successfully')
     );
-  } catch (error: any) {
-    console.error('Get bank list error:', error);
-    return next(ApiError.internal(error.message || 'Failed to get bank list'));
+  } catch (error: unknown) {
+    return next(toCustomerSafeError(error, 'Get bank list error:'));
   }
 };
 
@@ -71,9 +71,8 @@ export const verifyBankAccountController = async (
         errorMessage: result.errorMessage,
       }, 'Account verified successfully')
     );
-  } catch (error: any) {
-    console.error('Verify account error:', error);
-    return next(ApiError.internal(error.message || 'Failed to verify account'));
+  } catch (error: unknown) {
+    return next(toCustomerSafeError(error, 'Verify account error:'));
   }
 };
 
@@ -280,9 +279,8 @@ export const initiatePayoutController = async (
         sessionId: palmpayResponse.sessionId,
       }, 'Payout initiated successfully')
     );
-  } catch (error: any) {
-    console.error('Payout initiation error:', error);
-    return next(ApiError.internal(error.message || 'Failed to initiate payout'));
+  } catch (error: unknown) {
+    return next(toCustomerSafeError(error, 'Payout initiation error:'));
   }
 };
 
@@ -399,9 +397,8 @@ export const checkPayoutStatusController = async (
         currency: transaction.currency,
       }, 'Transaction status retrieved')
     );
-  } catch (error: any) {
-    console.error('Check payout status error:', error);
-    return next(ApiError.internal(error.message || 'Failed to check payout status'));
+  } catch (error: unknown) {
+    return next(toCustomerSafeError(error, 'Check payout status error:'));
   }
 };
 

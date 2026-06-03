@@ -8,6 +8,7 @@ import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { palmpayConfig } from '../../services/palmpay/palmpay.config';
 import { PalmPayCustomerInfo } from '../../types/palmpay.types';
 import { getCustomerRestrictions, isFeatureFrozen, FEATURE_DEPOSIT } from '../../utils/customer.restrictions';
+import { toCustomerSafeError } from '../../utils/customerSafeError';
 
 /**
  * Initiate deposit (wallet top-up)
@@ -18,6 +19,7 @@ export const initiateDepositController = async (
   res: Response,
   next: NextFunction
 ) => {
+  let createdTransactionId: string | null = null;
   try {
     const user = (req as any).user || req.body._user;
     const restrictions = await getCustomerRestrictions(user.id);
@@ -62,6 +64,7 @@ export const initiateDepositController = async (
         palmpayOrderId: merchantOrderId,
       },
     });
+    createdTransactionId = transaction.id;
 
     // Prepare goodsDetails for bank transfer (use -1 to get virtual account)
     const goodsDetails = JSON.stringify([{ goodsId: '-1' }]);
@@ -141,9 +144,16 @@ export const initiateDepositController = async (
         checkoutUrl: palmpayResponse.checkoutUrl,
       }, 'Deposit initiated successfully. Please transfer to the provided virtual account.')
     );
-  } catch (error: any) {
-    console.error('Deposit initiation error:', error);
-    return next(ApiError.internal(error.message || 'Failed to initiate deposit'));
+  } catch (error: unknown) {
+    if (createdTransactionId) {
+      await prisma.fiatTransaction
+        .update({
+          where: { id: createdTransactionId },
+          data: { status: 'failed' },
+        })
+        .catch((e) => console.error('Failed to mark deposit transaction failed:', e));
+    }
+    return next(toCustomerSafeError(error, 'Deposit initiation error:'));
   }
 };
 
@@ -246,9 +256,8 @@ export const checkDepositStatusController = async (
         currency: transaction.currency,
       }, 'Transaction status retrieved')
     );
-  } catch (error: any) {
-    console.error('Check deposit status error:', error);
-    return next(ApiError.internal(error.message || 'Failed to check deposit status'));
+  } catch (error: unknown) {
+    return next(toCustomerSafeError(error, 'Check deposit status error:'));
   }
 };
 
