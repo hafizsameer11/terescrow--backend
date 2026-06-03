@@ -5,9 +5,17 @@ import {
   getAdminUserBalancesController,
   getAdminUserBalancesSummaryController,
   getAdminUserAssetBalancesController,
+  getAdminUserWalletDetailController,
 } from '../../controllers/admin/user.balances.controller';
 
 const router = express.Router();
+
+router.get(
+  '/:userId/detail',
+  authenticateUser,
+  authenticateAdmin,
+  getAdminUserWalletDetailController
+);
 
 router.get(
   '/:userId/assets',

@@ -2,6 +2,9 @@ import { prisma } from '../../utils/prisma';
 import { UserRoles } from '@prisma/client';
 import cryptoRateService from '../crypto/crypto.rate.service';
 import { getOnChainBalance, getTotalBalance, getVirtualBalance } from '../crypto/virtual.account.balance.helper';
+import { formatCryptoAmount } from '../../utils/cryptoAmount';
+import { fetchOnChainTokenBalance } from '../crypto/onchain.balance.service';
+import { getSoldTotalsMapForReceives } from './receive.sold.amount.service';
 
 export interface UserBalanceRow {
   id: number;
@@ -303,4 +306,217 @@ export async function getUserAssetBalances(userId: number): Promise<UserAssetBal
       };
     })
     .filter((r): r is UserAssetBalanceRow => r != null);
+}
+
+export interface UserDepositActivityRow {
+  transactionId: string;
+  txHash: string;
+  currency: string;
+  blockchain: string;
+  amount: string;
+  amountUsd: string;
+  status: string;
+  depositStatus: string;
+  soldAmountUsd: string;
+  userRetentionUsd: string;
+  onChainDepositBalance: string | null;
+  date: string;
+}
+
+export interface UserVirtualActivityRow {
+  transactionId: string;
+  activityType: 'purchase' | 'sell' | 'send';
+  balanceBucket: string | null;
+  sellBatchId: string | null;
+  currency: string;
+  blockchain: string;
+  amount: string;
+  amountUsd: string;
+  amountNaira: string;
+  status: string;
+  date: string;
+}
+
+export interface UserWalletDetail {
+  user: {
+    id: number;
+    firstname: string;
+    lastname: string;
+    email: string;
+    username: string | null;
+    profilePicture: string | null;
+  };
+  balances: UserBalanceRow;
+  assets: UserAssetBalanceRow[];
+  deposits: UserDepositActivityRow[];
+  virtualActivity: UserVirtualActivityRow[];
+}
+
+function depositStatusLabel(status: string): string {
+  const s = (status || 'unknown').toLowerCase().replace(/\s/g, '');
+  if (s === 'inwallet') return 'In wallet';
+  if (s === 'transferredtomaster') return 'Transferred to master';
+  if (s === 'senttovendor') return 'Sent to vendor';
+  return 'Unknown';
+}
+
+export async function getUserWalletDetail(userId: number): Promise<UserWalletDetail | null> {
+  const user = await prisma.user.findFirst({
+    where: { id: userId, role: UserRoles.customer },
+    select: {
+      id: true,
+      firstname: true,
+      lastname: true,
+      email: true,
+      username: true,
+      profilePicture: true,
+      fiatWallets: true,
+      virtualAccounts: { include: { walletCurrency: true } },
+    },
+  });
+  if (!user) return null;
+
+  const sellRateRow = await cryptoRateService.getRateForAmount('SELL', 1);
+  const ngnPerUsdFallback = sellRateRow ? Number(sellRateRow.rate) : 0;
+  const balances = computeUserBalanceRow(user, Number.isFinite(ngnPerUsdFallback) ? ngnPerUsdFallback : 0);
+  const assets = await getUserAssetBalances(userId);
+
+  const receiveTxs = await prisma.cryptoTransaction.findMany({
+    where: { userId, transactionType: 'RECEIVE', cryptoReceive: { isNot: null } },
+    include: {
+      cryptoReceive: true,
+      virtualAccount: {
+        include: {
+          depositAddresses: { take: 1, orderBy: { createdAt: 'desc' } },
+          walletCurrency: {
+            select: {
+              symbol: true,
+              contractAddress: true,
+              decimals: true,
+              currency: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 40,
+  });
+
+  const txHashes = receiveTxs.map((t) => t.cryptoReceive!.txHash).filter(Boolean);
+  const receivedAssets = txHashes.length
+    ? await prisma.receivedAsset.findMany({
+        where: { txId: { in: txHashes } },
+        select: { txId: true, status: true },
+      })
+    : [];
+  const assetStatusMap = new Map(receivedAssets.map((a) => [a.txId, a.status]));
+  const soldMap = await getSoldTotalsMapForReceives(
+    receiveTxs.map((tx) => ({
+      id: tx.id,
+      userId: tx.userId,
+      virtualAccountId: tx.virtualAccountId,
+      createdAt: tx.createdAt,
+      amountUsd: tx.cryptoReceive!.amountUsd,
+    }))
+  );
+
+  const deposits: UserDepositActivityRow[] = await Promise.all(
+    receiveTxs.map(async (tx) => {
+      const recv = tx.cryptoReceive!;
+      const masterStatus = assetStatusMap.get(recv.txHash) ?? 'unknown';
+      const sold = soldMap.get(tx.id) ?? {
+        soldAmount: '0',
+        soldAmountUsd: '0',
+        soldAmountNaira: '0',
+        userRetentionUsd: recv.amountUsd.toString(),
+      };
+      const depositAddress = tx.virtualAccount?.depositAddresses?.[0]?.address ?? recv.toAddress;
+      let onChainDepositBalance: string | null = null;
+      try {
+        const bal = await fetchOnChainTokenBalance({
+          blockchain: tx.blockchain,
+          address: depositAddress,
+          contractAddress: tx.virtualAccount?.walletCurrency?.contractAddress ?? 'USDT_TRON',
+          decimals: tx.virtualAccount?.walletCurrency?.decimals ?? 6,
+          isToken: true,
+        });
+        onChainDepositBalance = formatCryptoAmount(bal);
+      } catch {
+        onChainDepositBalance = null;
+      }
+      return {
+        transactionId: tx.transactionId,
+        txHash: recv.txHash,
+        currency: tx.currency,
+        blockchain: tx.blockchain,
+        amount: formatCryptoAmount(recv.creditedAmount ?? recv.amount),
+        amountUsd: (recv.creditedAmountUsd ?? recv.amountUsd).toString(),
+        status: tx.status,
+        depositStatus: depositStatusLabel(masterStatus),
+        soldAmountUsd: sold.soldAmountUsd,
+        userRetentionUsd: sold.userRetentionUsd,
+        onChainDepositBalance,
+        date: tx.createdAt.toISOString(),
+      };
+    })
+  );
+
+  const virtualTxs = await prisma.cryptoTransaction.findMany({
+    where: {
+      userId,
+      OR: [
+        { transactionType: 'BUY' },
+        { transactionType: 'SELL', balanceBucket: 'virtual' },
+        { transactionType: 'SEND', balanceBucket: 'virtual' },
+      ],
+    },
+    include: { cryptoBuy: true, cryptoSell: true, cryptoSend: true },
+    orderBy: { createdAt: 'desc' },
+    take: 40,
+  });
+
+  const virtualActivity: UserVirtualActivityRow[] = virtualTxs.map((tx) => {
+    const buy = tx.cryptoBuy;
+    const sell = tx.cryptoSell;
+    const send = tx.cryptoSend;
+    const leg = buy ?? sell ?? send;
+    const activityType: UserVirtualActivityRow['activityType'] = buy
+      ? 'purchase'
+      : sell
+        ? 'sell'
+        : 'send';
+    return {
+      transactionId: tx.transactionId,
+      activityType,
+      balanceBucket: tx.balanceBucket,
+      sellBatchId: tx.sellBatchId,
+      currency: tx.currency,
+      blockchain: tx.blockchain,
+      amount: leg ? formatCryptoAmount(leg.amount) : '0',
+      amountUsd: leg?.amountUsd.toString() ?? '0',
+      amountNaira:
+        buy?.amountNaira?.toString() ??
+        sell?.amountNaira?.toString() ??
+        send?.amountNaira?.toString() ??
+        '0',
+      status: tx.status,
+      date: tx.createdAt.toISOString(),
+    };
+  });
+
+  return {
+    user: {
+      id: user.id,
+      firstname: user.firstname,
+      lastname: user.lastname,
+      email: user.email,
+      username: user.username,
+      profilePicture: user.profilePicture,
+    },
+    balances,
+    assets,
+    deposits,
+    virtualActivity,
+  };
 }

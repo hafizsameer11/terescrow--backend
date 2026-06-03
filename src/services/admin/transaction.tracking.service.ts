@@ -243,7 +243,8 @@ export async function getTransactionTrackingList(filters: {
 
   const typeFilter = ledgerTypeFilter(filters.ledgerType);
   const where: Prisma.CryptoTransactionWhereInput = {
-    transactionType: { in: ['RECEIVE', 'BUY', 'SELL', 'SEND'] },
+    transactionType: 'RECEIVE',
+    cryptoReceive: { isNot: null },
     ...buildDateFilter(filters.startDate, filters.endDate),
     ...(typeFilter ?? {}),
   };
