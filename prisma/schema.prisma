@@ -1211,6 +1211,8 @@ model VirtualAccount {
   frozen              Boolean              @default(false)
   accountBalance      String               @default("0") @map("account_balance") @db.VarChar(255)
   availableBalance    String               @default("0") @map("available_balance") @db.VarChar(255)
+  virtualBalance      String               @default("0") @map("virtual_balance") @db.VarChar(255)
+  onChainBalance      String               @default("0") @map("on_chain_balance") @db.VarChar(255)
   xpub                String?              @db.VarChar(500)
   accountingCurrency  String?              @map("accounting_currency") @db.VarChar(50)
   currencyId          Int?                 @map("currency_id")
@@ -1534,6 +1536,8 @@ model CryptoTransaction {
   status           CryptoTxStatus @default(pending)
   currency         String         @db.VarChar(50)
   blockchain       String         @db.VarChar(255)
+  balanceBucket    BalanceBucket? @map("balance_bucket")
+  sellBatchId      String?        @map("sell_batch_id") @db.VarChar(255)
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
@@ -1555,6 +1559,8 @@ model CryptoTransaction {
   @@index([transactionId])
   @@index([transactionType])
   @@index([status])
+  @@index([balanceBucket])
+  @@index([sellBatchId])
   @@index([createdAt])
   @@map("crypto_transactions")
 }
@@ -1834,6 +1840,11 @@ enum CryptoTxStatus {
   successful
   failed
   cancelled
+}
+
+enum BalanceBucket {
+  virtual
+  on_chain
 }
 
 enum ProfitType {

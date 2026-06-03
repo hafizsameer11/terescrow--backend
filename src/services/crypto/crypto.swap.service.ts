@@ -22,6 +22,11 @@ import {
   sumUsdtBalances,
   type UsdtNetworkBalance,
 } from './crypto.unified.usdt';
+import {
+  allocateSellForAccount,
+  creditBucketData,
+  getTotalBalance,
+} from './virtual.account.balance.helper';
 import profitLedgerService from '../profit/profit.ledger.service';
 
 export interface SwapCryptoInput {
@@ -771,7 +776,7 @@ class CryptoSwapService {
     const fromAmountDecimal = new Decimal(quote.fromAmount);
 
     // Check balance
-    const fromBalanceBefore = new Decimal(fromVirtualAccount.availableBalance || '0');
+    const fromBalanceBefore = getTotalBalance(fromVirtualAccount);
     if (fromBalanceBefore.lessThan(totalAmountDecimal)) {
       throw new Error(`Insufficient ${fromCurrency} balance. Required: ${totalAmountDecimal.toString()}, Available: ${fromBalanceBefore.toString()}`);
     }
@@ -939,8 +944,10 @@ class CryptoSwapService {
       throw new Error(`Failed to execute swap: ${error.message || 'Unknown error'}`);
     } */
 
-    const toBalanceBefore = new Decimal(toVirtualAccount.availableBalance || '0');
-    const fromBalanceAfter = fromBalanceBefore.minus(totalAmountDecimal);
+    const toBalanceBefore = getTotalBalance(toVirtualAccount);
+    const fromSplit = allocateSellForAccount(fromVirtualAccount, totalAmountDecimal);
+    const toCreditData = creditBucketData(toVirtualAccount, 'virtual', toAmountDecimal);
+    const fromBalanceAfter = fromSplit.virtualAfter.plus(fromSplit.onChainAfter);
     const toBalanceAfter = toBalanceBefore.plus(toAmountDecimal);
 
     // Generate transaction ID
@@ -948,22 +955,21 @@ class CryptoSwapService {
 
     // Update balances and create transaction record
     const swapTxnResult = await prisma.$transaction(async (tx) => {
-      // Debit fromCurrency
+      // Debit fromCurrency (virtual-first across buckets)
       await tx.virtualAccount.update({
         where: { id: fromVirtualAccount.id },
         data: {
-          availableBalance: fromBalanceAfter.toString(),
-          accountBalance: fromBalanceAfter.toString(),
+          virtualBalance: fromSplit.virtualAfter.toString(),
+          onChainBalance: fromSplit.onChainAfter.toString(),
+          availableBalance: fromSplit.virtualAfter.plus(fromSplit.onChainAfter).toString(),
+          accountBalance: fromSplit.virtualAfter.plus(fromSplit.onChainAfter).toString(),
         },
       });
 
-      // Credit toCurrency
+      // Credit toCurrency into virtual bucket
       await tx.virtualAccount.update({
         where: { id: toVirtualAccount.id },
-        data: {
-          availableBalance: toBalanceAfter.toString(),
-          accountBalance: toBalanceAfter.toString(),
-        },
+        data: toCreditData,
       });
 
       // Create transaction record

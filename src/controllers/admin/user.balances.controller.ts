@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
-import { getUserBalances, getUserBalancesSummary } from '../../services/admin/user.balances.service';
+import { getUserBalances, getUserBalancesSummary, getUserAssetBalances } from '../../services/admin/user.balances.service';
 
 export async function getAdminUserBalancesController(
   req: Request,
@@ -25,6 +25,24 @@ export async function getAdminUserBalancesController(
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to fetch user balances'));
+  }
+}
+
+export async function getAdminUserAssetBalancesController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = parseInt(String(req.params.userId), 10);
+    if (!Number.isFinite(userId)) {
+      return next(ApiError.badRequest('Invalid user id'));
+    }
+    const assets = await getUserAssetBalances(userId);
+    return new ApiResponse(200, { assets }, 'User asset balances retrieved successfully').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to fetch user asset balances'));
   }
 }
 

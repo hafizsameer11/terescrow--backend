@@ -12,8 +12,11 @@ import {
   isUsdtFamilyCurrency,
   primaryUsdtVirtualAccountId,
   sumUsdtBalances,
+  sumUsdtOnChainBalances,
+  sumUsdtVirtualBalances,
   type UsdtNetworkBalance,
 } from './crypto.unified.usdt';
+import { getOnChainBalance, getTotalBalance, getVirtualBalance } from './virtual.account.balance.helper';
 
 class CryptoAssetService {
   /**
@@ -77,7 +80,9 @@ class CryptoAssetService {
       const nonUsdtAccounts = filteredAccounts.filter((a) => !isUsdtFamilyCurrency(a.currency));
 
       const mapAccountToAsset = (account: (typeof filteredAccounts)[0]) => {
-        const balance = new Decimal(account.availableBalance || '0');
+        const balance = getTotalBalance(account);
+        const virtualBalance = getVirtualBalance(account);
+        const onChainBalance = getOnChainBalance(account);
         const usdPrice = account.walletCurrency?.price
           ? new Decimal(account.walletCurrency.price.toString())
           : new Decimal('0');
@@ -98,6 +103,8 @@ class CryptoAssetService {
           symbol: account.walletCurrency?.symbol || null,
           name: account.walletCurrency?.name || account.currency,
           balance: balance.toString(),
+          virtualBalance: virtualBalance.toString(),
+          onChainBalance: onChainBalance.toString(),
           balanceUsd: usdValue.toString(),
           balanceNaira: nairaValue.toString(),
           price: usdPrice.toString(),
@@ -115,6 +122,8 @@ class CryptoAssetService {
 
       if (usdtAccounts.length > 0) {
         const totalBalance = sumUsdtBalances(usdtAccounts);
+        const totalVirtual = sumUsdtVirtualBalances(usdtAccounts);
+        const totalOnChain = sumUsdtOnChainBalances(usdtAccounts);
         const ref = usdtAccounts[0];
         const usdPrice = ref.walletCurrency?.price
           ? new Decimal(ref.walletCurrency.price.toString())
@@ -131,6 +140,8 @@ class CryptoAssetService {
           symbol: ref.walletCurrency?.symbol || null,
           name: 'USDT',
           balance: totalBalance.toString(),
+          virtualBalance: totalVirtual.toString(),
+          onChainBalance: totalOnChain.toString(),
           balanceUsd: usdValue.toString(),
           balanceNaira: nairaValue.toString(),
           price: usdPrice.toString(),

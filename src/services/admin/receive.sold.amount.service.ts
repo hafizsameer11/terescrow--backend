@@ -48,6 +48,7 @@ export async function getSoldTotalsForReceive(input: {
       userId: input.userId,
       virtualAccountId: input.virtualAccountId,
       status: 'successful',
+      OR: [{ balanceBucket: 'on_chain' }, { balanceBucket: null }],
       createdAt: {
         gte: input.receiveCreatedAt,
         ...(nextReceive ? { lt: nextReceive.createdAt } : {}),

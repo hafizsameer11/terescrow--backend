@@ -4,9 +4,17 @@ import authenticateAdmin from '../../middlewares/authenticate.admin';
 import {
   getAdminUserBalancesController,
   getAdminUserBalancesSummaryController,
+  getAdminUserAssetBalancesController,
 } from '../../controllers/admin/user.balances.controller';
 
 const router = express.Router();
+
+router.get(
+  '/:userId/assets',
+  authenticateUser,
+  authenticateAdmin,
+  getAdminUserAssetBalancesController
+);
 
 router.get(
   '/summary',

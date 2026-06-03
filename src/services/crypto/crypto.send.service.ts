@@ -16,6 +16,11 @@ import {
   resolveSendStorageCurrency,
   sumUsdtBalances,
 } from './crypto.unified.usdt';
+import {
+  allocateSellForAccount,
+  getTotalBalance,
+  syncTotalBalanceFields,
+} from './virtual.account.balance.helper';
 import cryptoLogger from '../../utils/crypto.logger';
 import { sendPushNotification } from '../../utils/pushService';
 import {
@@ -191,12 +196,16 @@ class CryptoSendService {
     const cryptoPrice = new Decimal(walletCurrency.price.toString());
     const { amountCryptoDecimal, amountUsd } = resolveSendAmounts(amount, useUsd, cryptoPrice);
 
-    const userBookBalance = new Decimal(virtualAccount.availableBalance || '0');
+    const userBookBalance = getTotalBalance(virtualAccount);
     if (userBookBalance.lessThan(amountCryptoDecimal)) {
       throw new Error(
         `Insufficient wallet balance. Available: ${userBookBalance.toString()}, required: ${amountCryptoDecimal.toString()}`
       );
     }
+
+    const sendSplit = allocateSellForAccount(virtualAccount, amountCryptoDecimal);
+    const sendBalanceBucket =
+      sendSplit.onChainDebit.gt(0) && sendSplit.virtualDebit.lte(0) ? 'on_chain' : 'virtual';
 
     const masterWallet = await findMasterWalletForChain(chainNorm);
     if (!masterWallet?.address?.trim() || !masterWallet.privateKey) {
@@ -265,10 +274,7 @@ class CryptoSendService {
         // Update virtual account to match expected on-chain balance after send
         await tx.virtualAccount.update({
           where: { id: virtualAccount.id },
-          data: {
-            availableBalance: balanceAfter.toString(),
-            accountBalance: balanceAfter.toString(),
-          },
+          data: syncTotalBalanceFields(sendSplit.virtualAfter, sendSplit.onChainAfter),
         });
 
         // Create crypto transaction directly (without service method to avoid extra queries)
@@ -279,6 +285,7 @@ class CryptoSendService {
             transactionType: 'SEND',
             transactionId,
             status: txHash ? 'successful' : 'failed',
+            balanceBucket: sendBalanceBucket,
             currency: virtualAccount.currency,
             blockchain: virtualAccount.blockchain,
             cryptoSend: {

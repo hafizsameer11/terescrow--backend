@@ -24,10 +24,12 @@ export async function getTransactionTrackingController(
       startDate: req.query.startDate as string,
       endDate: req.query.endDate as string,
       search: req.query.search as string,
+      ledgerType: req.query.ledgerType as string,
+      balanceBucket: req.query.balanceBucket as string,
       page: isNaN(page as number) ? undefined : page,
       limit: isNaN(limit as number) ? undefined : limit,
     });
-    return new ApiResponse(200, result, 'On-chain received transactions retrieved').send(res);
+    return new ApiResponse(200, result, 'Balance ledger retrieved').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to get transaction tracking'));
@@ -59,7 +61,7 @@ export async function getTrackingDetailsController(
     const txId = req.params.txId;
     if (!txId) return next(ApiError.badRequest('txId required'));
     const details = await trackingService.getTrackingDetails(txId);
-    if (!details) return next(ApiError.notFound('Received transaction not found'));
+    if (!details) return next(ApiError.notFound('Ledger transaction not found'));
     return new ApiResponse(200, details, 'Transaction details retrieved').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);

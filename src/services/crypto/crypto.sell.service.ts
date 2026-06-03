@@ -20,7 +20,7 @@ import { creditReferralCommission, ReferralService } from '../referral/referral.
 import profitLedgerService from '../profit/profit.ledger.service';
 import { resolveCryptoSpreadForSell } from '../profit/profit.crypto.rates';
 import {
-  allocateUsdtDebit,
+  allocateUsdtDualSell,
   decimalFromBalance,
   fetchUsdtFamilyVirtualAccounts,
   isUsdtFamilyCurrency,
@@ -28,6 +28,14 @@ import {
   sumUsdtBalances,
   type UsdtVirtualAccountLike,
 } from './crypto.unified.usdt';
+import {
+  allocateSellForAccount,
+  applyDualDebitData,
+  getTotalBalance,
+  makeSellBatchId,
+  splitProportional,
+  syncTotalBalanceFields,
+} from './virtual.account.balance.helper';
 
 export type SellAmountType = 'CRYPTO' | 'USD';
 
@@ -180,7 +188,6 @@ class CryptoSellService {
     // Get user's virtual account with deposit address (outside transaction)
     const isUnifiedUsdtSell = isUsdtFamilyCurrency(currencyUpper);
     let usdtFamilyAccounts: UsdtVirtualAccountLike[] = [];
-    let usdtDebitAllocations: Array<{ account: UsdtVirtualAccountLike; debitAmount: Decimal }> = [];
 
     let virtualAccount = isUnifiedUsdtSell
       ? null
@@ -231,21 +238,9 @@ class CryptoSellService {
     // Check sufficient crypto balance (unified USDT pool vs single-chain)
     const cryptoBalanceBefore = isUnifiedUsdtSell
       ? sumUsdtBalances(usdtFamilyAccounts)
-      : new Decimal(virtualAccount.availableBalance || '0');
+      : getTotalBalance(virtualAccount);
 
-    if (isUnifiedUsdtSell) {
-      usdtDebitAllocations = allocateUsdtDebit(usdtFamilyAccounts, amountCryptoDecimal);
-      if (usdtDebitAllocations.length === 0) {
-        throw new Error('Insufficient crypto balance');
-      }
-      const allocatedTotal = usdtDebitAllocations.reduce(
-        (sum, row) => sum.plus(row.debitAmount),
-        new Decimal('0')
-      );
-      if (allocatedTotal.lessThan(amountCryptoDecimal)) {
-        throw new Error('Insufficient crypto balance');
-      }
-    } else if (cryptoBalanceBefore.lessThan(amountCryptoDecimal)) {
+    if (cryptoBalanceBefore.lessThan(amountCryptoDecimal)) {
       throw new Error('Insufficient crypto balance');
     }
 
@@ -728,26 +723,42 @@ class CryptoSellService {
     // Now execute the database transaction
     const result = await prisma.$transaction(async (tx) => {
 
-      // Step 1: Debit virtual account(s) (crypto)
-      if (isUnifiedUsdtSell && usdtDebitAllocations.length > 0) {
-        for (const { account, debitAmount } of usdtDebitAllocations) {
-          const before = decimalFromBalance(account.availableBalance);
-          const after = before.minus(debitAmount);
-          await tx.virtualAccount.update({
-            where: { id: account.id },
-            data: {
-              availableBalance: after.toString(),
-              accountBalance: after.toString(),
-            },
-          });
+      let totalVirtualDebit = new Decimal('0');
+      let totalOnChainDebit = new Decimal('0');
+
+      // Step 1: Debit virtual-first across balance buckets
+      if (isUnifiedUsdtSell) {
+        const { virtualAllocations, onChainAllocations } = allocateUsdtDualSell(
+          usdtFamilyAccounts,
+          amountCryptoDecimal
+        );
+        const merged = new Map<
+          number,
+          { account: UsdtVirtualAccountLike; virtualDebit: Decimal; onChainDebit: Decimal }
+        >();
+        for (const { account, debitAmount } of virtualAllocations) {
+          const row = merged.get(account.id) ?? { account, virtualDebit: new Decimal('0'), onChainDebit: new Decimal('0') };
+          row.virtualDebit = row.virtualDebit.plus(debitAmount);
+          merged.set(account.id, row);
+          totalVirtualDebit = totalVirtualDebit.plus(debitAmount);
+        }
+        for (const { account, debitAmount } of onChainAllocations) {
+          const row = merged.get(account.id) ?? { account, virtualDebit: new Decimal('0'), onChainDebit: new Decimal('0') };
+          row.onChainDebit = row.onChainDebit.plus(debitAmount);
+          merged.set(account.id, row);
+          totalOnChainDebit = totalOnChainDebit.plus(debitAmount);
+        }
+        for (const { account, virtualDebit, onChainDebit } of merged.values()) {
+          const data = applyDualDebitData(account, virtualDebit, onChainDebit);
+          await tx.virtualAccount.update({ where: { id: account.id }, data });
         }
       } else {
+        const split = allocateSellForAccount(virtualAccount, amountCryptoDecimal);
+        totalVirtualDebit = split.virtualDebit;
+        totalOnChainDebit = split.onChainDebit;
         await tx.virtualAccount.update({
           where: { id: virtualAccount.id },
-          data: {
-            availableBalance: cryptoBalanceAfter.toString(),
-            accountBalance: cryptoBalanceAfter.toString(),
-          },
+          data: syncTotalBalanceFields(split.virtualAfter, split.onChainAfter),
         });
       }
 
@@ -784,31 +795,63 @@ class CryptoSellService {
         },
       });
 
-      // Step 3: Create crypto transaction record with transaction hashes
-      const transactionId = `SELL-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
-      const cryptoTransaction = await tx.cryptoTransaction.create({
-        data: {
-          userId,
-          virtualAccountId: virtualAccount.id,
-          transactionType: 'SELL',
-          transactionId,
-          status: 'successful', // Blockchain transfers already succeeded
-          currency: virtualAccount.currency,
-          blockchain: virtualAccount.blockchain,
-          cryptoSell: {
-            create: {
-              fromAddress: depositAddress,
-              toAddress: masterWalletAddress || null,
-              amount: amountCryptoDecimal,
-              amountUsd: amountUsd,
-              amountNaira: finalAmountNgnDecimal, // Final amount after gas fees
-              rateCryptoToUsd: cryptoPrice,
-              rateUsdToNgn: new Decimal(usdToNgnRate.rate.toString()),
-              txHash: tokenTransferTxHash || null, // Token transfer hash (main transaction)
+      // Step 3: Create crypto sell record(s) — split when both buckets used
+      const sellBatchId =
+        totalVirtualDebit.gt(0) && totalOnChainDebit.gt(0)
+          ? makeSellBatchId(userId)
+          : null;
+
+      const createSellLeg = async (
+        legAmount: Decimal,
+        bucket: 'virtual' | 'on_chain',
+        legNgn: Decimal
+      ) => {
+        const legUsd = legAmount.mul(cryptoPrice);
+        const transactionId = `SELL-${Date.now()}-${userId}-${Math.random().toString(36).substr(2, 9)}`;
+        return tx.cryptoTransaction.create({
+          data: {
+            userId,
+            virtualAccountId: virtualAccount.id,
+            transactionType: 'SELL',
+            transactionId,
+            status: 'successful',
+            balanceBucket: bucket,
+            sellBatchId,
+            currency: virtualAccount.currency,
+            blockchain: virtualAccount.blockchain,
+            cryptoSell: {
+              create: {
+                fromAddress: depositAddress,
+                toAddress: masterWalletAddress || null,
+                amount: legAmount,
+                amountUsd: legUsd,
+                amountNaira: legNgn,
+                rateCryptoToUsd: cryptoPrice,
+                rateUsdToNgn: new Decimal(usdToNgnRate.rate.toString()),
+                txHash: tokenTransferTxHash || null,
+              },
             },
           },
-        },
-      });
+        });
+      };
+
+      let cryptoTransaction;
+      if (totalVirtualDebit.gt(0) && totalOnChainDebit.gt(0)) {
+        const virtualNgn = splitProportional(finalAmountNgnDecimal, totalVirtualDebit, amountCryptoDecimal);
+        const onChainNgn = finalAmountNgnDecimal.minus(virtualNgn);
+        cryptoTransaction = await createSellLeg(totalVirtualDebit, 'virtual', virtualNgn);
+        await createSellLeg(totalOnChainDebit, 'on_chain', onChainNgn);
+      } else if (totalOnChainDebit.gt(0)) {
+        cryptoTransaction = await createSellLeg(totalOnChainDebit, 'on_chain', finalAmountNgnDecimal);
+      } else {
+        cryptoTransaction = await createSellLeg(
+          totalVirtualDebit.gt(0) ? totalVirtualDebit : amountCryptoDecimal,
+          'virtual',
+          finalAmountNgnDecimal
+        );
+      }
+
+      const transactionId = cryptoTransaction.transactionId;
 
       // Log the complete transaction
       cryptoLogger.transaction('SELL_COMPLETE', {

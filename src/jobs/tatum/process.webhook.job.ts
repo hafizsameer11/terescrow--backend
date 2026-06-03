@@ -513,11 +513,16 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
     });
 
     const currentBalance = new Decimal(virtualAccount.accountBalance || '0');
-    const newBalance = currentBalance.plus(creditedAmount);
+    const onChainBefore = new Decimal(virtualAccount.onChainBalance || virtualAccount.availableBalance || '0');
+    const onChainAfter = onChainBefore.plus(creditedAmount);
+    const virtualBal = new Decimal(virtualAccount.virtualBalance || '0');
+    const newBalance = virtualBal.plus(onChainAfter);
 
     const updatedVirtualAccount = await prisma.virtualAccount.update({
       where: { id: virtualAccount.id },
       data: {
+        virtualBalance: virtualBal.toString(),
+        onChainBalance: onChainAfter.toString(),
         accountBalance: newBalance.toString(),
         availableBalance: newBalance.toString(),
       },
@@ -643,6 +648,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         userId: virtualAccount.userId,
         virtualAccountId: virtualAccount.id,
         transactionId,
+        balanceBucket: 'on_chain',
         fromAddress: from || '',
         toAddress: to || '',
         amount: grossAmount.toString(),

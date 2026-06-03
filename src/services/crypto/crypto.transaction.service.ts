@@ -14,10 +14,13 @@ import { formatNairaAmount } from '../../utils/nairaAmount';
 export type CryptoTxType = 'BUY' | 'SELL' | 'SEND' | 'RECEIVE' | 'SWAP';
 export type CryptoTxStatus = 'pending' | 'processing' | 'successful' | 'failed' | 'cancelled';
 
+import { BalanceBucket } from '@prisma/client';
+
 interface CreateCryptoBuyData {
   userId: number;
   virtualAccountId?: number;
   transactionId: string;
+  balanceBucket?: BalanceBucket;
   fromAddress?: string;
   toAddress?: string;
   amount: string | number;
@@ -34,6 +37,8 @@ interface CreateCryptoSellData {
   userId: number;
   virtualAccountId?: number;
   transactionId: string;
+  balanceBucket?: BalanceBucket;
+  sellBatchId?: string;
   fromAddress?: string;
   toAddress?: string;
   amount: string | number;
@@ -50,6 +55,7 @@ interface CreateCryptoSendData {
   userId: number;
   virtualAccountId?: number;
   transactionId: string;
+  balanceBucket?: BalanceBucket;
   fromAddress: string;
   toAddress: string;
   amount: string | number;
@@ -65,6 +71,7 @@ interface CreateCryptoReceiveData {
   userId: number;
   virtualAccountId?: number;
   transactionId: string;
+  balanceBucket?: BalanceBucket;
   fromAddress: string;
   toAddress: string;
   amount: string | number;
@@ -114,7 +121,7 @@ class CryptoTransactionService {
    * Create a crypto buy transaction
    */
   async createBuyTransaction(data: CreateCryptoBuyData) {
-    const { userId, virtualAccountId, transactionId, status = 'successful', ...buyData } = data;
+    const { userId, virtualAccountId, transactionId, status = 'successful', balanceBucket, ...buyData } = data;
     
     // Get virtual account to determine currency and blockchain
     const virtualAccount = virtualAccountId
@@ -128,6 +135,7 @@ class CryptoTransactionService {
         transactionType: 'BUY',
         transactionId,
         status,
+        balanceBucket: balanceBucket ?? 'virtual',
         currency: virtualAccount?.currency || 'BTC',
         blockchain: virtualAccount?.blockchain || 'bitcoin',
         cryptoBuy: {
@@ -185,7 +193,7 @@ class CryptoTransactionService {
    * Create a crypto sell transaction
    */
   async createSellTransaction(data: CreateCryptoSellData) {
-    const { userId, virtualAccountId, transactionId, status = 'successful', ...sellData } = data;
+    const { userId, virtualAccountId, transactionId, status = 'successful', balanceBucket, sellBatchId, ...sellData } = data;
     
     const virtualAccount = virtualAccountId
       ? await prisma.virtualAccount.findUnique({ where: { id: virtualAccountId } })
@@ -198,6 +206,8 @@ class CryptoTransactionService {
         transactionType: 'SELL',
         transactionId,
         status,
+        balanceBucket: balanceBucket ?? null,
+        sellBatchId: sellBatchId ?? null,
         currency: virtualAccount?.currency || 'BTC',
         blockchain: virtualAccount?.blockchain || 'bitcoin',
         cryptoSell: {
@@ -256,7 +266,7 @@ class CryptoTransactionService {
    * Create a crypto send transaction
    */
   async createSendTransaction(data: CreateCryptoSendData) {
-    const { userId, virtualAccountId, transactionId, status = 'successful', ...sendData } = data;
+    const { userId, virtualAccountId, transactionId, status = 'successful', balanceBucket, ...sendData } = data;
     
     const virtualAccount = virtualAccountId
       ? await prisma.virtualAccount.findUnique({ where: { id: virtualAccountId } })
@@ -269,6 +279,7 @@ class CryptoTransactionService {
         transactionType: 'SEND',
         transactionId,
         status,
+        balanceBucket: balanceBucket ?? null,
         currency: virtualAccount?.currency || 'BTC',
         blockchain: virtualAccount?.blockchain || 'bitcoin',
         cryptoSend: {
@@ -315,7 +326,7 @@ class CryptoTransactionService {
    * Create a crypto receive transaction
    */
   async createReceiveTransaction(data: CreateCryptoReceiveData) {
-    const { userId, virtualAccountId, transactionId, status = 'successful', ...receiveData } = data;
+    const { userId, virtualAccountId, transactionId, status = 'successful', balanceBucket, ...receiveData } = data;
     
     const virtualAccount = virtualAccountId
       ? await prisma.virtualAccount.findUnique({ where: { id: virtualAccountId } })
@@ -336,6 +347,7 @@ class CryptoTransactionService {
         transactionType: 'RECEIVE',
         transactionId,
         status,
+        balanceBucket: balanceBucket ?? 'on_chain',
         currency: virtualAccount?.currency || 'BTC',
         blockchain: virtualAccount?.blockchain || 'bitcoin',
         cryptoReceive: {

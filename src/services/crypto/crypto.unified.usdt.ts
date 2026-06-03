@@ -59,6 +59,8 @@ export type UsdtVirtualAccountLike = {
   blockchain: string;
   currency: string;
   availableBalance?: unknown;
+  virtualBalance?: unknown;
+  onChainBalance?: unknown;
   active?: boolean;
   frozen?: boolean;
   depositAddresses?: { address: string }[];
@@ -72,7 +74,26 @@ export type UsdtVirtualAccountLike = {
   } | null;
 };
 
-export function sumUsdtBalances(accounts: { availableBalance?: unknown }[]): Decimal {
+export function sumUsdtVirtualBalances(accounts: UsdtVirtualAccountLike[]): Decimal {
+  return accounts.reduce(
+    (s, a) => s.plus(decimalFromBalance(a.virtualBalance)),
+    new Decimal('0')
+  );
+}
+
+export function sumUsdtOnChainBalances(accounts: UsdtVirtualAccountLike[]): Decimal {
+  return accounts.reduce(
+    (s, a) => s.plus(decimalFromBalance(a.onChainBalance)),
+    new Decimal('0')
+  );
+}
+
+export function sumUsdtBalances(accounts: { availableBalance?: unknown; virtualBalance?: unknown; onChainBalance?: unknown }[]): Decimal {
+  const fromBuckets = accounts.reduce(
+    (s, a) => s.plus(decimalFromBalance(a.virtualBalance)).plus(decimalFromBalance(a.onChainBalance)),
+    new Decimal('0')
+  );
+  if (fromBuckets.gt(0)) return fromBuckets;
   return accounts.reduce(
     (s, a) => s.plus(decimalFromBalance(a.availableBalance)),
     new Decimal('0')
@@ -122,24 +143,48 @@ export function pickPrimaryUsdtAccountForSell(accounts: UsdtVirtualAccountLike[]
 /** Split a USDT sell amount across family accounts (highest balance first). */
 export function allocateUsdtDebit(
   accounts: UsdtVirtualAccountLike[],
-  amount: Decimal
+  amount: Decimal,
+  bucket: 'virtual' | 'on_chain' = 'virtual'
 ): Array<{ account: UsdtVirtualAccountLike; debitAmount: Decimal }> {
   if (amount.lte(0)) return [];
-  const sorted = [...accounts].sort(
-    (a, b) =>
-      decimalFromBalance(b.availableBalance).cmp(decimalFromBalance(a.availableBalance))
-  );
+  const balanceOf = (a: UsdtVirtualAccountLike) =>
+    bucket === 'virtual'
+      ? decimalFromBalance(a.virtualBalance)
+      : decimalFromBalance(a.onChainBalance);
+  const sorted = [...accounts].sort((a, b) => balanceOf(b).cmp(balanceOf(a)));
   let remaining = amount;
   const allocations: Array<{ account: UsdtVirtualAccountLike; debitAmount: Decimal }> = [];
   for (const account of sorted) {
     if (remaining.lte(0)) break;
-    const bal = decimalFromBalance(account.availableBalance);
+    const bal = balanceOf(account);
     if (bal.lte(0)) continue;
     const debitAmount = Decimal.min(bal, remaining);
     allocations.push({ account, debitAmount });
     remaining = remaining.minus(debitAmount);
   }
   return allocations;
+}
+
+/** Virtual-first dual-bucket USDT sell allocation across family accounts. */
+export function allocateUsdtDualSell(
+  accounts: UsdtVirtualAccountLike[],
+  sellAmount: Decimal
+): {
+  virtualAllocations: Array<{ account: UsdtVirtualAccountLike; debitAmount: Decimal }>;
+  onChainAllocations: Array<{ account: UsdtVirtualAccountLike; debitAmount: Decimal }>;
+} {
+  const totalVirtual = sumUsdtVirtualBalances(accounts);
+  const totalOnChain = sumUsdtOnChainBalances(accounts);
+  const total = totalVirtual.plus(totalOnChain);
+  if (total.lt(sellAmount)) {
+    throw new Error('Insufficient crypto balance');
+  }
+  const virtualDebit = Decimal.min(totalVirtual, sellAmount);
+  const onChainDebit = sellAmount.minus(virtualDebit);
+  return {
+    virtualAllocations: allocateUsdtDebit(accounts, virtualDebit, 'virtual'),
+    onChainAllocations: allocateUsdtDebit(accounts, onChainDebit, 'on_chain'),
+  };
 }
 
 /** Resolve DB currency for send: UI sends USDT + network; ledger uses USDT / USDT_TRON / USDT_BSC. */

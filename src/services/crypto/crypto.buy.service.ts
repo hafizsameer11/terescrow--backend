@@ -20,6 +20,10 @@ import { creditReferralCommission, ReferralService } from '../referral/referral.
 import { getDefaultUsdtBlockchain, isUsdtFamilyCurrency } from './crypto.unified.usdt';
 import profitLedgerService from '../profit/profit.ledger.service';
 import { resolveCryptoSpreadForBuy } from '../profit/profit.crypto.rates';
+import {
+  creditBucketData,
+  getTotalBalance,
+} from './virtual.account.balance.helper';
 
 export interface BuyCryptoInput {
   userId: number;
@@ -183,7 +187,7 @@ class CryptoBuyService {
     // Get deposit address for blockchain transfers
     const depositAddress = virtualAccount.depositAddresses[0]?.address || null;
 
-    const cryptoBalanceBefore = new Decimal(virtualAccount.availableBalance || '0');
+    const cryptoBalanceBefore = getTotalBalance(virtualAccount);
     const cryptoBalanceAfter = cryptoBalanceBefore.plus(amountCryptoDecimal);
 
     // BLOCKCHAIN CODE COMMENTED OUT - Simulated transaction only
@@ -509,13 +513,11 @@ class CryptoBuyService {
         },
       });
 
-      // Step 10: Credit virtual account
+      // Step 10: Credit virtual balance bucket (bought with Naira — admin-held)
+      const creditData = creditBucketData(virtualAccount, 'virtual', amountCryptoDecimal);
       await tx.virtualAccount.update({
         where: { id: virtualAccount.id },
-        data: {
-          availableBalance: cryptoBalanceAfter.toString(),
-          accountBalance: cryptoBalanceAfter.toString(),
-        },
+        data: creditData,
       });
 
       // Step 11: Create crypto transaction record with all rates and blockchain details
@@ -527,6 +529,7 @@ class CryptoBuyService {
           transactionType: 'BUY',
           transactionId,
           status: 'successful', // Transaction is successful once we get txHash from Tatum
+          balanceBucket: 'virtual',
           currency: virtualAccount.currency,
           blockchain: virtualAccount.blockchain,
           cryptoBuy: {
