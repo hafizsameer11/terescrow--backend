@@ -284,7 +284,7 @@ export async function checkIn(userId: number, shift: string, timestamp?: Date) {
   if (existing) {
     return await attendanceModel.update({
       where: { id: existing.id },
-      data: { checkInTime: ts, shift, status: 'checked_in' },
+      data: { checkInTime: ts, checkOutTime: null, shift, status: 'checked_in' },
     });
   }
   return await attendanceModel.create({
