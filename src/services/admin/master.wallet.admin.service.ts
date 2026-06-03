@@ -13,6 +13,11 @@ import {
   extractBaseSymbol,
   normalizeBlockchain,
 } from './received.asset.disbursement.helpers';
+import {
+  getOnChainBalance,
+  getVirtualBalance,
+} from '../crypto/virtual.account.balance.helper';
+import { Decimal } from '@prisma/client/runtime/library';
 
 export { estimateMasterWalletSend, type MasterWalletSendEstimate };
 
@@ -142,11 +147,23 @@ export interface UserPendingAssetItem {
   userCount: number;
 }
 
-export interface UserPendingCryptoSummary {
+export interface UserPendingBucketSummary {
   totalUsd: number;
   totalNgn: number;
   usersWithBalance: number;
   assets: UserPendingAssetItem[];
+}
+
+export interface UserPendingCryptoSummary {
+  /** On-chain deposit credits in customer wallets (same as onChainPending totals). */
+  totalUsd: number;
+  totalNgn: number;
+  usersWithBalance: number;
+  assets: UserPendingAssetItem[];
+  /** Deposits credited on-chain — may still sit at customer deposit addresses. */
+  onChainPending: UserPendingBucketSummary;
+  /** Virtual / system ledger — bought with Naira, admin-held. */
+  virtualPending: UserPendingBucketSummary;
 }
 
 function formatStaffRole(role: string | null | undefined): string {
@@ -378,7 +395,7 @@ function resolveVirtualAccountWalletCurrency(
   return null;
 }
 
-/** Total crypto held in customer virtual accounts (not sold / withdrawn yet). */
+/** Total crypto held in customer virtual accounts, split by balance bucket. */
 export async function getUserPendingCryptoBalances(): Promise<UserPendingCryptoSummary> {
   const sellRateRow = await cryptoRateService.getRateForAmount('SELL', 1);
   const ngnPerUsdFallback = sellRateRow ? Number(sellRateRow.rate) : 0;
@@ -406,6 +423,8 @@ export async function getUserPendingCryptoBalances(): Promise<UserPendingCryptoS
       blockchain: true,
       availableBalance: true,
       accountBalance: true,
+      virtualBalance: true,
+      onChainBalance: true,
       currencyId: true,
       walletCurrency: {
         select: {
@@ -433,98 +452,110 @@ export async function getUserPendingCryptoBalances(): Promise<UserPendingCryptoS
     userIds: Set<number>;
   };
 
-  const byCurrency = new Map<number, Agg>();
-  const usersWithBalance = new Set<number>();
-  let unlinkedIdSeq = -1;
+  function aggregateBucket(pickBalance: (va: (typeof virtualAccounts)[0]) => Decimal): UserPendingBucketSummary {
+    const byCurrency = new Map<number, Agg>();
+    const usersWithBalance = new Set<number>();
+    let unlinkedIdSeq = -1;
 
-  for (const va of virtualAccounts) {
-    const bal = parseFloat(String(va.availableBalance || va.accountBalance || '0').replace(/,/g, '')) || 0;
-    if (bal <= 0) continue;
+    for (const va of virtualAccounts) {
+      const balDec = pickBalance(va);
+      const bal = Number(balDec.toString());
+      if (!Number.isFinite(bal) || bal <= 0) continue;
 
-    usersWithBalance.add(va.userId);
+      usersWithBalance.add(va.userId);
 
-    let wc = resolveVirtualAccountWalletCurrency(va, wcById);
-    let groupId: number;
+      let wc = resolveVirtualAccountWalletCurrency(va, wcById);
+      let groupId: number;
 
-    if (wc) {
-      groupId = wc.id;
-    } else {
-      groupId = unlinkedIdSeq;
-      unlinkedIdSeq -= 1;
-    }
-
-    let agg = byCurrency.get(groupId);
-    if (!agg) {
       if (wc) {
-        agg = {
-          walletCurrencyId: wc.id,
-          currency: wc.currency,
-          symbol: wc.symbol || wc.currency,
-          blockchain: wc.blockchain,
-          isToken: Boolean(wc.isToken),
-          totalBalance: 0,
-          totalUsd: 0,
-          totalNgn: 0,
-          userIds: new Set<number>(),
-        };
+        groupId = wc.id;
       } else {
-        const chain = normalizeBlockchain(va.blockchain);
-        const cur = String(va.currency || '').trim().toUpperCase();
-        agg = {
-          walletCurrencyId: groupId,
-          currency: cur,
-          symbol: extractBaseSymbol(cur),
-          blockchain: chain,
-          isToken: false,
-          totalBalance: 0,
-          totalUsd: 0,
-          totalNgn: 0,
-          userIds: new Set<number>(),
-        };
+        groupId = unlinkedIdSeq;
+        unlinkedIdSeq -= 1;
       }
-      byCurrency.set(groupId, agg);
+
+      let agg = byCurrency.get(groupId);
+      if (!agg) {
+        if (wc) {
+          agg = {
+            walletCurrencyId: wc.id,
+            currency: wc.currency,
+            symbol: extractBaseSymbol(wc.currency),
+            blockchain: wc.blockchain,
+            isToken: Boolean(wc.isToken),
+            totalBalance: 0,
+            totalUsd: 0,
+            totalNgn: 0,
+            userIds: new Set<number>(),
+          };
+        } else {
+          const chain = normalizeBlockchain(va.blockchain);
+          const cur = String(va.currency || '').trim().toUpperCase();
+          agg = {
+            walletCurrencyId: groupId,
+            currency: cur,
+            symbol: extractBaseSymbol(cur),
+            blockchain: chain,
+            isToken: false,
+            totalBalance: 0,
+            totalUsd: 0,
+            totalNgn: 0,
+            userIds: new Set<number>(),
+          };
+        }
+        byCurrency.set(groupId, agg);
+      }
+
+      agg.totalBalance += bal;
+      agg.userIds.add(va.userId);
+
+      const usdPrice = unitPrice(wc?.price);
+      const nairaPrice = unitPrice(wc?.nairaPrice);
+      if (usdPrice > 0) agg.totalUsd += bal * usdPrice;
+      if (nairaPrice > 0) {
+        agg.totalNgn += bal * nairaPrice;
+      } else if (usdPrice > 0 && ngnPerUsdFallback > 0) {
+        agg.totalNgn += bal * usdPrice * ngnPerUsdFallback;
+      }
     }
 
-    agg.totalBalance += bal;
-    agg.userIds.add(va.userId);
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const round0 = (n: number) => Math.round(n);
 
-    const usdPrice = unitPrice(wc?.price);
-    const nairaPrice = unitPrice(wc?.nairaPrice);
-    if (usdPrice > 0) agg.totalUsd += bal * usdPrice;
-    if (nairaPrice > 0) {
-      agg.totalNgn += bal * nairaPrice;
-    } else if (usdPrice > 0 && ngnPerUsdFallback > 0) {
-      agg.totalNgn += bal * usdPrice * ngnPerUsdFallback;
-    }
+    const assets: UserPendingAssetItem[] = [...byCurrency.values()]
+      .filter((a) => a.totalBalance > 0)
+      .map((a) => ({
+        walletCurrencyId: a.walletCurrencyId,
+        symbol: a.symbol,
+        currency: a.currency,
+        blockchain: a.blockchain,
+        displayLabel: formatDisplayLabel(a.currency, a.blockchain, a.isToken),
+        isToken: a.isToken,
+        totalBalance: formatCryptoAmount(String(a.totalBalance)),
+        totalUsd: round2(a.totalUsd),
+        totalNgn: round0(a.totalNgn),
+        userCount: a.userIds.size,
+      }))
+      .sort((a, b) => b.totalUsd - a.totalUsd);
+
+    return {
+      totalUsd: round2(assets.reduce((s, a) => s + a.totalUsd, 0)),
+      totalNgn: round0(assets.reduce((s, a) => s + a.totalNgn, 0)),
+      usersWithBalance: usersWithBalance.size,
+      assets,
+    };
   }
 
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  const round0 = (n: number) => Math.round(n);
-
-  const assets: UserPendingAssetItem[] = [...byCurrency.values()]
-    .filter((a) => a.totalBalance > 0)
-    .map((a) => ({
-      walletCurrencyId: a.walletCurrencyId,
-      symbol: a.symbol,
-      currency: a.currency,
-      blockchain: a.blockchain,
-      displayLabel: formatDisplayLabel(a.currency, a.blockchain, a.isToken),
-      isToken: a.isToken,
-      totalBalance: formatCryptoAmount(String(a.totalBalance)),
-      totalUsd: round2(a.totalUsd),
-      totalNgn: round0(a.totalNgn),
-      userCount: a.userIds.size,
-    }))
-    .sort((a, b) => b.totalUsd - a.totalUsd);
-
-  const totalUsd = round2(assets.reduce((s, a) => s + a.totalUsd, 0));
-  const totalNgn = round0(assets.reduce((s, a) => s + a.totalNgn, 0));
+  const onChainPending = aggregateBucket((va) => getOnChainBalance(va));
+  const virtualPending = aggregateBucket((va) => getVirtualBalance(va));
 
   return {
-    totalUsd,
-    totalNgn,
-    usersWithBalance: usersWithBalance.size,
-    assets,
+    totalUsd: onChainPending.totalUsd,
+    totalNgn: onChainPending.totalNgn,
+    usersWithBalance: onChainPending.usersWithBalance,
+    assets: onChainPending.assets,
+    onChainPending,
+    virtualPending,
   };
 }
 

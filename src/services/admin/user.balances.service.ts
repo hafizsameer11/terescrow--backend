@@ -36,6 +36,8 @@ export interface UserAssetBalanceRow {
   onChainBalanceUsd: number;
   totalBalanceUsd: number;
   depositAddress: string | null;
+  /** Live balance at deposit address (blockchain lookup — not ledger). */
+  liveOnChainAtDeposit: string | null;
 }
 
 export interface UserBalancesSummary {
@@ -293,6 +295,32 @@ function resolveAssetDisplay(
   return { symbol: c || '—', iconUrl };
 }
 
+async function fetchLiveBalanceAtDeposit(
+  depositAddress: string | null,
+  blockchain: string,
+  currency: string,
+  walletCurrency: { contractAddress: string | null; decimals: number | null; isToken: boolean | null } | null
+): Promise<string | null> {
+  if (!depositAddress) return null;
+  try {
+    const chain = blockchain.toLowerCase();
+    const isTronUsdt =
+      (chain === 'tron' || chain === 'trx') &&
+      (currency.toUpperCase().includes('USDT') || walletCurrency?.isToken === true);
+    const bal = await fetchOnChainTokenBalance({
+      blockchain,
+      address: depositAddress,
+      contractAddress:
+        walletCurrency?.contractAddress ?? (isTronUsdt ? 'USDT_TRON' : undefined),
+      decimals: walletCurrency?.decimals ?? (isTronUsdt ? 6 : undefined),
+      isToken: walletCurrency?.isToken ?? isTronUsdt,
+    });
+    return formatCryptoAmount(bal);
+  } catch {
+    return null;
+  }
+}
+
 export async function getUserAssetBalances(userId: number): Promise<UserAssetBalanceRow[]> {
   const accounts = await prisma.virtualAccount.findMany({
     where: { userId },
@@ -306,8 +334,8 @@ export async function getUserAssetBalances(userId: number): Promise<UserAssetBal
   const sellRateRow = await cryptoRateService.getRateForAmount('SELL', 1);
   const ngnPerUsdFallback = sellRateRow ? Number(sellRateRow.rate) : 0;
 
-  return accounts
-    .map((va): UserAssetBalanceRow | null => {
+  const mapped = await Promise.all(
+    accounts.map(async (va): Promise<UserAssetBalanceRow | null> => {
       const virtualBal = getVirtualBalance(va);
       const onChainBal = getOnChainBalance(va);
       const totalBal = getTotalBalance(va);
@@ -319,6 +347,13 @@ export async function getUserAssetBalances(userId: number): Promise<UserAssetBal
       const t = Number(totalBal.toString());
       const round = (n: number) => Math.round(n * 100) / 100;
       const display = resolveAssetDisplay(va.currency, va.blockchain, va.walletCurrency);
+      const depositAddress = va.depositAddresses[0]?.address ?? null;
+      const liveOnChainAtDeposit = await fetchLiveBalanceAtDeposit(
+        depositAddress,
+        va.blockchain,
+        va.currency,
+        va.walletCurrency
+      );
       return {
         currency: va.currency,
         blockchain: va.blockchain,
@@ -331,10 +366,13 @@ export async function getUserAssetBalances(userId: number): Promise<UserAssetBal
         virtualBalanceUsd: round(lineUsd(v, usdPrice, nairaPrice, ngnPerUsdFallback).lineUsd),
         onChainBalanceUsd: round(lineUsd(o, usdPrice, nairaPrice, ngnPerUsdFallback).lineUsd),
         totalBalanceUsd: round(lineUsd(t, usdPrice, nairaPrice, ngnPerUsdFallback).lineUsd),
-        depositAddress: va.depositAddresses[0]?.address ?? null,
+        depositAddress,
+        liveOnChainAtDeposit,
       };
     })
-    .filter((r): r is UserAssetBalanceRow => r != null);
+  );
+
+  return mapped.filter((r): r is UserAssetBalanceRow => r != null);
 }
 
 export interface UserDepositActivityRow {

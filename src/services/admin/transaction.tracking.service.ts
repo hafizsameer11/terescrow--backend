@@ -340,13 +340,6 @@ export async function getTransactionTrackingList(filters: {
           userRetentionUsd: recv.amountUsd.toString(),
         };
         const depositAddress = tx.virtualAccount?.depositAddresses?.[0]?.address ?? recv.toAddress;
-        const onChainDepositBalance = await fetchReceiveDepositOnChainBalance({
-          blockchain: tx.blockchain,
-          currency: tx.currency,
-          toAddress: recv.toAddress,
-          depositAddress,
-          walletCurrency: tx.virtualAccount?.walletCurrency,
-        });
         return {
           id: tx.id,
           transactionId: tx.transactionId,
@@ -381,7 +374,7 @@ export async function getTransactionTrackingList(filters: {
           soldAmountUsd: sold.soldAmountUsd,
           soldAmountNaira: sold.soldAmountNaira,
           userRetentionUsd: sold.userRetentionUsd,
-          onChainDepositBalance,
+          onChainDepositBalance: null,
         };
       }
 
