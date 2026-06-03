@@ -268,9 +268,22 @@ export async function createSwapController(req: Request, res: Response, next: Ne
     const fromTicker = String(b.fromTicker || '').trim();
     const toTicker = String(b.toTicker || '').trim();
     const amountFrom = String(b.amountFrom || '').trim();
-    const payoutAddressId = parseInt(String(b.payoutAddressId), 10);
-    if (!fromTicker || !toTicker || !amountFrom || !Number.isFinite(payoutAddressId)) {
-      throw ApiError.badRequest('fromTicker, toTicker, amountFrom, payoutAddressId are required');
+    const payoutAddressId =
+      b.payoutAddressId != null && b.payoutAddressId !== ''
+        ? parseInt(String(b.payoutAddressId), 10)
+        : undefined;
+    const payoutWalletCurrencyId =
+      b.payoutWalletCurrencyId != null && b.payoutWalletCurrencyId !== ''
+        ? parseInt(String(b.payoutWalletCurrencyId), 10)
+        : undefined;
+    if (!fromTicker || !toTicker || !amountFrom) {
+      throw ApiError.badRequest('fromTicker, toTicker, amountFrom are required');
+    }
+    if (
+      (!Number.isFinite(payoutAddressId) || payoutAddressId! <= 0) &&
+      (!Number.isFinite(payoutWalletCurrencyId) || payoutWalletCurrencyId! <= 0)
+    ) {
+      throw ApiError.badRequest('payoutWalletCurrencyId or payoutAddressId is required');
     }
     const order = await svc.createSwapOrder({
       adminUserId: adminId(req),
@@ -283,7 +296,11 @@ export async function createSwapController(req: Request, res: Response, next: Ne
       fromTicker,
       toTicker,
       amountFrom,
-      payoutAddressId,
+      payoutAddressId: Number.isFinite(payoutAddressId) && payoutAddressId! > 0 ? payoutAddressId : undefined,
+      payoutWalletCurrencyId:
+        Number.isFinite(payoutWalletCurrencyId) && payoutWalletCurrencyId! > 0
+          ? payoutWalletCurrencyId
+          : undefined,
       refundAddress: b.refundAddress,
     });
     return new ApiResponse(201, order, 'ChangeNOW swap created and pay-in broadcast').send(res);

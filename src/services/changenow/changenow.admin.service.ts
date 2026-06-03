@@ -195,6 +195,67 @@ function extractPayin(data: cn.ChangeNowCreateExchangeResponse): {
   return { address: String(address).trim(), extraId: extraId ? String(extraId) : null };
 }
 
+type ResolvedPayout = {
+  id: number | null;
+  address: string;
+  extraId: string | null;
+  toNetworkHint: string | null;
+};
+
+async function resolveMasterWalletPayout(walletCurrencyId: number): Promise<ResolvedPayout> {
+  const wc = await prisma.walletCurrency.findUnique({ where: { id: walletCurrencyId } });
+  if (!wc) {
+    throw ApiError.notFound('Destination master wallet asset not found');
+  }
+  const chain = String(wc.blockchain ?? '').toLowerCase().trim();
+  const mw = await prisma.masterWallet.findFirst({
+    where: { blockchain: chain },
+  });
+  if (!mw?.address?.trim()) {
+    throw ApiError.badRequest(`Master wallet not configured for ${wc.blockchain}`);
+  }
+  const address = mw.address.trim();
+  const existing = await prisma.adminExchangePayoutAddress.findFirst({
+    where: { walletCurrencyId, archived: false, address },
+    orderBy: { id: 'desc' },
+  });
+  return {
+    id: existing?.id ?? null,
+    address,
+    extraId: existing?.extraId ?? null,
+    toNetworkHint: wc.blockchain,
+  };
+}
+
+async function resolveSwapPayout(input: {
+  adminUserId: number;
+  payoutAddressId?: number;
+  payoutWalletCurrencyId?: number;
+}): Promise<ResolvedPayout> {
+  if (input.payoutWalletCurrencyId) {
+    return resolveMasterWalletPayout(input.payoutWalletCurrencyId);
+  }
+  if (input.payoutAddressId) {
+    const payout = await prisma.adminExchangePayoutAddress.findFirst({
+      where: {
+        id: input.payoutAddressId,
+        adminUserId: input.adminUserId,
+        archived: false,
+      },
+    });
+    if (!payout) {
+      throw ApiError.notFound('Payout address not found');
+    }
+    return {
+      id: payout.id,
+      address: payout.address.trim(),
+      extraId: payout.extraId,
+      toNetworkHint: payout.toNetworkHint,
+    };
+  }
+  throw ApiError.badRequest('payoutWalletCurrencyId or payoutAddressId is required');
+}
+
 export async function createSwapOrder(input: {
   adminUserId: number;
   sourceType: ChangeNowSwapSourceType;
@@ -204,23 +265,19 @@ export async function createSwapOrder(input: {
   fromTicker: string;
   toTicker: string;
   amountFrom: string;
-  payoutAddressId: number;
+  payoutAddressId?: number;
+  payoutWalletCurrencyId?: number;
   refundAddress?: string;
 }) {
   if (!cn.getChangeNowApiKey()) {
     throw ApiError.internal('CHANGENOW_API_KEY is not configured');
   }
 
-  const payout = await prisma.adminExchangePayoutAddress.findFirst({
-    where: {
-      id: input.payoutAddressId,
-      adminUserId: input.adminUserId,
-      archived: false,
-    },
+  const payout = await resolveSwapPayout({
+    adminUserId: input.adminUserId,
+    payoutAddressId: input.payoutAddressId,
+    payoutWalletCurrencyId: input.payoutWalletCurrencyId,
   });
-  if (!payout) {
-    throw ApiError.notFound('Payout address not found');
-  }
 
   const amountDec = new Decimal(input.amountFrom);
   if (!amountDec.isFinite() || amountDec.lte(0)) {
