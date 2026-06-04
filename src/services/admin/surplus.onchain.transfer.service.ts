@@ -15,6 +15,7 @@ import { getTronTrxBalance, getTronTrc20Balance, sendTronTrx, sendTronTrc20 } fr
 import { trc20GasConfigForAsset } from '../tron/tron.gas.config';
 import { sendEvmTatumTransaction, type EvmTatumPath } from '../tatum/evm.tatum.transaction.service';
 import { getEvmFungibleTokenBalance, getEvmNativeBalance } from '../tatum/evm.tatum.balance.service';
+import cryptoLogger from '../../utils/crypto.logger';
 
 const SUPPORTED_BASE = new Set(['ETH', 'USDT', 'BNB', 'TRX', 'MATIC', 'BTC', 'LTC', 'DOGE', 'SOL']);
 const MIN_SURPLUS = new Decimal('0.000001');
@@ -43,6 +44,7 @@ function normalizeDepositPrivateKey(raw: string): string {
 
 export interface TransferOnChainSurplusParams {
   userId: number;
+  adminUserId: number;
   currency: string;
   blockchain: string;
   toAddress: string;
@@ -50,6 +52,7 @@ export interface TransferOnChainSurplusParams {
 }
 
 export interface TransferOnChainSurplusResult {
+  id: number;
   txHash: string;
   amount: string;
   toAddress: string;
@@ -57,6 +60,29 @@ export interface TransferOnChainSurplusResult {
   liveBalance: string;
   recordedOnChain: string;
   gasFundingTxHash?: string;
+  status: string;
+}
+
+type GasTopUpRecord = { txHash: string; amount: string; assetSymbol: string };
+
+async function recordGasTopUpFromMaster(
+  adminUserId: number,
+  gas: GasTopUpRecord,
+  depositAddress: string
+): Promise<void> {
+  await prisma.masterWalletTransaction.create({
+    data: {
+      walletId: 'tercescrow',
+      type: 'gas_topup_on_chain_surplus',
+      assetSymbol: gas.assetSymbol,
+      amount: new Decimal(gas.amount),
+      toAddress: depositAddress,
+      txHash: gas.txHash,
+      status: 'successful',
+      performedByUserId: adminUserId,
+      notes: 'TRX/native gas for on-chain surplus transfer',
+    },
+  });
 }
 
 function resolveBaseSymbol(currency: string, chainNorm: string, walletCurrency: { currency?: string | null; isToken?: boolean | null } | null): string {
@@ -91,7 +117,7 @@ async function fundTronGasIfNeeded(
   depositAddress: string,
   baseSymbol: string,
   decryptFn: (s: string) => string
-): Promise<string | undefined> {
+): Promise<GasTopUpRecord | undefined> {
   const gasCfg = trc20GasConfigForAsset(baseSymbol);
   const targetTrx = gasCfg.targetTrxOnDeposit;
   let trxBal = new Decimal(await getTronTrxBalance(depositAddress));
@@ -119,7 +145,7 @@ async function fundTronGasIfNeeded(
   if (!ok) {
     throw ApiError.internal(`TRX top-up (${topHash}) not confirmed in time; retry transfer`);
   }
-  return topHash;
+  return { txHash: topHash, amount: trxToSend.toString(), assetSymbol: 'TRX' };
 }
 
 async function executeTronSurplus(params: {
@@ -130,7 +156,7 @@ async function executeTronSurplus(params: {
   baseSymbol: string;
   isNative: boolean;
   walletCurrency: { contractAddress: string | null; decimals: number | null } | null;
-}): Promise<{ txHash: string; gasFundingTxHash?: string }> {
+}): Promise<{ txHash: string; gasFunding?: GasTopUpRecord }> {
   const pk = normalizeDepositPrivateKey(params.depositPrivateKey);
   const toAddress = params.toAddress.trim();
 
@@ -164,7 +190,7 @@ async function executeTronSurplus(params: {
     );
   }
   const gasCfg = trc20GasConfigForAsset(params.baseSymbol);
-  const gasFundingTxHash = await fundTronGasIfNeeded(params.depositAddress, params.baseSymbol, decryptPrivateKey);
+  const gasFunding = await fundTronGasIfNeeded(params.depositAddress, params.baseSymbol, decryptPrivateKey);
   const txHash = await sendTronTrc20({
     to: toAddress,
     amount: params.amount.toString(),
@@ -172,7 +198,7 @@ async function executeTronSurplus(params: {
     fromPrivateKey: pk,
     feeLimitTrx: gasCfg.feeLimitTrx,
   });
-  return { txHash, gasFundingTxHash };
+  return { txHash, gasFunding };
 }
 
 async function executeEvmSurplus(params: {
@@ -186,7 +212,7 @@ async function executeEvmSurplus(params: {
   baseSymbol: string;
   isNative: boolean;
   walletCurrency: { contractAddress: string | null; decimals: number | null } | null;
-}): Promise<{ txHash: string; gasFundingTxHash?: string }> {
+}): Promise<{ txHash: string; gasFunding?: GasTopUpRecord }> {
   const pk = normalizeDepositPrivateKey(params.depositPrivateKey);
   const toAddress = params.toAddress.trim();
   const { ethereumGasService } = await import('../ethereum/ethereum.gas.service');
@@ -254,7 +280,7 @@ async function executeEvmSurplus(params: {
   );
   const minimumNative = gasFeeNative.plus(Decimal.max(gasFeeNative.mul(new Decimal('0.5')), new Decimal('0.0001')));
 
-  let gasFundingTxHash: string | undefined;
+  let gasFunding: GasTopUpRecord | undefined;
   if (nativeForGas.lessThan(minimumNative)) {
     const nativeToDeposit = minimumNative.minus(nativeForGas).plus(new Decimal('0.0001'));
     const masterBlockchain =
@@ -264,19 +290,24 @@ async function executeEvmSurplus(params: {
       throw ApiError.internal(`Master wallet for ${masterBlockchain} not configured`);
     }
     const masterPk = normalizeDepositPrivateKey(decryptPrivateKey(masterWallet.privateKey));
-    gasFundingTxHash = await sendEvmTatumTransaction({
+    const topHash = await sendEvmTatumTransaction({
       evmPath: params.evmPath,
       to: params.depositAddress,
       amount: nativeToDeposit.toString(),
       fromPrivateKey: masterPk,
       currency: params.nativeCurrencySymbol,
     });
+    gasFunding = {
+      txHash: topHash,
+      amount: nativeToDeposit.toString(),
+      assetSymbol: params.nativeCurrencySymbol,
+    };
     for (let i = 0; i < 12; i++) {
       if (i > 0) await new Promise((r) => setTimeout(r, 3000));
       nativeForGas = new Decimal(await getEvmNativeBalance(params.evmPath, params.depositAddress, false));
       if (nativeForGas.gte(minimumNative)) break;
       if (i === 11) {
-        throw ApiError.internal(`Gas top-up (${gasFundingTxHash}) not confirmed in time; retry transfer`);
+        throw ApiError.internal(`Gas top-up (${topHash}) not confirmed in time; retry transfer`);
       }
     }
   }
@@ -290,13 +321,16 @@ async function executeEvmSurplus(params: {
     gasPriceGwei: ethereumGasService.weiToGwei(gasEstimate.gasPrice),
     gasLimit: gasLimit.toString(),
   });
-  return { txHash, gasFundingTxHash };
+  return { txHash, gasFunding };
 }
 
 export async function transferOnChainSurplus(
   params: TransferOnChainSurplusParams
 ): Promise<TransferOnChainSurplusResult> {
-  const { userId, currency, blockchain, toAddress } = params;
+  const { userId, adminUserId, currency, blockchain, toAddress } = params;
+  if (!Number.isFinite(adminUserId) || adminUserId < 1) {
+    throw ApiError.unauthorized('Admin authentication required');
+  }
   if (!toAddress?.trim()) throw ApiError.badRequest('Destination address is required');
 
   const chainNorm = normalizeBlockchain(blockchain);
@@ -345,9 +379,7 @@ export async function transferOnChainSurplus(
     throw ApiError.badRequest('amount must be a positive number');
   }
   if (transferAmount.gt(surplus.plus(MIN_SURPLUS))) {
-    throw ApiError.badRequest(
-      `Amount exceeds surplus (${surplus.toString()}). This transfer does not update the system ledger.`
-    );
+    throw ApiError.badRequest(`Amount exceeds surplus (${surplus.toString()})`);
   }
   if (transferAmount.gt(live)) {
     throw ApiError.badRequest(`Amount exceeds live balance at deposit address (${live.toString()})`);
@@ -359,50 +391,106 @@ export async function transferOnChainSurplus(
   }
   const isNative = isNativeAssetForChain(baseSymbol, chainNorm, wc?.isToken);
   const depositPrivateKey = decryptPrivateKey(deposit.privateKey);
+  const cryptoPrice = wc?.price ? new Decimal(wc.price.toString()) : null;
+  const amountUsd = cryptoPrice ? transferAmount.mul(cryptoPrice) : null;
 
-  let txHash: string;
-  let gasFundingTxHash: string | undefined;
+  const pending = await prisma.onChainSurplusTransfer.create({
+    data: {
+      userId,
+      virtualAccountId: va.id,
+      sourceDepositAddress: deposit.address,
+      toAddress: toAddress.trim(),
+      amount: transferAmount,
+      currency: baseSymbol,
+      blockchain,
+      amountUsd,
+      liveBalanceAtSend: live,
+      recordedOnChainAtSend: recorded,
+      surplusAtSend: surplus,
+      status: 'pending',
+      adminUserId,
+    },
+  });
 
-  if (chainNorm === 'tron') {
-    ({ txHash, gasFundingTxHash } = await executeTronSurplus({
-      depositAddress: deposit.address,
-      depositPrivateKey,
-      toAddress,
-      amount: transferAmount,
-      baseSymbol,
-      isNative,
-      walletCurrency: wc,
-    }));
-  } else if (chainNorm === 'ethereum' || chainNorm === 'bsc' || chainNorm === 'polygon') {
-    const evmPath: EvmTatumPath =
-      chainNorm === 'bsc' ? 'bsc' : chainNorm === 'polygon' ? 'polygon' : 'ethereum';
-    const gasChain: 'ETH' | 'BSC' | 'MATIC' =
-      chainNorm === 'bsc' ? 'BSC' : chainNorm === 'polygon' ? 'MATIC' : 'ETH';
-    const nativeCurrencySymbol: 'ETH' | 'BNB' | 'MATIC' =
-      chainNorm === 'bsc' ? 'BNB' : chainNorm === 'polygon' ? 'MATIC' : 'ETH';
-    ({ txHash, gasFundingTxHash } = await executeEvmSurplus({
-      evmPath,
-      gasChain,
-      nativeCurrencySymbol,
-      depositAddress: deposit.address,
-      depositPrivateKey,
-      toAddress,
-      amount: transferAmount,
-      baseSymbol,
-      isNative,
-      walletCurrency: wc,
-    }));
-  } else {
-    throw ApiError.badRequest(`Surplus transfer not supported for ${blockchain} yet`);
+  try {
+    let txHash: string;
+    let gasFunding: GasTopUpRecord | undefined;
+
+    if (chainNorm === 'tron') {
+      ({ txHash, gasFunding } = await executeTronSurplus({
+        depositAddress: deposit.address,
+        depositPrivateKey,
+        toAddress,
+        amount: transferAmount,
+        baseSymbol,
+        isNative,
+        walletCurrency: wc,
+      }));
+    } else if (chainNorm === 'ethereum' || chainNorm === 'bsc' || chainNorm === 'polygon') {
+      const evmPath: EvmTatumPath =
+        chainNorm === 'bsc' ? 'bsc' : chainNorm === 'polygon' ? 'polygon' : 'ethereum';
+      const gasChain: 'ETH' | 'BSC' | 'MATIC' =
+        chainNorm === 'bsc' ? 'BSC' : chainNorm === 'polygon' ? 'MATIC' : 'ETH';
+      const nativeCurrencySymbol: 'ETH' | 'BNB' | 'MATIC' =
+        chainNorm === 'bsc' ? 'BNB' : chainNorm === 'polygon' ? 'MATIC' : 'ETH';
+      ({ txHash, gasFunding } = await executeEvmSurplus({
+        evmPath,
+        gasChain,
+        nativeCurrencySymbol,
+        depositAddress: deposit.address,
+        depositPrivateKey,
+        toAddress,
+        amount: transferAmount,
+        baseSymbol,
+        isNative,
+        walletCurrency: wc,
+      }));
+    } else {
+      throw ApiError.badRequest(`Surplus transfer not supported for ${blockchain} yet`);
+    }
+
+    if (gasFunding) {
+      await recordGasTopUpFromMaster(adminUserId, gasFunding, deposit.address);
+    }
+
+    const updated = await prisma.onChainSurplusTransfer.update({
+      where: { id: pending.id },
+      data: {
+        status: 'successful',
+        txHash,
+        gasFundingTxHash: gasFunding?.txHash ?? null,
+      },
+    });
+
+    cryptoLogger.transaction('ADMIN_ON_CHAIN_SURPLUS_TRANSFER', {
+      id: updated.id,
+      userId,
+      adminUserId,
+      txHash,
+      amount: transferAmount.toString(),
+      toAddress: toAddress.trim(),
+      blockchain,
+      currency: baseSymbol,
+    });
+
+    return {
+      id: updated.id,
+      txHash,
+      amount: transferAmount.toString(),
+      toAddress: toAddress.trim(),
+      surplusAmount: surplus.toString(),
+      liveBalance: live.toString(),
+      recordedOnChain: recorded.toString(),
+      status: updated.status,
+      ...(gasFunding?.txHash ? { gasFundingTxHash: gasFunding.txHash } : {}),
+    };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'chain transfer failed';
+    await prisma.onChainSurplusTransfer.update({
+      where: { id: pending.id },
+      data: { status: 'failed', notes: msg.slice(0, 2000) },
+    });
+    if (e instanceof ApiError) throw e;
+    throw ApiError.internal(msg);
   }
-
-  return {
-    txHash,
-    amount: transferAmount.toString(),
-    toAddress: toAddress.trim(),
-    surplusAmount: surplus.toString(),
-    liveBalance: live.toString(),
-    recordedOnChain: recorded.toString(),
-    ...(gasFundingTxHash ? { gasFundingTxHash } : {}),
-  };
 }

@@ -76,18 +76,22 @@ export async function transferOnChainSurplusController(
     if (!Number.isFinite(userId)) {
       return next(ApiError.badRequest('Invalid user id'));
     }
+    const adminUser = (req as { user?: { id?: number } }).user;
+    if (!adminUser?.id) return next(ApiError.unauthorized('Authentication required'));
+
     const { currency, blockchain, toAddress, amount } = req.body ?? {};
     if (!currency || !blockchain) {
       return next(ApiError.badRequest('currency and blockchain are required'));
     }
     const result = await transferOnChainSurplus({
       userId,
+      adminUserId: adminUser.id,
       currency: String(currency),
       blockchain: String(blockchain),
       toAddress: String(toAddress ?? ''),
       amount: amount != null ? String(amount) : undefined,
     });
-    return new ApiResponse(200, result, 'Surplus transferred on-chain (not recorded in ledger)').send(res);
+    return new ApiResponse(200, result, 'Surplus transferred on-chain and recorded').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal(error instanceof Error ? error.message : 'Failed to transfer surplus'));

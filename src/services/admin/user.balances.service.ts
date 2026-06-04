@@ -404,6 +404,23 @@ export interface UserVirtualActivityRow {
   date: string;
 }
 
+export interface UserOnChainSurplusTransferRow {
+  id: number;
+  currency: string;
+  blockchain: string;
+  amount: string;
+  amountUsd: string | null;
+  toAddress: string;
+  sourceDepositAddress: string;
+  txHash: string | null;
+  gasFundingTxHash: string | null;
+  status: string;
+  liveBalanceAtSend: string | null;
+  recordedOnChainAtSend: string | null;
+  surplusAtSend: string | null;
+  date: string;
+}
+
 export interface UserWalletDetail {
   user: {
     id: number;
@@ -417,6 +434,7 @@ export interface UserWalletDetail {
   assets: UserAssetBalanceRow[];
   deposits: UserDepositActivityRow[];
   virtualActivity: UserVirtualActivityRow[];
+  surplusTransfers: UserOnChainSurplusTransferRow[];
 }
 
 function depositStatusLabel(status: string): string {
@@ -572,6 +590,29 @@ export async function getUserWalletDetail(userId: number): Promise<UserWalletDet
     };
   });
 
+  const surplusRows = await prisma.onChainSurplusTransfer.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  });
+
+  const surplusTransfers: UserOnChainSurplusTransferRow[] = surplusRows.map((r) => ({
+    id: r.id,
+    currency: r.currency,
+    blockchain: r.blockchain,
+    amount: r.amount.toString(),
+    amountUsd: r.amountUsd?.toString() ?? null,
+    toAddress: r.toAddress,
+    sourceDepositAddress: r.sourceDepositAddress,
+    txHash: r.txHash,
+    gasFundingTxHash: r.gasFundingTxHash,
+    status: r.status,
+    liveBalanceAtSend: r.liveBalanceAtSend?.toString() ?? null,
+    recordedOnChainAtSend: r.recordedOnChainAtSend?.toString() ?? null,
+    surplusAtSend: r.surplusAtSend?.toString() ?? null,
+    date: r.createdAt.toISOString(),
+  }));
+
   return {
     user: {
       id: user.id,
@@ -585,5 +626,6 @@ export async function getUserWalletDetail(userId: number): Promise<UserWalletDet
     assets,
     deposits,
     virtualActivity,
+    surplusTransfers,
   };
 }

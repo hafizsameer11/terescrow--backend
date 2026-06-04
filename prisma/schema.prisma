@@ -73,6 +73,8 @@ model User {
   adminExchangePayoutAddresses AdminExchangePayoutAddress[]
   changeNowSwapOrders          ChangeNowSwapOrder[]          @relation("AdminChangeNowSwaps")
   masterWalletTransactionsPerformed MasterWalletTransaction[] @relation("MasterWalletTxPerformedBy")
+  onChainSurplusTransfersAdmin     OnChainSurplusTransfer[]    @relation("AdminOnChainSurplusTransfers")
+  onChainSurplusTransfersCustomer  OnChainSurplusTransfer[]    @relation("CustomerOnChainSurplusTransfers")
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
@@ -1223,12 +1225,47 @@ model VirtualAccount {
   depositAddresses    DepositAddress[]
   receiveTransactions ReceiveTransaction[]
   cryptoTransactions  CryptoTransaction[]
+  onChainSurplusTransfers OnChainSurplusTransfer[]
 
   @@index([userId])
   @@index([blockchain])
   @@index([currency])
   @@index([currencyId])
   @@map("virtual_accounts")
+}
+
+/// Admin transfer of on-chain surplus (live deposit balance minus recorded on-chain ledger).
+model OnChainSurplusTransfer {
+  id                     Int       @id @default(autoincrement())
+  userId                 Int       @map("user_id")
+  virtualAccountId       Int       @map("virtual_account_id")
+  sourceDepositAddress   String    @map("source_deposit_address") @db.VarChar(255)
+  toAddress              String    @map("to_address") @db.VarChar(255)
+  amount                 Decimal   @db.Decimal(20, 8)
+  currency               String    @db.VarChar(50)
+  blockchain             String    @db.VarChar(255)
+  amountUsd              Decimal?  @map("amount_usd") @db.Decimal(20, 8)
+  liveBalanceAtSend      Decimal?  @map("live_balance_at_send") @db.Decimal(20, 8)
+  recordedOnChainAtSend  Decimal?  @map("recorded_on_chain_at_send") @db.Decimal(20, 8)
+  surplusAtSend          Decimal?  @map("surplus_at_send") @db.Decimal(20, 8)
+  txHash                 String?   @map("tx_hash") @db.VarChar(255)
+  gasFundingTxHash       String?   @map("gas_funding_tx_hash") @db.VarChar(255)
+  status                 String    @default("pending") @db.VarChar(50)
+  adminUserId            Int       @map("admin_user_id")
+  notes                  String?   @db.Text
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  user           User           @relation("CustomerOnChainSurplusTransfers", fields: [userId], references: [id], onDelete: Cascade)
+  virtualAccount VirtualAccount @relation(fields: [virtualAccountId], references: [id], onDelete: Cascade)
+  admin          User           @relation("AdminOnChainSurplusTransfers", fields: [adminUserId], references: [id])
+
+  @@index([userId])
+  @@index([virtualAccountId])
+  @@index([adminUserId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("on_chain_surplus_transfers")
 }
 
 model DepositAddress {
