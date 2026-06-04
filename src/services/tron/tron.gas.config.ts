@@ -9,16 +9,16 @@ export type TronTrc20GasConfig = {
 };
 
 /**
- * USDT TRC-20 transfers typically consume ~6–8 TRX (bandwidth/energy).
- * Other TRC-20 tokens may need more — use a higher target and fee limit.
+ * USDT TRC-20 transfers typically consume ~7–12 TRX (energy varies with network load).
+ * feeLimitTrx is the max TRX the tx may burn — must be above peak observed cost (~10.35+).
  */
 export function trc20GasConfigForAsset(baseSymbol: string): TronTrc20GasConfig {
   const sym = String(baseSymbol ?? '').toUpperCase();
   if (sym === 'USDT') {
     return {
-      targetTrxOnDeposit: new Decimal('8'),
-      topUpBufferTrx: new Decimal('0.5'),
-      feeLimitTrx: 10,
+      targetTrxOnDeposit: new Decimal('12'),
+      topUpBufferTrx: new Decimal('1'),
+      feeLimitTrx: 20,
     };
   }
   return {
