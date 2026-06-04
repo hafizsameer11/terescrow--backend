@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { getUserBalances, getUserBalancesSummary, getUserAssetBalances, getUserWalletDetail } from '../../services/admin/user.balances.service';
+import { transferOnChainSurplus } from '../../services/admin/surplus.onchain.transfer.service';
 
 export async function getAdminUserBalancesController(
   req: Request,
@@ -62,6 +63,34 @@ export async function getAdminUserWalletDetailController(
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to fetch user wallet detail'));
+  }
+}
+
+export async function transferOnChainSurplusController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = parseInt(String(req.params.userId), 10);
+    if (!Number.isFinite(userId)) {
+      return next(ApiError.badRequest('Invalid user id'));
+    }
+    const { currency, blockchain, toAddress, amount } = req.body ?? {};
+    if (!currency || !blockchain) {
+      return next(ApiError.badRequest('currency and blockchain are required'));
+    }
+    const result = await transferOnChainSurplus({
+      userId,
+      currency: String(currency),
+      blockchain: String(blockchain),
+      toAddress: String(toAddress ?? ''),
+      amount: amount != null ? String(amount) : undefined,
+    });
+    return new ApiResponse(200, result, 'Surplus transferred on-chain (not recorded in ledger)').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal(error instanceof Error ? error.message : 'Failed to transfer surplus'));
   }
 }
 

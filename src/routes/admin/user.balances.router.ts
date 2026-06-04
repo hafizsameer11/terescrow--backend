@@ -6,9 +6,17 @@ import {
   getAdminUserBalancesSummaryController,
   getAdminUserAssetBalancesController,
   getAdminUserWalletDetailController,
+  transferOnChainSurplusController,
 } from '../../controllers/admin/user.balances.controller';
 
 const router = express.Router();
+
+router.post(
+  '/:userId/transfer-surplus',
+  authenticateUser,
+  authenticateAdmin,
+  transferOnChainSurplusController
+);
 
 router.get(
   '/:userId/detail',

@@ -87,18 +87,18 @@ function lineUsd(bal: number, usdPrice: number, nairaPrice: number, ngnPerUsdFal
 
 function computeUserBalanceRow(
   u: {
-    id: number;
-    firstname: string;
-    lastname: string;
-    email: string;
-    fiatWallets: { currency: string; balance: unknown }[];
-    virtualAccounts: {
+  id: number;
+  firstname: string;
+  lastname: string;
+  email: string;
+  fiatWallets: { currency: string; balance: unknown }[];
+  virtualAccounts: {
       virtualBalance?: unknown;
       onChainBalance?: unknown;
-      availableBalance: unknown;
-      accountBalance: unknown;
-      walletCurrency: { price: unknown; nairaPrice: unknown } | null;
-    }[];
+    availableBalance: unknown;
+    accountBalance: unknown;
+    walletCurrency: { price: unknown; nairaPrice: unknown } | null;
+  }[];
   },
   ngnPerUsdFallback = 0
 ): UserBalanceRow {
