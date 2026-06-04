@@ -16,6 +16,7 @@ import { trc20GasConfigForAsset } from '../tron/tron.gas.config';
 import { sendEvmTatumTransaction, type EvmTatumPath } from '../tatum/evm.tatum.transaction.service';
 import { getEvmFungibleTokenBalance, getEvmNativeBalance } from '../tatum/evm.tatum.balance.service';
 import cryptoLogger from '../../utils/crypto.logger';
+import { formatCryptoAmount } from '../../utils/cryptoAmount';
 
 const SUPPORTED_BASE = new Set(['ETH', 'USDT', 'BNB', 'TRX', 'MATIC', 'BTC', 'LTC', 'DOGE', 'SOL']);
 const MIN_SURPLUS = new Decimal('0.000001');
@@ -365,8 +366,20 @@ export async function transferOnChainSurplus(
   const surplus = live.minus(recorded);
 
   if (!surplus.gt(MIN_SURPLUS)) {
+    const liveFmt = formatCryptoAmount(live);
+    const recordedFmt = formatCryptoAmount(recorded);
+    if (live.lt(recorded)) {
+      const shortfall = recorded.minus(live);
+      throw ApiError.badRequest(
+        `No surplus to transfer. Live USDT at deposit (${liveFmt}) is less than recorded on-chain balance (${recordedFmt}). ` +
+          `The address is short by about ${formatCryptoAmount(shortfall)} on-chain vs the ledger. ` +
+          `Funds may already have been sent (surplus transfer, disburse, or sweep), or the ledger needs a manual on-chain balance correction. ` +
+          `Deposit: ${deposit.address}`
+      );
+    }
     throw ApiError.badRequest(
-      `No transferable surplus. Live: ${live.toString()}, recorded on-chain: ${recorded.toString()}`
+      `No transferable surplus. Live at deposit: ${liveFmt}, recorded on-chain: ${recordedFmt}. ` +
+        `Surplus requires live balance to exceed recorded on-chain. Deposit: ${deposit.address}`
     );
   }
 
