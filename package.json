@@ -16,7 +16,8 @@
     "queue:clear": "ts-node src/queue/clear.queue.ts",
     "queue:clear:tatum": "ts-node src/queue/clear.queue.ts tatum",
     "queue:clear:tatum:waiting": "ts-node src/queue/clear.queue.ts tatum waiting",
-    "queue:clear:bill-payments": "ts-node src/queue/clear.queue.ts bill-payments"
+    "queue:clear:bill-payments": "ts-node src/queue/clear.queue.ts bill-payments",
+    "mark-fake-deposit": "ts-node scripts/mark-fake-deposit.ts"
   },
   "keywords": [],
   "author": "",

@@ -438,10 +438,11 @@ export interface UserWalletDetail {
 }
 
 function depositStatusLabel(status: string): string {
-  const s = (status || 'unknown').toLowerCase().replace(/\s/g, '');
+  const s = (status || 'unknown').toLowerCase().replace(/[\s_-]/g, '');
   if (s === 'inwallet') return 'In wallet';
   if (s === 'transferredtomaster') return 'Transferred to master';
   if (s === 'senttovendor') return 'Sent to vendor';
+  if (s === 'fakescam') return 'Fake scam';
   return 'Unknown';
 }
 

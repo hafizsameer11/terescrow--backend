@@ -23,6 +23,10 @@ import { executeDogeVendorDisbursement } from './received.asset.disbursement.dog
 import { executeSolVendorDisbursement } from './received.asset.disbursement.sol';
 import { fetchOnChainTokenBalance } from '../crypto/onchain.balance.service';
 import { formatCryptoAmount } from '../../utils/cryptoAmount';
+import {
+  isFakeCryptoTxStatus,
+  isFakeScamDepositStatus,
+} from '../../constants/deposit.fake';
 
 function decryptPrivateKey(encryptedKey: string): string {
   const algorithm = 'aes-256-cbc';
@@ -104,6 +108,10 @@ export async function loadReceiveDisbursementForOutbound(
     throw ApiError.notFound('Receive transaction not found');
   }
 
+  if (isFakeCryptoTxStatus(tx.status)) {
+    throw ApiError.conflict('This deposit is marked fake and cannot be disbursed');
+  }
+
   const recv = tx.cryptoReceive;
   const recvAmount = new Decimal(recv.amount.toString());
   const chainNorm = normalizeBlockchain(tx.blockchain);
@@ -180,6 +188,10 @@ export async function loadReceiveDisbursementForOutbound(
   const receivedAsset = await prisma.receivedAsset.findFirst({
     where: { txId: recv.txHash },
   });
+
+  if (isFakeScamDepositStatus(receivedAsset?.status)) {
+    throw ApiError.conflict('This deposit is a fake/scam token and cannot be disbursed or sent');
+  }
 
   if (receivedAsset?.status === 'transferredToMaster') {
     throw ApiError.conflict('These funds were already marked as transferred to the master wallet');

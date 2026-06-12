@@ -12,7 +12,7 @@ import { resolveCryptoSpreadForBuy, resolveCryptoSpreadForSell } from '../profit
 import { formatNairaAmount } from '../../utils/nairaAmount';
 
 export type CryptoTxType = 'BUY' | 'SELL' | 'SEND' | 'RECEIVE' | 'SWAP';
-export type CryptoTxStatus = 'pending' | 'processing' | 'successful' | 'failed' | 'cancelled';
+export type CryptoTxStatus = 'pending' | 'processing' | 'successful' | 'failed' | 'cancelled' | 'fake';
 
 import { BalanceBucket } from '@prisma/client';
 

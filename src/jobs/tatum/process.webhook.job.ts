@@ -16,6 +16,9 @@ import {
 import { Decimal } from '@prisma/client/runtime/library';
 import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
+import type { WalletCurrency } from '@prisma/client';
+import { resolveWalletCurrencyFromContract } from '../../services/tatum/deposit.token.resolver';
+import { processFakeScamDeposit } from '../../services/tatum/fake.deposit.service';
 
 /** Sender / counterparty from Tatum payloads (field names and shapes differ by chain). */
 function resolveIncomingCounterpartyAddress(webhookData: {
@@ -34,34 +37,6 @@ function resolveIncomingCounterpartyAddress(webhookData: {
   const from = webhookData.from;
   if (typeof from === 'string' && from.trim()) return from.trim();
   return undefined;
-}
-
-/** 40-hex EVM contract id, lowercase with 0x — for matching Tatum vs DB regardless of checksum / 0x prefix. */
-function canonicalEvmContract(addr: string): string | null {
-  const t = addr.trim().toLowerCase();
-  const hex = t.startsWith('0x') ? t.slice(2) : t;
-  if (!/^[0-9a-f]{40}$/.test(hex)) return null;
-  return `0x${hex}`;
-}
-
-/** True if DB token contract matches webhook asset (EVM hex, Tron base58, or Tatum symbol e.g. USDT_TRON). */
-function tokenContractMatches(dbContract: string, webhookContract: string): boolean {
-  const db = dbContract.trim();
-  const inc = webhookContract.trim();
-  const dbEvm = canonicalEvmContract(db);
-  const incEvm = canonicalEvmContract(inc);
-  if (dbEvm && incEvm) return dbEvm === incEvm;
-  if (db.toLowerCase() === inc.toLowerCase()) return true;
-  return db === inc;
-}
-
-/** wallet_currencies.blockchain casing differs from virtual_account (e.g. Ethereum vs ethereum). */
-function blockchainDbVariants(slug: string): string[] {
-  const s = slug.toLowerCase();
-  const variants = new Set<string>([s]);
-  if (s === 'ethereum') variants.add('Ethereum');
-  if (s === 'litecoin') variants.add('Litecoin');
-  return [...variants];
 }
 
 /**
@@ -182,29 +157,16 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       // Determine the correct currency based on contract address
       let detectedCurrency = addressVirtualAccount.currency;
       let targetVirtualAccount = addressVirtualAccount;
+      let matchedWalletCurrency: WalletCurrency | null = null;
       
       // For token transfers, find the correct currency and virtual account
       // Supports: EVM 0x + checksum (USDT), Tron TRC-20 base58, Tron Tatum symbol USDT_TRON on contractAddress
       if (isToken && contractAddress) {
         const chainSlug = addressVirtualAccount.blockchain.toLowerCase();
-        const walletCurrencies = await prisma.walletCurrency.findMany({
-          where: {
-            blockchain: { in: blockchainDbVariants(chainSlug) },
-            contractAddress: { not: null },
-          },
-        });
-
-        let walletCurrency = walletCurrencies.find(
-          (wc) => wc.contractAddress && tokenContractMatches(wc.contractAddress, String(contractAddress))
-        );
-        // Tatum Tron: contractAddress may be USDT_TRON instead of TRC-20 base58
-        if (!walletCurrency) {
-          walletCurrency = walletCurrencies.find(
-            (wc) => wc.currency.toUpperCase() === String(contractAddress).toUpperCase()
-          );
-        }
+        const walletCurrency = await resolveWalletCurrencyFromContract(chainSlug, String(contractAddress));
         
         if (walletCurrency) {
+          matchedWalletCurrency = walletCurrency;
           detectedCurrency = walletCurrency.currency;
           
           // Find the correct virtual account for this currency
@@ -314,6 +276,41 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
           });
           // Continue processing - don't block
         }
+      }
+
+      // Unlisted fungible token (scam / wrong contract) — record only, never credit
+      if (isFungibleToken && contractAddress && !matchedWalletCurrency) {
+        const fakeTimestamp = webhookData.timestamp || Date.now();
+        let fakeTransactionDate = new Date(fakeTimestamp);
+        if (isNaN(fakeTransactionDate.getTime())) {
+          fakeTransactionDate = new Date();
+        }
+
+        await processFakeScamDeposit({
+          userId: addressVirtualAccount.userId,
+          virtualAccountId: addressVirtualAccount.id,
+          accountId: addressVirtualAccount.accountId,
+          txId: addressTxId || `fake-${Date.now()}`,
+          fromAddress: counterpartyRaw ?? '',
+          toAddress: addressRaw,
+          grossAmount: amountStr,
+          contractAddress: String(contractAddress),
+          currencyLabel: `FAKE_TOKEN`,
+          blockchain: addressVirtualAccount.blockchain,
+          subscriptionType: webhookData.subscriptionType,
+          transactionDate: fakeTransactionDate,
+          index: webhookData.logIndex ?? null,
+          reference: `fake:${String(contractAddress)}`,
+        });
+
+        tatumLogger.warn('Rejected unlisted fungible token — recorded as fake_scam without credit', {
+          txId: addressTxId,
+          contractAddress,
+          address: addressRaw,
+          amount: amountStr,
+        });
+
+        return { processed: true, reason: 'fake_scam_token' };
       }
     }
 

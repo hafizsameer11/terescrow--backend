@@ -6,6 +6,8 @@
 
 import express from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
+import { requireCustomerFeature } from '../../middlewares/require.customer.feature';
+import { FEATURE_WITHDRAWAL } from '../../utils/customer.restrictions';
 import {
   getReferralCodeController,
   getReferralStatsController,
@@ -145,6 +147,11 @@ referralRouter.get('/earnings', authenticateUser, getReferralEarningsController)
  *       400:
  *         description: Insufficient balance or minimum not met
  */
-referralRouter.post('/withdraw', authenticateUser, withdrawReferralController);
+referralRouter.post(
+  '/withdraw',
+  authenticateUser,
+  requireCustomerFeature(FEATURE_WITHDRAWAL, 'Referral withdrawal'),
+  withdrawReferralController
+);
 
 export default referralRouter;

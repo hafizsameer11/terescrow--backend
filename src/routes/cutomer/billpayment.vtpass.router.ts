@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
+import { requireCustomerFeature } from '../../middlewares/require.customer.feature';
+import { FEATURE_WITHDRAWAL } from '../../utils/customer.restrictions';
 import {
   queryVtpassBillersController,
   queryVtpassItemsController,
@@ -300,7 +302,12 @@ vtpassBillPaymentRouter.post('/verify-account', authenticateUser, verifyVtpassAc
  *       401:
  *         description: Invalid PIN
  */
-vtpassBillPaymentRouter.post('/create-order', authenticateUser, createVtpassBillOrderController);
+vtpassBillPaymentRouter.post(
+  '/create-order',
+  authenticateUser,
+  requireCustomerFeature(FEATURE_WITHDRAWAL, 'Bill payment'),
+  createVtpassBillOrderController
+);
 
 /**
  * @swagger

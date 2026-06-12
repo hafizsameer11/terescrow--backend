@@ -9,6 +9,7 @@ import { Request, Response, NextFunction } from 'express';
 import ApiError from '../utils/ApiError';
 import ApiResponse from '../utils/ApiResponse';
 import { comparePassword, generateToken } from '../utils/authUtils';
+import { isUserBanned } from '../utils/customer.restrictions';
 import { validationResult } from 'express-validator';
 import { profile } from 'console';
 import axios from 'axios';
@@ -55,6 +56,10 @@ export const loginController = async (
     // Check if user has verified their OTP/email
     if (isUser.isVerified === false) {
       return next(ApiError.badRequest('Your account is not verified. Please verify your email with the OTP sent to your email address'));
+    }
+
+    if (isUser.role === UserRoles.customer && isUserBanned(isUser.status)) {
+      return next(ApiError.forbidden('Your account has been banned. Contact support.'));
     }
     
     const isMatch = await comparePassword(password, isUser.password);

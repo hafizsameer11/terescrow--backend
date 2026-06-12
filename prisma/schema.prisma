@@ -1877,6 +1877,8 @@ enum CryptoTxStatus {
   successful
   failed
   cancelled
+  fake
+  revoked
 }
 
 enum BalanceBucket {

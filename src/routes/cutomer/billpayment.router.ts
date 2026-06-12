@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
+import { requireCustomerFeature } from '../../middlewares/require.customer.feature';
+import { FEATURE_WITHDRAWAL } from '../../utils/customer.restrictions';
 import {
   queryBillersController,
   queryItemsController,
@@ -332,7 +334,12 @@ billPaymentRouter.post('/verify-account', authenticateUser, verifyAccountControl
  *       401:
  *         description: Invalid PIN
  */
-billPaymentRouter.post('/create-order', authenticateUser, createBillOrderController);
+billPaymentRouter.post(
+  '/create-order',
+  authenticateUser,
+  requireCustomerFeature(FEATURE_WITHDRAWAL, 'Bill payment'),
+  createBillOrderController
+);
 
 /**
  * @swagger
