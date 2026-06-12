@@ -1,6 +1,6 @@
 import { queueManager } from '../../queue/queue.manager';
 
-const KNOWN_QUEUES = ['tatum', 'bill-payments'] as const;
+const KNOWN_QUEUES = ['default', 'tatum', 'bill-payments'] as const;
 
 export type FailedCryptoJobRow = {
   id: string;

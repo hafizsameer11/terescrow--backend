@@ -20,7 +20,7 @@ export async function enqueueDepositVerifyRetry(depositVerificationId: number, a
   const { queueManager } = await import('../../queue/queue.manager');
   const delay = getVerifyRetryDelayMs();
   await queueManager.addJob(
-    'tatum',
+    'default',
     'retry-deposit-verification',
     { depositVerificationId, attemptNumber },
     {

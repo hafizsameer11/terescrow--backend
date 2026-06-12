@@ -132,6 +132,11 @@ if (require.main === module) {
 
     // Register job processors by queue name
     const queueProcessors: Record<string, Record<string, (job: Job) => Promise<void>>> = {
+      default: {
+        'retry-deposit-verification': async (job: Job) => {
+          await processRetryDepositVerificationJob(job as Job<RetryDepositVerificationJobData>);
+        },
+      },
       'bill-payments': {
         'bill-payment-status': async (job: Job) => {
           await processBillPaymentStatusJob(job as Job<BillPaymentStatusJobData>);
@@ -146,9 +151,6 @@ if (require.main === module) {
       },
       'retry-sell-token-transfer': async (job: Job) => {
         await processRetrySellTokenTransferJob(job as Job<RetrySellTokenTransferJobData>);
-      },
-      'retry-deposit-verification': async (job: Job) => {
-        await processRetryDepositVerificationJob(job as Job<RetryDepositVerificationJobData>);
       },
     },
     // Add more queues here as needed
