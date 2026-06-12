@@ -1,0 +1,69 @@
+{
+  "provider": "etherscan",
+  "endpoint": "v2/api chainid=1 tokentx",
+  "request": {
+    "chainId": 1,
+    "action": "tokentx",
+    "hash": null,
+    "url": "https://api.etherscan.io/v2/api?chainid=1&module=account&action=tokentx&apikey=REDACTED&address=0x1d3e8851e25882dfda90eb78863391da7a6a098a&contractaddress=0xdac17f958d2ee523a2206206994597c13d831ec7&page=1&offset=10&sort=desc",
+    "hasApiKey": true
+  },
+  "ok": true,
+  "status": 200,
+  "durationMs": 284,
+  "body": {
+    "status": "1",
+    "message": "OK",
+    "result": [
+      {
+        "blockNumber": "25303740",
+        "timeStamp": "1781295671",
+        "hash": "0x32db438467cf911208b3f6cab89fd13eb07bc89de25f52bb03e26d3138054f83",
+        "nonce": "0",
+        "blockHash": "0xb9b563dda5652f07089b28750348bc1b0c4aaee16741abc7905ec9b452bdc9db",
+        "from": "0x1d3e8851e25882dfda90eb78863391da7a6a098a",
+        "contractAddress": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        "to": "0xd37ac934502619cee14908cef22138f4b98e06b4",
+        "value": "110600000",
+        "tokenName": "Tether USD",
+        "tokenSymbol": "USDT",
+        "tokenDecimal": "6",
+        "transactionIndex": "6",
+        "gas": "46133",
+        "gasPrice": "2107509981",
+        "gasUsed": "41309",
+        "cumulativeGasUsed": "210829",
+        "input": "deprecated",
+        "methodId": "0xa9059cbb",
+        "functionName": "transfer(address _to, uint256 _value)",
+        "confirmations": "44",
+        "statusRep": "1"
+      },
+      {
+        "blockNumber": "25303727",
+        "timeStamp": "1781295515",
+        "hash": "0x3a8bbb5dfaa4e94ff87bf7045c7a8ca4293d27d842461cbe7f205e088222c46e",
+        "nonce": "14943173",
+        "blockHash": "0x128bee13703d4d4c2e3c5f3d2c1be50e5dfa904bdaaf23f69c6e1387e6ed4247",
+        "from": "0x21a31ee1afc51d94c2efccaa2092ad1028285549",
+        "contractAddress": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        "to": "0x1d3e8851e25882dfda90eb78863391da7a6a098a",
+        "value": "110600000",
+        "tokenName": "Tether USD",
+        "tokenSymbol": "USDT",
+        "tokenDecimal": "6",
+        "transactionIndex": "25",
+        "gas": "220436",
+        "gasPrice": "1120794574",
+        "gasUsed": "63209",
+        "cumulativeGasUsed": "2516396",
+        "input": "deprecated",
+        "methodId": "0xa9059cbb",
+        "functionName": "transfer(address _to, uint256 _value)",
+        "confirmations": "57",
+        "statusRep": "1"
+      }
+    ]
+  },
+  "note": "Filter result[] where hash === 0x3a8bbb5dfaa4e94ff87bf7045c7a8ca4293d27d842461cbe7f205e088222c46e"
+}

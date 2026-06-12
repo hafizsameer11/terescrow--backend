@@ -78,6 +78,9 @@ import supportAdminRouter from './routes/admin/support.admin.router';
 import customersFreezeRouter from './routes/admin/customers.freeze.router';
 import profitAdminRouter from './routes/admin/profit.admin.router';
 import cryptoJobsRouter from './routes/admin/crypto.jobs.router';
+import depositFraudRouter from './routes/admin/deposit.fraud.router';
+import scamContractRouter from './routes/admin/scam.contract.router';
+import platformSettingsRouter from './routes/admin/platform.settings.router';
 
 // ============================================
 // V1 API Routes (Legacy - if any)
@@ -126,6 +129,18 @@ app.use(
     credentials: false,
   })
 );
+
+// Tatum webhooks: capture raw body for HMAC verification before global JSON parsers
+app.use(
+  '/api/v2/webhooks/tatum',
+  bodyParser.json({
+    verify: (req: express.Request, _res: express.Response, buf: Buffer) => {
+      (req as express.Request & { rawBody?: string }).rawBody = buf.toString('utf8');
+    },
+  }),
+  tatumWebhookRouter
+);
+
 app.use(express.json());
 app.use(urlencoded({ extended: true }));
 app.use(cookie());
@@ -235,7 +250,6 @@ app.use('/api/v2/referrals', referralRouter);
 // ============================================
 // V2 API Routes - Webhooks
 // ============================================
-app.use('/api/v2/webhooks/tatum', tatumWebhookRouter);
 app.use('/api/v2/webhooks', palmpayWebhookRouter);
 
 // ============================================
@@ -257,6 +271,7 @@ app.use('/api/admin/transactions', transactionsAdminRouter);
 app.use('/api/admin/user-balances', userBalancesRouter);
 app.use('/api/admin/vendors', vendorsRouter);
 app.use('/api/admin/daily-report', dailyReportRouter);
+app.use('/api/admin/platform-settings', platformSettingsRouter);
 app.use('/api/admin/transaction-tracking', transactionTrackingRouter);
 app.use('/api/admin/changenow', changenowAdminRouter);
 app.use('/api/admin/referrals', referralsAdminRouter);
@@ -264,6 +279,8 @@ app.use('/api/admin/support', supportAdminRouter);
 app.use('/api/admin/customers', customersFreezeRouter);
 app.use('/api/admin/profit-tracker', profitAdminRouter);
 app.use('/api/admin/crypto-jobs', cryptoJobsRouter);
+app.use('/api/admin/deposit-fraud', depositFraudRouter);
+app.use('/api/admin/scam-contracts', scamContractRouter);
 
 // ============================================
 // V1 API Routes (Legacy - if any)

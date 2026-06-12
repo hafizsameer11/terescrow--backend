@@ -24,6 +24,11 @@ import {
   creditBucketData,
   getTotalBalance,
 } from './virtual.account.balance.helper';
+import {
+  getCustomerRestrictions,
+  forbiddenMessageForRestrictions,
+  FEATURE_CRYPTO,
+} from '../../utils/customer.restrictions';
 
 export interface BuyCryptoInput {
   userId: number;
@@ -98,6 +103,10 @@ class CryptoBuyService {
    */
   async buyCrypto(input: BuyCryptoInput): Promise<BuyCryptoResult> {
     const { userId, amount, currency, blockchain } = input;
+
+    const restrictions = await getCustomerRestrictions(userId);
+    const banMsg = forbiddenMessageForRestrictions(restrictions, FEATURE_CRYPTO, 'Crypto buy');
+    if (banMsg) throw new Error(banMsg);
 
     // Pre-transaction: Get wallet currency and rates (outside transaction to avoid timeout)
     // Handle cases where currency might be stored as "USDT_TRON", "USDT_ETH", etc. instead of just "USDT"

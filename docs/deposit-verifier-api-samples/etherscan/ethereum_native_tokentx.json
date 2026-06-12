@@ -1,0 +1,19 @@
+{
+  "provider": "etherscan",
+  "endpoint": "v2/api chainid=1 tokentx",
+  "request": {
+    "chainId": 1,
+    "action": "tokentx",
+    "hash": "0x5406ba85d2d54e8b559f76968a98fbf33cf017b1c092f7c91c0f63d7ddb3b466",
+    "url": "https://api.etherscan.io/v2/api?chainid=1&module=account&action=tokentx&apikey=REDACTED&txhash=0x5406ba85d2d54e8b559f76968a98fbf33cf017b1c092f7c91c0f63d7ddb3b466",
+    "hasApiKey": true
+  },
+  "ok": true,
+  "status": 200,
+  "durationMs": 284,
+  "body": {
+    "status": "0",
+    "message": "NOTOK",
+    "result": "Error! Missing address or contract address"
+  }
+}

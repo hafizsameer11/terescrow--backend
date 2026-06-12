@@ -1,0 +1,22 @@
+{
+  "provider": "tatum",
+  "endpoint": "GET /v4/data/blockchains/transaction",
+  "request": {
+    "chain": "litecoin-core-mainnet",
+    "hash": "e0ff43e3606405caf55ee9114b80a6753792743bcf8637530a956c567161841e",
+    "url": "https://api.tatum.io/v4/data/blockchains/transaction?chain=litecoin-core-mainnet&hash=e0ff43e3606405caf55ee9114b80a6753792743bcf8637530a956c567161841e",
+    "hasApiKey": true
+  },
+  "ok": false,
+  "status": 400,
+  "durationMs": 2746,
+  "body": {
+    "statusCode": 400,
+    "errorCode": "validation.failed",
+    "message": "Request validation failed. Please see data for additional information.",
+    "data": [
+      "chain must be one of the following values: algorand-algod (algorand-mainnet-algod), algorand-testnet-algod, arb-one (arb-one-mainnet), arb-testnet, avax (avax-mainnet), avax-testnet, base (base-mainnet), base-sepolia, bch (bch-mainnet), bch-testnet, berachain (berachain-mainnet), bitcoin (bitcoin-mainnet), bitcoin-testnet, bsc (bsc-mainnet), bsc-testnet, cardano (cardano-mainnet), cardano-preprod, celo (celo-mainnet), celo-testnet, chiliz (chiliz-mainnet), cro (cro-mainnet), cro-testnet, doge (doge-mainnet), doge-testnet, egld (egld-mainnet), egld-testnet, ethereum (ethereum-mainnet), ethereum-classic (ethereum-classic-mainnet), ethereum-classic-testnet, ethereum-sepolia, fantom (fantom-mainnet), fantom-testnet, flare (flare-mainnet), flare-coston, flare-coston2, flare-songbird, gno (gno-mainnet), gno-testnet, kcs (kcs-mainnet), kcs-testnet, klaytn-baobab, klaytn-cypress (klaytn-cypress), lisk (lisk-mainnet), lisk-testnet, litecoin (litecoin-mainnet), litecoin-testnet, monad (monad-mainnet), monad-testnet, one-s0 (one-mainnet-s0), one-testnet-s0, optimism (optimism-mainnet), optimism-testnet, polygon (polygon-mainnet), polygon-amoy, ripple (ripple-mainnet), ripple-testnet, rsk (rsk-mainnet), rsk-testnet, solana (solana-mainnet), solana-devnet, sonic (sonic-mainnet), sonic-blaze, stellar (stellar-mainnet), stellar-testnet, tron (tron-mainnet), tron-testnet, unichain (unichain-mainnet), unichain-sepolia, vechain (vechain-mainnet), vechain-testnet, xdc (xdc-mainnet), xdc-testnet, zcash (zcash-mainnet), zcash-testnet, zksync (zksync-mainnet), zksync-testnet"
+    ],
+    "dashboardLog": "https://dashboard.tatum.io/logs?id=6a2c6c486d454e0a03b9910e"
+  }
+}

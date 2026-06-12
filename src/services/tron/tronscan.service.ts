@@ -87,3 +87,20 @@ export async function getTronTrc20BalanceFromTronScan(
 
   return '0';
 }
+
+/** Full transaction info for deposit verification. */
+export async function getTronTransactionInfo(txHash: string): Promise<Record<string, unknown>> {
+  const hash = txHash.trim();
+  const response = await axios.get(`${TRONSCAN_BASE}/transaction-info`, {
+    headers: tronScanHeaders(),
+    params: { hash },
+    timeout: 25000,
+    validateStatus: () => true,
+  });
+
+  if (response.status >= 400) {
+    throw new Error(`TronScan transaction-info HTTP ${response.status}`);
+  }
+
+  return response.data as Record<string, unknown>;
+}

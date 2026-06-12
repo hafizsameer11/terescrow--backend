@@ -8,17 +8,12 @@ import { prisma } from '../../utils/prisma';
 import virtualAccountService from '../../services/tatum/virtual.account.service';
 import { TatumWebhookPayload } from '../../services/tatum/tatum.service';
 import tatumLogger from '../../utils/tatum.logger';
-import cryptoTransactionService from '../../services/crypto/crypto.transaction.service';
-import {
-  computeCryptoDepositFee,
-  getCryptoDepositFeePercentForWalletCurrency,
-} from '../../services/crypto/crypto.deposit.fee.service';
-import { Decimal } from '@prisma/client/runtime/library';
-import { sendPushNotification } from '../../utils/pushService';
-import { InAppNotificationType } from '@prisma/client';
 import type { WalletCurrency } from '@prisma/client';
-import { resolveWalletCurrencyFromContract } from '../../services/tatum/deposit.token.resolver';
-import { processFakeScamDeposit } from '../../services/tatum/fake.deposit.service';
+import { lockFakeScamDeposit, rejectScamDepositIfNeeded } from '../../services/tatum/deposit.fraud.lock.service';
+import { isUserBanned } from '../../utils/customer.restrictions';
+import { verifyDepositOnChain } from '../../services/tatum/deposit.onchain.verifier';
+import { finalizeDepositCredit, type DepositCreditContext } from '../../services/tatum/deposit.credit.service';
+import { createPendingVerificationDeposit } from '../../services/tatum/deposit.pending.service';
 
 /** Sender / counterparty from Tatum payloads (field names and shapes differ by chain). */
 function resolveIncomingCounterpartyAddress(webhookData: {
@@ -132,75 +127,29 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       // Process as receive transaction
       const addressVirtualAccount = depositAddressRecord.virtualAccount;
       const amountStr = webhookData.amount || '0';
-      
-      // Determine if this is a token transfer
-      // For INCOMING_FUNGIBLE_TX, check contractAddress field
-      // For ADDRESS_EVENT, check asset field and type
       const contractAddress = webhookData.contractAddress || webhookData.asset;
-      const isFungibleToken = webhookData.subscriptionType === 'INCOMING_FUNGIBLE_TX' && contractAddress;
-      const isToken = isFungibleToken || (contractAddress && contractAddress !== 'ETH' && webhookData.type === 'token');
-      
+      const chainSlug = addressVirtualAccount.blockchain.toLowerCase();
+
+      const depositUser = await prisma.user.findUnique({
+        where: { id: addressVirtualAccount.userId },
+        select: { status: true },
+      });
+
       tatumLogger.info('Processing address-based webhook as receive transaction', {
         address: addressRaw,
         counterparty: counterpartyRaw,
         amount: amountStr,
         contractAddress,
         subscriptionType: webhookData.subscriptionType,
-        isToken,
-        isFungibleToken,
         txId: addressTxId,
         virtualAccountId: addressVirtualAccount.id,
         userId: addressVirtualAccount.userId,
         currency: addressVirtualAccount.currency,
       });
-      
-      // Determine the correct currency based on contract address
+
       let detectedCurrency = addressVirtualAccount.currency;
       let targetVirtualAccount = addressVirtualAccount;
-      let matchedWalletCurrency: WalletCurrency | null = null;
-      
-      // For token transfers, find the correct currency and virtual account
-      // Supports: EVM 0x + checksum (USDT), Tron TRC-20 base58, Tron Tatum symbol USDT_TRON on contractAddress
-      if (isToken && contractAddress) {
-        const chainSlug = addressVirtualAccount.blockchain.toLowerCase();
-        const walletCurrency = await resolveWalletCurrencyFromContract(chainSlug, String(contractAddress));
-        
-        if (walletCurrency) {
-          matchedWalletCurrency = walletCurrency;
-          detectedCurrency = walletCurrency.currency;
-          
-          // Find the correct virtual account for this currency
-          const correctVirtualAccount = await prisma.virtualAccount.findFirst({
-            where: {
-              userId: addressVirtualAccount.userId,
-              currency: walletCurrency.currency,
-              blockchain: addressVirtualAccount.blockchain.toLowerCase(),
-            },
-            include: {
-              walletCurrency: true,
-            },
-          });
-          
-          if (correctVirtualAccount) {
-            targetVirtualAccount = correctVirtualAccount;
-            tatumLogger.info('Found correct virtual account for token', {
-              originalCurrency: addressVirtualAccount.currency,
-              detectedCurrency: walletCurrency.currency,
-              originalVirtualAccountId: addressVirtualAccount.id,
-              targetVirtualAccountId: correctVirtualAccount.id,
-              contractAddress,
-            });
-          } else {
-            tatumLogger.warn('Virtual account not found for detected currency', {
-              userId: addressVirtualAccount.userId,
-              currency: walletCurrency.currency,
-              blockchain: addressVirtualAccount.blockchain,
-              contractAddress,
-            });
-          }
-        }
-      }
-      
+
       // Process as receive - continue with normal flow using the correct virtualAccount
       // We'll set accountId to targetVirtualAccount.accountId for compatibility
       webhookData.accountId = targetVirtualAccount.accountId;
@@ -278,15 +227,20 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         }
       }
 
-      // Unlisted fungible token (scam / wrong contract) — record only, never credit
-      if (isFungibleToken && contractAddress && !matchedWalletCurrency) {
-        const fakeTimestamp = webhookData.timestamp || Date.now();
-        let fakeTransactionDate = new Date(fakeTimestamp);
-        if (isNaN(fakeTransactionDate.getTime())) {
-          fakeTransactionDate = new Date();
-        }
+      const addrTimestamp = webhookData.timestamp || Date.now();
+      let addrTransactionDate = new Date(addrTimestamp);
+      if (isNaN(addrTransactionDate.getTime())) {
+        addrTransactionDate = new Date();
+      }
 
-        await processFakeScamDeposit({
+      const scamVerdict = await rejectScamDepositIfNeeded({
+        userStatus: depositUser?.status,
+        chainSlug,
+        subscriptionType: webhookData.subscriptionType,
+        contractAddress: contractAddress ? String(contractAddress) : null,
+        assetField: webhookData.asset ? String(webhookData.asset) : null,
+        webhookType: webhookData.type,
+        lockPayload: {
           userId: addressVirtualAccount.userId,
           virtualAccountId: addressVirtualAccount.id,
           accountId: addressVirtualAccount.accountId,
@@ -294,23 +248,64 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
           fromAddress: counterpartyRaw ?? '',
           toAddress: addressRaw,
           grossAmount: amountStr,
-          contractAddress: String(contractAddress),
-          currencyLabel: `FAKE_TOKEN`,
+          contractAddress: contractAddress ? String(contractAddress) : '',
           blockchain: addressVirtualAccount.blockchain,
           subscriptionType: webhookData.subscriptionType,
-          transactionDate: fakeTransactionDate,
+          transactionDate: addrTransactionDate,
           index: webhookData.logIndex ?? null,
-          reference: `fake:${String(contractAddress)}`,
-        });
+        },
+      });
 
-        tatumLogger.warn('Rejected unlisted fungible token — recorded as fake_scam without credit', {
+      if (scamVerdict.rejected) {
+        if (scamVerdict.reason === 'unlisted_token_contract') {
+          tatumLogger.warn('Rejected unlisted token — recorded as fake_scam without credit', {
+            txId: addressTxId,
+            contractAddress,
+            address: addressRaw,
+            amount: amountStr,
+          });
+          return { processed: true, reason: 'fake_scam_token' };
+        }
+        tatumLogger.warn('Deposit blocked for banned user — no credit', {
           txId: addressTxId,
-          contractAddress,
-          address: addressRaw,
-          amount: amountStr,
+          userId: addressVirtualAccount.userId,
+        });
+        return { processed: false, reason: scamVerdict.reason };
+      }
+
+      if (scamVerdict.isToken && scamVerdict.walletCurrency) {
+        detectedCurrency = scamVerdict.walletCurrency.currency;
+
+        const correctVirtualAccount = await prisma.virtualAccount.findFirst({
+          where: {
+            userId: addressVirtualAccount.userId,
+            currency: scamVerdict.walletCurrency.currency,
+            blockchain: addressVirtualAccount.blockchain.toLowerCase(),
+          },
+          include: {
+            walletCurrency: true,
+          },
         });
 
-        return { processed: true, reason: 'fake_scam_token' };
+        if (correctVirtualAccount) {
+          targetVirtualAccount = correctVirtualAccount;
+          webhookData.accountId = correctVirtualAccount.accountId;
+          webhookData.currency = detectedCurrency;
+          tatumLogger.info('Found correct virtual account for token', {
+            originalCurrency: addressVirtualAccount.currency,
+            detectedCurrency: scamVerdict.walletCurrency.currency,
+            originalVirtualAccountId: addressVirtualAccount.id,
+            targetVirtualAccountId: correctVirtualAccount.id,
+            contractAddress,
+          });
+        } else {
+          tatumLogger.warn('Virtual account not found for detected currency', {
+            userId: addressVirtualAccount.userId,
+            currency: scamVerdict.walletCurrency.currency,
+            blockchain: addressVirtualAccount.blockchain,
+            contractAddress,
+          });
+        }
       }
     }
 
@@ -466,7 +461,105 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       currency,
     });
 
-    const grossAmount = new Decimal(amount);
+    const depositUser = await prisma.user.findUnique({
+      where: { id: virtualAccount.userId },
+      select: { status: true },
+    });
+
+    if (isUserBanned(depositUser?.status)) {
+      tatumLogger.warn('Skipping deposit credit — user banned', {
+        userId: virtualAccount.userId,
+        accountId,
+        txId,
+      });
+      return { processed: false, reason: 'user_banned' };
+    }
+
+    const webhookContract = webhookData.contractAddress || webhookData.asset;
+
+    const scamVerdict = await rejectScamDepositIfNeeded({
+      userStatus: depositUser?.status,
+      chainSlug: virtualAccount.blockchain.toLowerCase(),
+      subscriptionType: webhookData.subscriptionType,
+      contractAddress: webhookContract ? String(webhookContract) : null,
+      assetField: webhookData.asset ? String(webhookData.asset) : null,
+      webhookType: webhookData.type,
+      lockPayload: {
+        userId: virtualAccount.userId,
+        virtualAccountId: virtualAccount.id,
+        accountId,
+        txId: txId || `fake-${Date.now()}`,
+        fromAddress: from || '',
+        toAddress: to || '',
+        grossAmount: amount,
+        contractAddress: webhookContract ? String(webhookContract) : '',
+        blockchain: virtualAccount.blockchain,
+        subscriptionType: webhookData.subscriptionType,
+        transactionDate,
+        index: index ?? null,
+      },
+    });
+
+    if (scamVerdict.rejected) {
+      return {
+        processed: scamVerdict.reason === 'unlisted_token_contract',
+        reason: scamVerdict.reason === 'unlisted_token_contract' ? 'fake_scam_token' : scamVerdict.reason,
+      };
+    }
+
+    const creditCtx: DepositCreditContext = {
+      accountId,
+      virtualAccountId: virtualAccount.id,
+      userId: virtualAccount.userId,
+      currency,
+      blockchain: virtualAccount.blockchain,
+      amount,
+      txId: txId || '',
+      from: from || '',
+      to: to || '',
+      reference,
+      subscriptionType: webhookData.subscriptionType,
+      transactionDate,
+      index: index ?? null,
+      blockHeight: blockHeight ? Number(blockHeight) : null,
+      contractAddress: webhookContract ? String(webhookContract) : undefined,
+      isToken: scamVerdict.isToken,
+    };
+
+    const verifyResult = await verifyDepositOnChain({
+      chainSlug: virtualAccount.blockchain.toLowerCase(),
+      txHash: txId || '',
+      depositAddress: to || '',
+      expectedAmount: amount,
+      contractAddress: webhookContract ? String(webhookContract) : null,
+      isToken: scamVerdict.isToken,
+      walletCurrency: scamVerdict.walletCurrency,
+      subscriptionType: webhookData.subscriptionType,
+      blockNumber: blockHeight ? Number(blockHeight) : null,
+    });
+
+    if (verifyResult.status === 'mismatch') {
+      await lockFakeScamDeposit({
+        userId: virtualAccount.userId,
+        virtualAccountId: virtualAccount.id,
+        accountId,
+        txId: txId || `fake-${Date.now()}`,
+        fromAddress: from || '',
+        toAddress: to || '',
+        grossAmount: amount,
+        contractAddress: verifyResult.onChainContract ?? String(webhookContract ?? 'unknown'),
+        blockchain: virtualAccount.blockchain,
+        subscriptionType: webhookData.subscriptionType,
+        transactionDate,
+        index: index ?? null,
+      });
+      return { processed: true, reason: `verify_${verifyResult.reason ?? 'mismatch'}` };
+    }
+
+    if (verifyResult.status === 'pending') {
+      await createPendingVerificationDeposit(creditCtx, verifyResult);
+      return { processed: true, reason: 'pending_verification' };
+    }
 
     const walletCurrency = await prisma.walletCurrency.findFirst({
       where: {
@@ -474,256 +567,14 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         blockchain: virtualAccount.blockchain.toLowerCase(),
       },
     });
-    const walletCurrencyId = virtualAccount.currencyId ?? walletCurrency?.id ?? null;
-    const cryptoPrice = walletCurrency?.price
-      ? new Decimal(walletCurrency.price.toString())
-      : new Decimal('1');
-    const grossUsd = grossAmount.mul(cryptoPrice);
+    creditCtx.walletCurrencyId = virtualAccount.currencyId ?? walletCurrency?.id ?? null;
+    const creditResult = await finalizeDepositCredit(creditCtx);
 
-    const cryptoRate = await prisma.cryptoRate.findFirst({
-      where: { transactionType: 'RECEIVE', isActive: true },
-      orderBy: { createdAt: 'desc' },
-    });
-    const usdToNgnRate = cryptoRate?.rate
-      ? new Decimal(cryptoRate.rate.toString())
-      : new Decimal('1400');
-
-    const feePercent = await getCryptoDepositFeePercentForWalletCurrency(walletCurrencyId);
-    const feeBreakdown = computeCryptoDepositFee({
-      grossCrypto: grossAmount,
-      grossUsd,
-      feePercent,
-      usdToNgnRate,
-    });
-    const creditedAmount = feeBreakdown.creditedCrypto;
-    const hasFee = feeBreakdown.feeUsd.gt(0);
-
-    // Update virtual account balance - credit net amount after service fee
-    tatumLogger.info('Updating virtual account balance', {
-      accountId,
-      virtualAccountId: virtualAccount.id,
-      currency: virtualAccount.currency,
-      grossAmount: grossAmount.toString(),
-      creditedAmount: creditedAmount.toString(),
-      serviceFeePercent: feeBreakdown.feePercent.toString(),
-      serviceFeeUsd: feeBreakdown.feeUsd.toString(),
-    });
-
-    const currentBalance = new Decimal(virtualAccount.accountBalance || '0');
-    const onChainBefore = new Decimal(virtualAccount.onChainBalance || virtualAccount.availableBalance || '0');
-    const onChainAfter = onChainBefore.plus(creditedAmount);
-    const virtualBal = new Decimal(virtualAccount.virtualBalance || '0');
-    const newBalance = virtualBal.plus(onChainAfter);
-
-    const updatedVirtualAccount = await prisma.virtualAccount.update({
-      where: { id: virtualAccount.id },
-      data: {
-        virtualBalance: virtualBal.toString(),
-        onChainBalance: onChainAfter.toString(),
-        accountBalance: newBalance.toString(),
-        availableBalance: newBalance.toString(),
-      },
-    });
-
-    tatumLogger.balanceUpdate(accountId, updatedVirtualAccount, {
-      virtualAccountId: virtualAccount.id,
-      currency: virtualAccount.currency,
-      balanceBefore: currentBalance.toString(),
-      amountReceived: creditedAmount.toString(),
-      grossReceived: grossAmount.toString(),
-      balanceAfter: newBalance.toString(),
-      reference,
+    tatumLogger.info('Deposit credited after on-chain verification', {
       txId,
+      receivedAssetId: creditResult.receivedAssetId,
+      provider: verifyResult.provider,
     });
-
-    // Create received asset record
-    const receivedAsset = await prisma.receivedAsset.create({
-      data: {
-        accountId,
-        subscriptionType: webhookData.subscriptionType,
-        amount: parseFloat(amount),
-        reference,
-        currency,
-        txId,
-        fromAddress: from,
-        toAddress: to,
-        transactionDate: transactionDate,
-        status: 'inWallet',
-        index,
-        userId: virtualAccount.userId,
-      },
-    });
-
-    tatumLogger.info('Received asset created', {
-      receivedAssetId: receivedAsset.id,
-      accountId,
-      userId: virtualAccount.userId,
-      amount,
-      currency,
-    });
-
-    // Create receive transaction record
-    const receiveTransaction = await prisma.receiveTransaction.create({
-      data: {
-        userId: virtualAccount.userId,
-        virtualAccountId: virtualAccount.id,
-        transactionType: 'on_chain',
-        senderAddress: from,
-        reference,
-        txId,
-        amount: parseFloat(amount),
-        currency,
-        blockchain: virtualAccount.blockchain,
-        status: 'successful',
-      },
-    });
-
-    tatumLogger.info('Receive transaction created', {
-      receiveTransactionId: receiveTransaction.id,
-      userId: virtualAccount.userId,
-      virtualAccountId: virtualAccount.id,
-      reference,
-      txId,
-    });
-
-    const depositNotifBody = hasFee
-      ? `You received ${grossAmount.toString()} ${currency.toUpperCase()} (~$${grossUsd.toFixed(2)}). Service fee (${feeBreakdown.feePercent.toString()}%): $${feeBreakdown.feeUsd.toFixed(2)}. Credited: ${creditedAmount.toString()} ${currency.toUpperCase()}.`
-      : `You received ${grossAmount.toString()} ${currency.toUpperCase()}. Your balance has been updated.`;
-
-    // Send push notification for balance update and transaction creation
-    try {
-      await sendPushNotification({
-        userId: virtualAccount.userId,
-        title: 'Crypto Deposit Received',
-        body: depositNotifBody,
-        sound: 'default',
-        priority: 'high',
-        data: {
-          type: 'crypto_receive',
-          transactionId: receiveTransaction.id.toString(),
-          amount: creditedAmount.toString(),
-          grossAmount: grossAmount.toString(),
-          serviceFeeUsd: feeBreakdown.feeUsd.toString(),
-          currency: currency.toUpperCase(),
-          txHash: txId || '',
-        },
-      });
-
-      await prisma.inAppNotification.create({
-        data: {
-          userId: virtualAccount.userId,
-          title: 'Crypto Deposit Received',
-          description: depositNotifBody,
-          type: InAppNotificationType.customeer,
-        },
-      });
-
-      tatumLogger.info('Balance update and transaction notification sent', {
-        userId: virtualAccount.userId,
-        receiveTransactionId: receiveTransaction.id,
-        grossAmount: grossAmount.toString(),
-        creditedAmount: creditedAmount.toString(),
-        currency,
-      });
-    } catch (notifError: any) {
-      tatumLogger.exception('Send balance update notification', notifError, {
-        userId: virtualAccount.userId,
-        receiveTransactionId: receiveTransaction.id,
-      });
-      // Don't fail webhook processing if notification fails
-    }
-
-    // Create CryptoReceive transaction record
-    try {
-      const amountNaira = grossUsd.mul(usdToNgnRate);
-
-      // Generate transaction ID
-      const transactionId = `RECEIVE-${Date.now()}-${virtualAccount.userId}-${Math.random().toString(36).substr(2, 9)}`;
-
-      // Create CryptoReceive transaction
-      const cryptoReceiveTx = await cryptoTransactionService.createReceiveTransaction({
-        userId: virtualAccount.userId,
-        virtualAccountId: virtualAccount.id,
-        transactionId,
-        balanceBucket: 'on_chain',
-        fromAddress: from || '',
-        toAddress: to || '',
-        amount: grossAmount.toString(),
-        amountUsd: grossUsd.toString(),
-        amountNaira: amountNaira.toString(),
-        rate: cryptoPrice.toString(),
-        grossAmount: grossAmount.toString(),
-        creditedAmount: creditedAmount.toString(),
-        grossAmountUsd: grossUsd.toString(),
-        creditedAmountUsd: feeBreakdown.creditedUsd.toString(),
-        serviceFeePercent: hasFee ? feeBreakdown.feePercent.toString() : undefined,
-        serviceFeeAmount: hasFee ? feeBreakdown.feeCrypto.toString() : undefined,
-        serviceFeeUsd: hasFee ? feeBreakdown.feeUsd.toString() : undefined,
-        txHash: txId || '',
-        blockNumber: blockHeight ? BigInt(blockHeight) : undefined,
-        confirmations: 0,
-        status: 'successful',
-      });
-
-      tatumLogger.info('CryptoReceive transaction created', {
-        cryptoTransactionId: cryptoReceiveTx.id,
-        transactionId: cryptoReceiveTx.transactionId,
-        userId: virtualAccount.userId,
-        virtualAccountId: virtualAccount.id,
-        currency,
-        grossAmount: grossAmount.toString(),
-        creditedAmount: creditedAmount.toString(),
-        grossAmountUsd: grossUsd.toString(),
-        txHash: txId,
-      });
-
-      // Send enhanced notification with USD value (optional - first notification already sent above)
-      try {
-        const enhancedBody = hasFee
-          ? `Deposit confirmed: $${grossUsd.toFixed(2)} received, $${feeBreakdown.feeUsd.toFixed(2)} fee, $${feeBreakdown.creditedUsd.toFixed(2)} credited.`
-          : `Your deposit of ${grossAmount.toString()} ${currency.toUpperCase()} is worth $${grossUsd.toFixed(2)}`;
-
-        await sendPushNotification({
-          userId: virtualAccount.userId,
-          title: 'Crypto Deposit Confirmed',
-          body: enhancedBody,
-          sound: 'default',
-          priority: 'high',
-          data: {
-            type: 'crypto_receive_enhanced',
-            transactionId: cryptoReceiveTx.transactionId,
-            amount: creditedAmount.toString(),
-            grossAmount: grossAmount.toString(),
-            amountUsd: feeBreakdown.creditedUsd.toString(),
-            grossAmountUsd: grossUsd.toString(),
-            serviceFeeUsd: feeBreakdown.feeUsd.toString(),
-            currency: currency.toUpperCase(),
-            txHash: txId || '',
-          },
-        });
-
-        tatumLogger.info('Enhanced receive transaction notification sent', {
-          userId: virtualAccount.userId,
-          transactionId: cryptoReceiveTx.transactionId,
-          creditedAmountUsd: feeBreakdown.creditedUsd.toString(),
-        });
-      } catch (notifError: any) {
-        tatumLogger.exception('Send enhanced receive notification', notifError, {
-          userId: virtualAccount.userId,
-          transactionId: cryptoReceiveTx.transactionId,
-        });
-        // Don't fail webhook processing if notification fails
-      }
-    } catch (error: any) {
-      // Log error but don't fail the webhook processing
-      tatumLogger.exception('Failed to create CryptoReceive transaction', error, {
-        accountId,
-        txId,
-        userId: virtualAccount.userId,
-        virtualAccountId: virtualAccount.id,
-      });
-      // Continue processing - the ReceiveTransaction was already created
-    }
 
     const result = {
       processed: true,

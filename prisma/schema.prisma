@@ -866,6 +866,16 @@ model ShiftSettings {
   @@map("shift_settings")
 }
 
+/// Singleton row — global toggles for customer-facing operations (all users).
+model PlatformOperationSettings {
+  id                        Int      @id @default(autoincrement())
+  palmpayWithdrawDisabled   Boolean  @default(false) @map("palmpay_withdraw_disabled")
+  cryptoOutsideSendDisabled Boolean  @default(false) @map("crypto_outside_send_disabled")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_operation_settings")
+}
+
 model AttendanceLog {
   id              Int       @id @default(autoincrement())
   userId          Int       @map("user_id")
@@ -1346,6 +1356,48 @@ model TatumRawWebhook {
   @@index([processed])
   @@index([createdAt])
   @@map("tatum_raw_webhooks")
+}
+
+model ScamContractBlocklist {
+  id              Int      @id @default(autoincrement())
+  blockchain      String   @db.VarChar(50)
+  contractAddress String   @map("contract_address") @db.VarChar(255)
+  reason          String   @db.VarChar(500)
+  source          String?  @db.VarChar(100)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([blockchain, contractAddress], map: "scam_contract_blocklist_blockchain_contract_unique")
+  @@index([contractAddress])
+  @@map("scam_contract_blocklist")
+}
+
+model DepositVerification {
+  id                Int       @id @default(autoincrement())
+  txHash            String    @map("tx_hash") @db.VarChar(255)
+  chain             String    @db.VarChar(50)
+  userId            Int       @map("user_id")
+  virtualAccountId  Int       @map("virtual_account_id")
+  accountId         String?   @map("account_id") @db.VarChar(255)
+  status            String    @default("pending") @db.VarChar(50)
+  attempts          Int       @default(0)
+  nextRetryAt       DateTime? @map("next_retry_at")
+  webhookAmount     String?   @map("webhook_amount") @db.VarChar(100)
+  onChainAmount     String?   @map("on_chain_amount") @db.VarChar(100)
+  contractAddress   String?   @map("contract_address") @db.VarChar(255)
+  depositAddress    String?   @map("deposit_address") @db.VarChar(255)
+  provider          String?   @db.VarChar(50)
+  failureReason     String?   @map("failure_reason") @db.VarChar(500)
+  rawSnippet        Json?     @map("raw_snippet")
+  receivedAssetId   Int?      @map("received_asset_id")
+  payload           Json?
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@unique([txHash, chain], map: "deposit_verifications_tx_chain_unique")
+  @@index([status])
+  @@index([nextRetryAt])
+  @@index([userId])
+  @@map("deposit_verifications")
 }
 
 model ReceivedAsset {
@@ -1879,6 +1931,8 @@ enum CryptoTxStatus {
   cancelled
   fake
   revoked
+  pending_verification
+  verify_failed_timeout
 }
 
 enum BalanceBucket {

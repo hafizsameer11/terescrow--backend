@@ -1,5 +1,12 @@
 import { prisma } from '../../utils/prisma';
 import { Prisma } from '@prisma/client';
+import {
+  CRYPTO_TX_STATUS_PENDING_VERIFY,
+  CRYPTO_TX_STATUS_VERIFY_FAILED,
+  DEPOSIT_STATUS_FAKE_SCAM,
+  DEPOSIT_STATUS_PENDING_VERIFICATION,
+  resolveDepositFlag,
+} from '../../constants/deposit.fake';
 import { formatCryptoAmount } from '../../utils/cryptoAmount';
 import { fetchOnChainTokenBalance } from '../crypto/onchain.balance.service';
 import {
@@ -66,6 +73,11 @@ export interface TrackingListItem {
   userRetentionUsd: string;
   /** Live on-chain balance at customer deposit address (Tron USDT via TronScan). */
   onChainDepositBalance?: string | null;
+  /** Fraud / scam marker — never credited, user may be banned. */
+  flagged: boolean;
+  flagReason: string | null;
+  /** Awaiting on-chain double verification — not credited yet. */
+  pendingVerification?: boolean;
 }
 
 export interface TrackingStep {
@@ -155,6 +167,19 @@ export interface TrackingDetails {
   userRetentionUsd: string;
   /** Live on-chain balance at customer deposit address (Tron USDT via TronScan). */
   onChainDepositBalance?: string | null;
+  flagged: boolean;
+  flagReason: string | null;
+  pendingVerification?: boolean;
+  depositVerification?: {
+    status: string;
+    attempts: number;
+    provider: string | null;
+    failureReason: string | null;
+    webhookAmount: string | null;
+    onChainAmount: string | null;
+    contractAddress: string | null;
+    nextRetryAt: string | null;
+  } | null;
 }
 
 function buildDateFilter(startDate?: string, endDate?: string): Prisma.CryptoTransactionWhereInput {
@@ -236,6 +261,8 @@ export async function getTransactionTrackingList(filters: {
   limit?: number;
   ledgerType?: string;
   balanceBucket?: string;
+  flagged?: string;
+  pendingVerification?: string;
 }): Promise<{ items: TrackingListItem[]; total: number; page: number; limit: number; totalPages: number }> {
   const page = Math.max(1, filters.page ?? 1);
   const limit = Math.min(100, Math.max(1, filters.limit ?? 20));
@@ -251,6 +278,40 @@ export async function getTransactionTrackingList(filters: {
 
   if (filters.balanceBucket?.trim()) {
     where.balanceBucket = filters.balanceBucket.trim() as 'virtual' | 'on_chain';
+  }
+
+  if (filters.flagged === 'true' || filters.flagged === '1') {
+    const fakeAssetTxIds = await prisma.receivedAsset.findMany({
+      where: { status: DEPOSIT_STATUS_FAKE_SCAM },
+      select: { txId: true },
+    });
+    const fakeHashes = fakeAssetTxIds.map((a) => a.txId).filter((h): h is string => !!h);
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      {
+        OR: [
+          { status: { in: ['fake', 'revoked', CRYPTO_TX_STATUS_VERIFY_FAILED] } },
+          ...(fakeHashes.length ? [{ cryptoReceive: { txHash: { in: fakeHashes } } }] : []),
+        ],
+      },
+    ];
+  }
+
+  if (filters.pendingVerification === 'true' || filters.pendingVerification === '1') {
+    const pendingAssetTxIds = await prisma.receivedAsset.findMany({
+      where: { status: DEPOSIT_STATUS_PENDING_VERIFICATION },
+      select: { txId: true },
+    });
+    const pendingHashes = pendingAssetTxIds.map((a) => a.txId).filter((h): h is string => !!h);
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      {
+        OR: [
+          { status: CRYPTO_TX_STATUS_PENDING_VERIFY },
+          ...(pendingHashes.length ? [{ cryptoReceive: { txHash: { in: pendingHashes } } }] : []),
+        ],
+      },
+    ];
   }
 
   if (filters.search?.trim()) {
@@ -340,6 +401,11 @@ export async function getTransactionTrackingList(filters: {
           userRetentionUsd: recv.amountUsd.toString(),
         };
         const depositAddress = tx.virtualAccount?.depositAddresses?.[0]?.address ?? recv.toAddress;
+        const flag = resolveDepositFlag({
+          masterWalletStatus: masterStatus,
+          receivedAssetStatus: masterStatus,
+          cryptoTxStatus: tx.status,
+        });
         return {
           id: tx.id,
           transactionId: tx.transactionId,
@@ -351,6 +417,9 @@ export async function getTransactionTrackingList(filters: {
           customerId: tx.userId,
           status: tx.status,
           masterWalletStatus: masterStatus,
+          flagged: flag.flagged,
+          flagReason: flag.flagReason,
+          pendingVerification: flag.pendingVerification ?? false,
           txHash: recv.txHash,
           amount: formatCryptoAmount(recv.creditedAmount ?? recv.amount),
           amountUsd: (recv.creditedAmountUsd ?? recv.amountUsd).toString(),
@@ -423,6 +492,8 @@ export async function getTransactionTrackingList(filters: {
         soldAmountNaira: '0',
         userRetentionUsd: '0',
         onChainDepositBalance: null,
+        flagged: false,
+        flagReason: null,
       };
     })
   );
@@ -710,6 +781,8 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
       soldAmountNaira: '0',
       userRetentionUsd: '0',
       onChainDepositBalance: null,
+      flagged: false,
+      flagReason: null,
     };
   }
 
@@ -745,6 +818,17 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
     walletCurrency: tx.virtualAccount?.walletCurrency,
   });
 
+  const flag = resolveDepositFlag({
+    masterWalletStatus: receivedAsset?.status,
+    receivedAssetStatus: receivedAsset?.status,
+    cryptoTxStatus: tx.status,
+  });
+
+  const depositVerification = await prisma.depositVerification.findFirst({
+    where: { txHash: recv.txHash },
+    orderBy: { id: 'desc' },
+  });
+
   return {
     transactionId: tx.transactionId,
     ledgerType,
@@ -752,6 +836,21 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
     sellBatchId: tx.sellBatchId,
     status: tx.status,
     masterWalletStatus: receivedAsset?.status ?? 'unknown',
+    flagged: flag.flagged,
+    flagReason: flag.flagReason,
+    pendingVerification: flag.pendingVerification ?? false,
+    depositVerification: depositVerification
+      ? {
+          status: depositVerification.status,
+          attempts: depositVerification.attempts,
+          provider: depositVerification.provider,
+          failureReason: depositVerification.failureReason,
+          webhookAmount: depositVerification.webhookAmount,
+          onChainAmount: depositVerification.onChainAmount,
+          contractAddress: depositVerification.contractAddress,
+          nextRetryAt: depositVerification.nextRetryAt?.toISOString() ?? null,
+        }
+      : null,
     currency: tx.currency,
     blockchain: tx.blockchain,
     amount: formatCryptoAmount(recv.creditedAmount ?? recv.amount),

@@ -31,6 +31,9 @@ export const previewSendController = async (
       return next(ApiError.unauthorized('User not authenticated'));
     }
 
+    const { assertCryptoOutsideSendEnabled } = await import('../../services/admin/platform.operation.settings.service');
+    await assertCryptoOutsideSendEnabled();
+
     const { amount, currency, blockchain, toAddress, amountInUsd } = req.body;
 
     const preview = await cryptoSendService.previewSendTransaction(
@@ -72,6 +75,10 @@ export const sendCryptoController = async (
     if (!userId) {
       return next(ApiError.unauthorized('User not authenticated'));
     }
+
+    const { assertCryptoOutsideSendEnabled } = await import('../../services/admin/platform.operation.settings.service');
+    await assertCryptoOutsideSendEnabled();
+
     const { getCustomerRestrictions, isFeatureFrozen, FEATURE_CRYPTO } = await import('../../utils/customer.restrictions');
     const restrictions = await getCustomerRestrictions(userId);
     if (restrictions.banned) return next(ApiError.forbidden('Your account has been banned. Contact support.'));

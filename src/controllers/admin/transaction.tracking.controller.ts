@@ -26,6 +26,8 @@ export async function getTransactionTrackingController(
       search: req.query.search as string,
       ledgerType: req.query.ledgerType as string,
       balanceBucket: req.query.balanceBucket as string,
+      flagged: req.query.flagged as string,
+      pendingVerification: req.query.pendingVerification as string,
       page: isNaN(page as number) ? undefined : page,
       limit: isNaN(limit as number) ? undefined : limit,
     });

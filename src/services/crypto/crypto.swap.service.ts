@@ -28,6 +28,7 @@ import {
   getTotalBalance,
 } from './virtual.account.balance.helper';
 import profitLedgerService from '../profit/profit.ledger.service';
+import { getCustomerRestrictions, forbiddenMessageForRestrictions, FEATURE_CRYPTO } from '../../utils/customer.restrictions';
 
 export interface SwapCryptoInput {
   userId: number;
@@ -666,6 +667,10 @@ class CryptoSwapService {
     console.log('From:', fromAmount, fromCurrency, fromBlockchain);
     console.log('To:', toCurrency, toBlockchain);
     console.log('========================================\n');
+
+    const restrictions = await getCustomerRestrictions(userId);
+    const banMsg = forbiddenMessageForRestrictions(restrictions, FEATURE_CRYPTO, 'Crypto swap');
+    if (banMsg) throw new Error(banMsg);
 
     // Validate that both currency/blockchain combinations exist in wallet_currencies
     // First find the wallet currencies to get the actual currency values

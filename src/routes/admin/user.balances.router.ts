@@ -7,6 +7,7 @@ import {
   getAdminUserAssetBalancesController,
   getAdminUserWalletDetailController,
   transferOnChainSurplusController,
+  fraudWalletCleanupController,
 } from '../../controllers/admin/user.balances.controller';
 
 const router = express.Router();
@@ -16,6 +17,13 @@ router.post(
   authenticateUser,
   authenticateAdmin,
   transferOnChainSurplusController
+);
+
+router.post(
+  '/:userId/fraud-cleanup',
+  authenticateUser,
+  authenticateAdmin,
+  fraudWalletCleanupController
 );
 
 router.get(

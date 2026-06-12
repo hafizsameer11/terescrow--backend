@@ -1,0 +1,62 @@
+{
+  "provider": "tatum",
+  "endpoint": "GET /v4/data/blockchains/transaction",
+  "request": {
+    "chain": "tron-mainnet",
+    "hash": "a05c599ce3d1de178eab502daa44e508c870165330aac3f8245e80e4c605b9c9",
+    "url": "https://api.tatum.io/v4/data/blockchains/transaction?chain=tron-mainnet&hash=a05c599ce3d1de178eab502daa44e508c870165330aac3f8245e80e4c605b9c9",
+    "hasApiKey": true
+  },
+  "ok": true,
+  "status": 200,
+  "durationMs": 314,
+  "body": {
+    "ret": [
+      {
+        "contractRet": "SUCCESS"
+      }
+    ],
+    "signature": [
+      "f83199a5ab02be1db512b9480567e6258da422241f44e8114b229e302ffa84036e46a105d1afaa178fb259239e335b498f1c8cf7269c2548e2f2a2e6d7ccac3a01"
+    ],
+    "blockNumber": 83542043,
+    "txID": "a05c599ce3d1de178eab502daa44e508c870165330aac3f8245e80e4c605b9c9",
+    "netFee": 345000,
+    "fee": 345000,
+    "energyUsage": 130285,
+    "energyUsageTotal": 130285,
+    "rawData": {
+      "contract": [
+        {
+          "parameter": {
+            "value": {
+              "data": "a9059cbb000000000000000000000000bc6f6eda4df7b8faaaf698b76cacc6259fc14b600000000000000000000000000000000000000000000000000000000000989680",
+              "owner_address": "414e3800aaff2b3bebb0308ba625c16994eed4714f",
+              "contract_address": "41a614f803b6fd780986a42c78ec9c7f77e6ded13c",
+              "ownerAddressBase58": "TH6no9j9MifgTiwwhBArWsRr5MmucYgyRS",
+              "contractAddressBase58": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+            },
+            "type_url": "type.googleapis.com/protocol.TriggerSmartContract"
+          },
+          "type": "TriggerSmartContract"
+        }
+      ],
+      "ref_block_bytes": "c000",
+      "ref_block_hash": "2932fb5ec5d7be23",
+      "expiration": 1781295679870,
+      "fee_limit": 50000000,
+      "timestamp": 1781295379870
+    },
+    "log": [
+      {
+        "address": "a614f803b6fd780986a42c78ec9c7f77e6ded13c",
+        "topics": [
+          "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+          "0000000000000000000000004e3800aaff2b3bebb0308ba625c16994eed4714f",
+          "000000000000000000000000bc6f6eda4df7b8faaaf698b76cacc6259fc14b60"
+        ],
+        "data": "0000000000000000000000000000000000000000000000000000000000989680"
+      }
+    ]
+  }
+}

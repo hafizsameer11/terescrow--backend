@@ -1,0 +1,104 @@
+{
+  "provider": "tatum",
+  "endpoint": "GET /v4/data/blockchains/transaction",
+  "request": {
+    "chain": "bitcoin-mainnet",
+    "hash": "8d8c465eaec140f2f879f5ffac58312609414dfb0c26d0981e3c14e67bbc469a",
+    "url": "https://api.tatum.io/v4/data/blockchains/transaction?chain=bitcoin-mainnet&hash=8d8c465eaec140f2f879f5ffac58312609414dfb0c26d0981e3c14e67bbc469a",
+    "hasApiKey": true
+  },
+  "ok": true,
+  "status": 200,
+  "durationMs": 329,
+  "body": {
+    "blockNumber": 953417,
+    "fee": 0,
+    "hash": "8d8c465eaec140f2f879f5ffac58312609414dfb0c26d0981e3c14e67bbc469a",
+    "hex": "010000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff5503498c0e184d696e656420627920536563506f6f6c5f001605037eb423fabe6d6dafd1fe9adb285a512fe548e477b8332e565c1cb283aab83bdc3b71438f13d28e10000000000000000000dd79ed37000000000000ffffffff07220200000000000017a9148ee90177614ecde53314fd67c46162f315852a07877b2dbb120000000017a9146582f2551e2a47e1ae8b03fb666401ed7c4552ef870000000000000000266a24aa21a9edbc32f3159347e479cbc0f83cb922a5d5354037c14ba748d78e9f4d7464bdd86200000000000000002f6a2d434f524501a37cf4faa0758b26dca666f3e36d42fa15cc0106942c01262fa046fdb8ba0dfce3753405c74aed0e0000000000000000146a12455853415401000d130f0e0e0b041f1200130000000000000000296a277379737aa124bbc7bd8b9667fc233fc5a79fdf26f3e31a628895a5afd5bbccf2c86d01c469220000000000000000002b6a2952534b424c4f434b3a7de0a20527baee82a97454392f3cdaf7db93d59bd2eecf6edb6f2617008866fa0120000000000000000000000000000000000000000000000000000000000000000000000000",
+    "index": 0,
+    "inputs": [
+      {
+        "prevout": {
+          "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "index": 4294967295
+        },
+        "sequence": 4294967295,
+        "script": "03498c0e184d696e656420627920536563506f6f6c5f001605037eb423fabe6d6dafd1fe9adb285a512fe548e477b8332e565c1cb283aab83bdc3b71438f13d28e10000000000000000000dd79ed37000000000000",
+        "address": null
+      }
+    ],
+    "locktime": 0,
+    "outputs": [
+      {
+        "value": 546,
+        "script": "a9148ee90177614ecde53314fd67c46162f315852a0787",
+        "address": "3Eif1JfqeMERRsQHtvGEacNN9hhuvnsfe9",
+        "scriptPubKey": {
+          "type": "scripthash",
+          "reqSigs": null
+        }
+      },
+      {
+        "value": 314256763,
+        "script": "a9146582f2551e2a47e1ae8b03fb666401ed7c4552ef87",
+        "address": "3Awm3FNpmwrbvAFVThRUFqgpbVuqWisni9",
+        "scriptPubKey": {
+          "type": "scripthash",
+          "reqSigs": null
+        }
+      },
+      {
+        "value": 0,
+        "script": "6a24aa21a9edbc32f3159347e479cbc0f83cb922a5d5354037c14ba748d78e9f4d7464bdd862",
+        "address": null,
+        "scriptPubKey": {
+          "type": "nulldata",
+          "reqSigs": null
+        }
+      },
+      {
+        "value": 0,
+        "script": "6a2d434f524501a37cf4faa0758b26dca666f3e36d42fa15cc0106942c01262fa046fdb8ba0dfce3753405c74aed0e",
+        "address": null,
+        "scriptPubKey": {
+          "type": "nulldata",
+          "reqSigs": null
+        }
+      },
+      {
+        "value": 0,
+        "script": "6a12455853415401000d130f0e0e0b041f120013",
+        "address": null,
+        "scriptPubKey": {
+          "type": "nulldata",
+          "reqSigs": null
+        }
+      },
+      {
+        "value": 0,
+        "script": "6a277379737aa124bbc7bd8b9667fc233fc5a79fdf26f3e31a628895a5afd5bbccf2c86d01c4692200",
+        "address": null,
+        "scriptPubKey": {
+          "type": "nulldata",
+          "reqSigs": null
+        }
+      },
+      {
+        "value": 0,
+        "script": "6a2952534b424c4f434b3a7de0a20527baee82a97454392f3cdaf7db93d59bd2eecf6edb6f2617008866fa",
+        "address": null,
+        "scriptPubKey": {
+          "type": "nulldata",
+          "reqSigs": null
+        }
+      }
+    ],
+    "size": 470,
+    "time": 1781295330,
+    "version": 1,
+    "vsize": 443,
+    "weight": 1772,
+    "witnessHash": "d10b4edddd82e10777fc8037a6bda4bc3b61cedfa117a0f1a499caf05d880e6b",
+    "block": "000000000000000000015a06f8c4f1dc5dfec946f5d3b2fd7dc8d9db45129b87"
+  }
+}

@@ -1,0 +1,272 @@
+{
+  "generatedAt": "2026-06-12T20:29:52.840Z",
+  "keysConfigured": {
+    "TATUM_API_KEY": true,
+    "ETHERSCAN_API_KEY": true,
+    "TRONSCAN_API_KEY": false
+  },
+  "samples": {
+    "ethereum_usdt": {
+      "chain": "ethereum",
+      "label": "Ethereum USDT ERC-20 deposit",
+      "hash": "0x3a8bbb5dfaa4e94ff87bf7045c7a8ca4293d27d842461cbe7f205e088222c46e",
+      "tatumChain": "ethereum-mainnet",
+      "etherscanChainId": 1,
+      "etherscanDepositAddress": "0x1d3e8851e25882dfda90eb78863391da7a6a098a",
+      "etherscanTokenContract": "0xdac17f958d2ee523a2206206994597c13d831ec7"
+    },
+    "ethereum_native": {
+      "chain": "ethereum",
+      "label": "Ethereum native ETH transfer",
+      "hash": "0x5406ba85d2d54e8b559f76968a98fbf33cf017b1c092f7c91c0f63d7ddb3b466",
+      "tatumChain": "ethereum-mainnet",
+      "etherscanChainId": 1
+    },
+    "bsc_fake_usdt": {
+      "chain": "bsc",
+      "label": "BSC fake USDT (hmstech incident)",
+      "hash": "0x6a33e31061799433fa0b8d4f99e1a635d0842eb0dc9fa60fcfd5ad3a1f15a18e",
+      "tatumChain": "bsc-mainnet",
+      "etherscanChainId": 56,
+      "etherscanDepositAddress": "0x8e2fce4226e5ebdd627e924380633c78d6bf81d6",
+      "etherscanTokenContract": "0x10806b71136785250455cab1fbafa06b228e8888",
+      "note": "Fake contract 0x10806b71... not real USDT 0x55d398..."
+    },
+    "tron_usdt": {
+      "chain": "tron",
+      "label": "Tron USDT TRC-20 deposit",
+      "hash": "a05c599ce3d1de178eab502daa44e508c870165330aac3f8245e80e4c605b9c9",
+      "tatumChain": "tron-mainnet"
+    },
+    "bitcoin": {
+      "chain": "bitcoin",
+      "label": "Bitcoin deposit",
+      "hash": "8d8c465eaec140f2f879f5ffac58312609414dfb0c26d0981e3c14e67bbc469a",
+      "tatumChain": "bitcoin-mainnet"
+    },
+    "litecoin": {
+      "chain": "litecoin",
+      "label": "Litecoin deposit",
+      "hash": "e0ff43e3606405caf55ee9114b80a6753792743bcf8637530a956c567161841e",
+      "tatumChain": "litecoin-mainnet",
+      "tatumChainWrong": "litecoin-core-mainnet"
+    },
+    "solana": {
+      "chain": "solana",
+      "label": "Solana deposit",
+      "hash": "3hwhEKqo7VhXL4d4TRiRrBiAFz1XjSYq9iu4UXrUo9K1K9hsnSYC9d78vbqSAg6934bh4oHQzZmEfYZGVrTSqJgw",
+      "tatumChain": "solana-mainnet"
+    }
+  },
+  "files": [
+    "tatum/ethereum_usdt.json",
+    "etherscan/ethereum_usdt_receipt.json",
+    "etherscan/ethereum_usdt_tx.json",
+    "etherscan/ethereum_usdt_tokentx.json",
+    "tatum/ethereum_native.json",
+    "etherscan/ethereum_native_receipt.json",
+    "etherscan/ethereum_native_tx.json",
+    "tatum/bsc_fake_usdt.json",
+    "etherscan/bsc_fake_usdt_receipt.json",
+    "etherscan/bsc_fake_usdt_tx.json",
+    "etherscan/bsc_fake_usdt_tokentx.json",
+    "tatum/tron_usdt.json",
+    "tronscan/tron_usdt.json",
+    "tatum/bitcoin.json",
+    "tatum/litecoin.json",
+    "tatum/litecoin_wrong_chain_slug.json",
+    "tatum/solana.json"
+  ],
+  "results": [
+    {
+      "sampleId": "ethereum_usdt",
+      "chain": "ethereum",
+      "label": "Ethereum USDT ERC-20 deposit",
+      "hash": "0x3a8bbb5dfaa4e94ff87bf7045c7a8ca4293d27d842461cbe7f205e088222c46e",
+      "tatumChain": "ethereum-mainnet",
+      "etherscanChainId": 1,
+      "etherscanDepositAddress": "0x1d3e8851e25882dfda90eb78863391da7a6a098a",
+      "etherscanTokenContract": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+      "calls": [
+        {
+          "file": "tatum/ethereum_usdt.json",
+          "chain": "ethereum-mainnet",
+          "hash": "0x3a8bbb5dfaa4e94ff87bf7045c7a8ca4293d27d842461cbe7f205e088222c46e",
+          "url": "https://api.tatum.io/v4/data/blockchains/transaction?chain=ethereum-mainnet&hash=0x3a8bbb5dfaa4e94ff87bf7045c7a8ca4293d27d842461cbe7f205e088222c46e",
+          "hasApiKey": true,
+          "ok": true,
+          "status": 200
+        },
+        {
+          "file": "etherscan/ethereum_usdt_receipt.json",
+          "action": "eth_getTransactionReceipt",
+          "ok": true
+        },
+        {
+          "file": "etherscan/ethereum_usdt_tx.json",
+          "action": "eth_getTransactionByHash",
+          "ok": true
+        },
+        {
+          "file": "etherscan/ethereum_usdt_tokentx.json",
+          "action": "tokentx",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "sampleId": "ethereum_native",
+      "chain": "ethereum",
+      "label": "Ethereum native ETH transfer",
+      "hash": "0x5406ba85d2d54e8b559f76968a98fbf33cf017b1c092f7c91c0f63d7ddb3b466",
+      "tatumChain": "ethereum-mainnet",
+      "etherscanChainId": 1,
+      "calls": [
+        {
+          "file": "tatum/ethereum_native.json",
+          "chain": "ethereum-mainnet",
+          "hash": "0x5406ba85d2d54e8b559f76968a98fbf33cf017b1c092f7c91c0f63d7ddb3b466",
+          "url": "https://api.tatum.io/v4/data/blockchains/transaction?chain=ethereum-mainnet&hash=0x5406ba85d2d54e8b559f76968a98fbf33cf017b1c092f7c91c0f63d7ddb3b466",
+          "hasApiKey": true,
+          "ok": true,
+          "status": 200
+        },
+        {
+          "file": "etherscan/ethereum_native_receipt.json",
+          "action": "eth_getTransactionReceipt",
+          "ok": true
+        },
+        {
+          "file": "etherscan/ethereum_native_tx.json",
+          "action": "eth_getTransactionByHash",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "sampleId": "bsc_fake_usdt",
+      "chain": "bsc",
+      "label": "BSC fake USDT (hmstech incident)",
+      "hash": "0x6a33e31061799433fa0b8d4f99e1a635d0842eb0dc9fa60fcfd5ad3a1f15a18e",
+      "tatumChain": "bsc-mainnet",
+      "etherscanChainId": 56,
+      "etherscanDepositAddress": "0x8e2fce4226e5ebdd627e924380633c78d6bf81d6",
+      "etherscanTokenContract": "0x10806b71136785250455cab1fbafa06b228e8888",
+      "note": "Fake contract 0x10806b71... not real USDT 0x55d398...",
+      "calls": [
+        {
+          "file": "tatum/bsc_fake_usdt.json",
+          "chain": "bsc-mainnet",
+          "hash": "0x6a33e31061799433fa0b8d4f99e1a635d0842eb0dc9fa60fcfd5ad3a1f15a18e",
+          "url": "https://api.tatum.io/v4/data/blockchains/transaction?chain=bsc-mainnet&hash=0x6a33e31061799433fa0b8d4f99e1a635d0842eb0dc9fa60fcfd5ad3a1f15a18e",
+          "hasApiKey": true,
+          "ok": true,
+          "status": 200
+        },
+        {
+          "file": "etherscan/bsc_fake_usdt_receipt.json",
+          "action": "eth_getTransactionReceipt",
+          "ok": true
+        },
+        {
+          "file": "etherscan/bsc_fake_usdt_tx.json",
+          "action": "eth_getTransactionByHash",
+          "ok": true
+        },
+        {
+          "file": "etherscan/bsc_fake_usdt_tokentx.json",
+          "action": "tokentx",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "sampleId": "tron_usdt",
+      "chain": "tron",
+      "label": "Tron USDT TRC-20 deposit",
+      "hash": "a05c599ce3d1de178eab502daa44e508c870165330aac3f8245e80e4c605b9c9",
+      "tatumChain": "tron-mainnet",
+      "calls": [
+        {
+          "file": "tatum/tron_usdt.json",
+          "chain": "tron-mainnet",
+          "hash": "a05c599ce3d1de178eab502daa44e508c870165330aac3f8245e80e4c605b9c9",
+          "url": "https://api.tatum.io/v4/data/blockchains/transaction?chain=tron-mainnet&hash=a05c599ce3d1de178eab502daa44e508c870165330aac3f8245e80e4c605b9c9",
+          "hasApiKey": true,
+          "ok": true,
+          "status": 200
+        },
+        {
+          "file": "tronscan/tron_usdt.json",
+          "hash": "a05c599ce3d1de178eab502daa44e508c870165330aac3f8245e80e4c605b9c9",
+          "url": "https://apilist.tronscanapi.com/api/transaction-info?hash=a05c599ce3d1de178eab502daa44e508c870165330aac3f8245e80e4c605b9c9",
+          "hasApiKey": false,
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "sampleId": "bitcoin",
+      "chain": "bitcoin",
+      "label": "Bitcoin deposit",
+      "hash": "8d8c465eaec140f2f879f5ffac58312609414dfb0c26d0981e3c14e67bbc469a",
+      "tatumChain": "bitcoin-mainnet",
+      "calls": [
+        {
+          "file": "tatum/bitcoin.json",
+          "chain": "bitcoin-mainnet",
+          "hash": "8d8c465eaec140f2f879f5ffac58312609414dfb0c26d0981e3c14e67bbc469a",
+          "url": "https://api.tatum.io/v4/data/blockchains/transaction?chain=bitcoin-mainnet&hash=8d8c465eaec140f2f879f5ffac58312609414dfb0c26d0981e3c14e67bbc469a",
+          "hasApiKey": true,
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "sampleId": "litecoin",
+      "chain": "litecoin",
+      "label": "Litecoin deposit",
+      "hash": "e0ff43e3606405caf55ee9114b80a6753792743bcf8637530a956c567161841e",
+      "tatumChain": "litecoin-mainnet",
+      "tatumChainWrong": "litecoin-core-mainnet",
+      "calls": [
+        {
+          "file": "tatum/litecoin.json",
+          "chain": "litecoin-mainnet",
+          "hash": "e0ff43e3606405caf55ee9114b80a6753792743bcf8637530a956c567161841e",
+          "url": "https://api.tatum.io/v4/data/blockchains/transaction?chain=litecoin-mainnet&hash=e0ff43e3606405caf55ee9114b80a6753792743bcf8637530a956c567161841e",
+          "hasApiKey": true,
+          "ok": true,
+          "status": 200
+        },
+        {
+          "file": "tatum/litecoin_wrong_chain_slug.json",
+          "chain": "litecoin-core-mainnet",
+          "note": "intentionally wrong slug to document validation error",
+          "ok": false,
+          "status": 400
+        }
+      ]
+    },
+    {
+      "sampleId": "solana",
+      "chain": "solana",
+      "label": "Solana deposit",
+      "hash": "3hwhEKqo7VhXL4d4TRiRrBiAFz1XjSYq9iu4UXrUo9K1K9hsnSYC9d78vbqSAg6934bh4oHQzZmEfYZGVrTSqJgw",
+      "tatumChain": "solana-mainnet",
+      "calls": [
+        {
+          "file": "tatum/solana.json",
+          "chain": "solana-mainnet",
+          "hash": "3hwhEKqo7VhXL4d4TRiRrBiAFz1XjSYq9iu4UXrUo9K1K9hsnSYC9d78vbqSAg6934bh4oHQzZmEfYZGVrTSqJgw",
+          "url": "https://api.tatum.io/v4/data/blockchains/transaction?chain=solana-mainnet&hash=3hwhEKqo7VhXL4d4TRiRrBiAFz1XjSYq9iu4UXrUo9K1K9hsnSYC9d78vbqSAg6934bh4oHQzZmEfYZGVrTSqJgw",
+          "hasApiKey": true,
+          "ok": true,
+          "status": 200
+        }
+      ]
+    }
+  ]
+}

@@ -30,6 +30,24 @@ export async function processFakeScamDeposit(input: ProcessFakeScamDepositInput)
   const grossAmount = new Decimal(input.grossAmount || '0');
   const reference = input.reference || `fake:${input.contractAddress}`;
 
+  const existingAsset = await prisma.receivedAsset.findFirst({
+    where: { txId: input.txId, status: DEPOSIT_STATUS_FAKE_SCAM },
+  });
+  if (existingAsset) {
+    const existingTx = await prisma.cryptoTransaction.findFirst({
+      where: {
+        transactionType: 'RECEIVE',
+        status: CRYPTO_TX_STATUS_FAKE,
+        cryptoReceive: { txHash: input.txId },
+      },
+    });
+    tatumLogger.info('Fake/scam deposit already recorded — skipping duplicate', {
+      txId: input.txId,
+      receivedAssetId: existingAsset.id,
+    });
+    return { receivedAsset: existingAsset, cryptoTx: existingTx };
+  }
+
   const receivedAsset = await prisma.receivedAsset.create({
     data: {
       accountId: input.accountId,

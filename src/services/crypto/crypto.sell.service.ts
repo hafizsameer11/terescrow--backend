@@ -17,6 +17,7 @@ import cryptoLogger from '../../utils/crypto.logger';
 import { sendPushNotification } from '../../utils/pushService';
 import { InAppNotificationType } from '@prisma/client';
 import { creditReferralCommission, ReferralService } from '../referral/referral.commission.service';
+import { getCustomerRestrictions, forbiddenMessageForRestrictions, FEATURE_CRYPTO } from '../../utils/customer.restrictions';
 import profitLedgerService from '../profit/profit.ledger.service';
 import { resolveCryptoSpreadForSell } from '../profit/profit.crypto.rates';
 import {
@@ -147,6 +148,10 @@ class CryptoSellService {
     console.log('Currency:', currency);
     console.log('Blockchain:', blockchain);
     console.log('========================================\n');
+
+    const restrictions = await getCustomerRestrictions(userId);
+    const banMsg = forbiddenMessageForRestrictions(restrictions, FEATURE_CRYPTO, 'Crypto sell');
+    if (banMsg) throw new Error(banMsg);
 
     // Pre-transaction: Get wallet currency and rates (outside transaction to avoid timeout)
     // Handle cases where currency might be stored as "USDT_TRON", "USDT_ETH", etc. instead of just "USDT"

@@ -21,6 +21,7 @@ import {
   getTotalBalance,
   syncTotalBalanceFields,
 } from './virtual.account.balance.helper';
+import { getCustomerRestrictions, forbiddenMessageForRestrictions, FEATURE_CRYPTO } from '../../utils/customer.restrictions';
 import cryptoLogger from '../../utils/crypto.logger';
 import { sendPushNotification } from '../../utils/pushService';
 import {
@@ -180,6 +181,10 @@ class CryptoSendService {
     console.log('Blockchain:', blockchain, '→', chainNorm);
     console.log('To Address:', toAddress);
     console.log('========================================\n');
+
+    const restrictions = await getCustomerRestrictions(userId);
+    const banMsg = forbiddenMessageForRestrictions(restrictions, FEATURE_CRYPTO, 'Crypto send');
+    if (banMsg) throw new Error(banMsg);
 
     const storageCurrency = resolveSendStorageCurrency(currencyCode, chainNorm);
     const virtualAccount = await this.findVirtualAccountForSend(userId, storageCurrency, chainNorm);

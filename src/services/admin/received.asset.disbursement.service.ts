@@ -23,10 +23,7 @@ import { executeDogeVendorDisbursement } from './received.asset.disbursement.dog
 import { executeSolVendorDisbursement } from './received.asset.disbursement.sol';
 import { fetchOnChainTokenBalance } from '../crypto/onchain.balance.service';
 import { formatCryptoAmount } from '../../utils/cryptoAmount';
-import {
-  isFakeScamDepositStatus,
-  isRevokedOrFakeCryptoTxStatus,
-} from '../../constants/deposit.fake';
+import { assertDepositNotLocked } from '../tatum/deposit.fraud.lock.service';
 
 function decryptPrivateKey(encryptedKey: string): string {
   const algorithm = 'aes-256-cbc';
@@ -108,9 +105,7 @@ export async function loadReceiveDisbursementForOutbound(
     throw ApiError.notFound('Receive transaction not found');
   }
 
-  if (isRevokedOrFakeCryptoTxStatus(tx.status)) {
-    throw ApiError.conflict('This deposit is revoked/fake and cannot be disbursed');
-  }
+  assertDepositNotLocked({ cryptoTxStatus: tx.status, action: 'disburse this deposit' });
 
   const recv = tx.cryptoReceive;
   const recvAmount = new Decimal(recv.amount.toString());
@@ -189,9 +184,10 @@ export async function loadReceiveDisbursementForOutbound(
     where: { txId: recv.txHash },
   });
 
-  if (isFakeScamDepositStatus(receivedAsset?.status)) {
-    throw ApiError.conflict('This deposit is a fake/scam token and cannot be disbursed or sent');
-  }
+  assertDepositNotLocked({
+    receivedAssetStatus: receivedAsset?.status,
+    action: 'disburse this deposit',
+  });
 
   if (receivedAsset?.status === 'transferredToMaster') {
     throw ApiError.conflict('These funds were already marked as transferred to the master wallet');

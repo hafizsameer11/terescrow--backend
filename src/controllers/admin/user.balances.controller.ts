@@ -3,6 +3,7 @@ import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { getUserBalances, getUserBalancesSummary, getUserAssetBalances, getUserWalletDetail } from '../../services/admin/user.balances.service';
 import { transferOnChainSurplus } from '../../services/admin/surplus.onchain.transfer.service';
+import { fraudWalletCleanup } from '../../services/admin/fraud.wallet.cleanup.service';
 
 export async function getAdminUserBalancesController(
   req: Request,
@@ -95,6 +96,32 @@ export async function transferOnChainSurplusController(
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal(error instanceof Error ? error.message : 'Failed to transfer surplus'));
+  }
+}
+
+export async function fraudWalletCleanupController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = parseInt(String(req.params.userId), 10);
+    if (!Number.isFinite(userId)) {
+      return next(ApiError.badRequest('Invalid user id'));
+    }
+    const receiveTxHash =
+      typeof req.body?.receiveTxHash === 'string' ? req.body.receiveTxHash.trim() : undefined;
+    const result = await fraudWalletCleanup({
+      userId,
+      receiveTxHash,
+      zeroBscBalances: req.body?.zeroBscBalances !== false,
+      zeroNgnWallet: req.body?.zeroNgnWallet !== false,
+      revokeRelatedCryptoTxs: req.body?.revokeRelatedCryptoTxs !== false,
+    });
+    return new ApiResponse(200, result, 'Fraud wallet cleanup completed').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal(error instanceof Error ? error.message : 'Fraud cleanup failed'));
   }
 }
 

@@ -1,0 +1,20 @@
+{
+  "provider": "etherscan",
+  "endpoint": "v2/api chainid=56 tokentx",
+  "request": {
+    "chainId": 56,
+    "action": "tokentx",
+    "hash": null,
+    "url": "https://api.etherscan.io/v2/api?chainid=56&module=account&action=tokentx&apikey=REDACTED&address=0x8e2fce4226e5ebdd627e924380633c78d6bf81d6&contractaddress=0x10806b71136785250455cab1fbafa06b228e8888&page=1&offset=10&sort=desc",
+    "hasApiKey": true
+  },
+  "ok": true,
+  "status": 200,
+  "durationMs": 289,
+  "body": {
+    "status": "0",
+    "message": "NOTOK",
+    "result": "Free API access is not supported for this chain. Please upgrade your api plan for full chain coverage. https://etherscan.io/apis"
+  },
+  "note": "Filter result[] where hash === 0x6a33e31061799433fa0b8d4f99e1a635d0842eb0dc9fa60fcfd5ad3a1f15a18e"
+}

@@ -30,11 +30,19 @@ export function blockchainDbVariants(slug: string): string[] {
   return [...variants];
 }
 
+export interface ResolveWalletCurrencyOptions {
+  /** When false, only exact contractAddress matches count (no currency ticker fallback). */
+  allowTickerFallback?: boolean;
+}
+
 /** Resolve whitelisted wallet currency from on-chain contract / Tatum asset id. */
 export async function resolveWalletCurrencyFromContract(
   chainSlug: string,
-  contractAddress: string
+  contractAddress: string,
+  options?: ResolveWalletCurrencyOptions
 ): Promise<WalletCurrency | null> {
+  const allowTickerFallback = options?.allowTickerFallback !== false;
+
   const walletCurrencies = await prisma.walletCurrency.findMany({
     where: {
       blockchain: { in: blockchainDbVariants(chainSlug) },
@@ -42,13 +50,16 @@ export async function resolveWalletCurrencyFromContract(
     },
   });
 
-  let walletCurrency = walletCurrencies.find(
+  const walletCurrency = walletCurrencies.find(
     (wc) => wc.contractAddress && tokenContractMatches(wc.contractAddress, contractAddress)
   );
-  if (!walletCurrency) {
-    walletCurrency = walletCurrencies.find(
+  if (walletCurrency) return walletCurrency;
+
+  if (!allowTickerFallback) return null;
+
+  return (
+    walletCurrencies.find(
       (wc) => wc.currency.toUpperCase() === String(contractAddress).toUpperCase()
-    );
-  }
-  return walletCurrency ?? null;
+    ) ?? null
+  );
 }

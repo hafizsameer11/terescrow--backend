@@ -8,6 +8,7 @@ import { palmpayPayout } from '../../services/palmpay/palmpay.payout.service';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { palmpayConfig } from '../../services/palmpay/palmpay.config';
 import { getCustomerRestrictions, isFeatureFrozen, FEATURE_WITHDRAWAL } from '../../utils/customer.restrictions';
+import { assertPalmpayWithdrawEnabled } from '../../services/admin/platform.operation.settings.service';
 import { toCustomerSafeError } from '../../utils/customerSafeError';
 
 /**
@@ -87,6 +88,7 @@ export const initiatePayoutController = async (
 ) => {
   try {
     const user = (req as any).user || req.body._user;
+    await assertPalmpayWithdrawEnabled();
     const restrictions = await getCustomerRestrictions(user.id);
     if (restrictions.banned) {
       return next(ApiError.forbidden('Your account has been banned. Contact support.'));

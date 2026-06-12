@@ -17,7 +17,9 @@
     "queue:clear:tatum": "ts-node src/queue/clear.queue.ts tatum",
     "queue:clear:tatum:waiting": "ts-node src/queue/clear.queue.ts tatum waiting",
     "queue:clear:bill-payments": "ts-node src/queue/clear.queue.ts bill-payments",
-    "mark-fake-deposit": "ts-node scripts/mark-fake-deposit.ts"
+    "mark-fake-deposit": "ts-node scripts/mark-fake-deposit.ts",
+    "zero-fraud-wallet": "ts-node scripts/zero-fraud-user-wallet.ts",
+    "test": "node --test --require ts-node/register 'src/**/*.test.ts'"
   },
   "keywords": [],
   "author": "",

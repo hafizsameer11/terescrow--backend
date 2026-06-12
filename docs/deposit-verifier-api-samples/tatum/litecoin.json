@@ -1,0 +1,59 @@
+{
+  "provider": "tatum",
+  "endpoint": "GET /v4/data/blockchains/transaction",
+  "request": {
+    "chain": "litecoin-mainnet",
+    "hash": "e0ff43e3606405caf55ee9114b80a6753792743bcf8637530a956c567161841e",
+    "url": "https://api.tatum.io/v4/data/blockchains/transaction?chain=litecoin-mainnet&hash=e0ff43e3606405caf55ee9114b80a6753792743bcf8637530a956c567161841e",
+    "hasApiKey": true
+  },
+  "ok": true,
+  "status": 200,
+  "durationMs": 321,
+  "body": {
+    "blockNumber": 3123995,
+    "fee": 0,
+    "hash": "e0ff43e3606405caf55ee9114b80a6753792743bcf8637530a956c567161841e",
+    "hex": "010000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff64031bab2f2cfabe6d6d6478862760a1c7a8a9711f403934c9944fec9a89c22ed4fdbdb30b1af5c7b0a320000000f09f909f092f4632506f6f6c2f6400000000000000000000000000000000000000000000000000000000000000000000000500eb600000000000000223e14825000000001976a914dfd88711bf5d20f2ac7049ba28d053a89186ce9288ac0000000000000000266a24aa21a9ed8d2f03328dd45eda770ec0b696d13e012131aae339d725651b751053869ae769012000000000000000000000000000000000000000000000000000000000000000003220af43",
+    "index": 0,
+    "inputs": [
+      {
+        "prevout": {
+          "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "index": 0
+        },
+        "sequence": 0,
+        "script": "031bab2f2cfabe6d6d6478862760a1c7a8a9711f403934c9944fec9a89c22ed4fdbdb30b1af5c7b0a320000000f09f909f092f4632506f6f6c2f6400000000000000000000000000000000000000000000000000000000000000000000000500eb600000",
+        "address": null
+      }
+    ],
+    "locktime": 1135550514,
+    "outputs": [
+      {
+        "value": 625533219,
+        "script": "76a914dfd88711bf5d20f2ac7049ba28d053a89186ce9288ac",
+        "address": "LfdYLbP9F9CpmCX6atZnHZb8KkS8T6x4DK",
+        "scriptPubKey": {
+          "type": "pubkeyhash",
+          "reqSigs": 1
+        }
+      },
+      {
+        "value": 0,
+        "script": "6a24aa21a9ed8d2f03328dd45eda770ec0b696d13e012131aae339d725651b751053869ae769",
+        "address": null,
+        "scriptPubKey": {
+          "type": "nulldata",
+          "reqSigs": null
+        }
+      }
+    ],
+    "size": 268,
+    "time": 1781295200,
+    "version": 1,
+    "vsize": 241,
+    "weight": 964,
+    "witnessHash": "16e85b6c700110c95224f59d46b4ea41618cc0979eb456fd3a9e0244b8f0b8af",
+    "block": "ea6e777f207752b89bb7e05570808408c60fbc1ba352d673e2c8bc7cb160f7a5"
+  }
+}

@@ -9,6 +9,10 @@ import { processBlockchainWebhook } from '../../jobs/tatum/process.webhook.job';
 import ApiResponse from '../../utils/ApiResponse';
 import { prisma } from '../../utils/prisma';
 import tatumLogger from '../../utils/tatum.logger';
+import {
+  isTatumWebhookHmacConfigured,
+  verifyTatumWebhookHmac,
+} from '../../services/tatum/tatum.webhook.hmac';
 
 /**
  * Receive Tatum webhook
@@ -23,6 +27,21 @@ export const tatumWebhookController = async (
 
   try {
     const webhookData = req.body;
+    const rawBody =
+      (req as Request & { rawBody?: string }).rawBody ?? JSON.stringify(webhookData);
+    const payloadHash = req.get('x-payload-hash') ?? req.get('X-Payload-Hash');
+
+    if (isTatumWebhookHmacConfigured() && !verifyTatumWebhookHmac(rawBody, payloadHash)) {
+      tatumLogger.warn('Tatum webhook HMAC verification failed — rejected', {
+        hasPayloadHash: Boolean(payloadHash),
+        ip: req.ip,
+      });
+      return res.status(401).json({
+        status: 'error',
+        message: 'Invalid webhook signature',
+        data: { message: 'Unauthorized' },
+      });
+    }
 
     // ============================================
     // ✅ SAVE RAW WEBHOOK IMMEDIATELY

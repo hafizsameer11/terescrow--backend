@@ -1,0 +1,41 @@
+{
+  "provider": "etherscan",
+  "endpoint": "v2/api chainid=1 eth_getTransactionByHash",
+  "request": {
+    "chainId": 1,
+    "action": "eth_getTransactionByHash",
+    "hash": "0x3a8bbb5dfaa4e94ff87bf7045c7a8ca4293d27d842461cbe7f205e088222c46e",
+    "url": "https://api.etherscan.io/v2/api?chainid=1&module=proxy&action=eth_getTransactionByHash&apikey=REDACTED&txhash=0x3a8bbb5dfaa4e94ff87bf7045c7a8ca4293d27d842461cbe7f205e088222c46e",
+    "hasApiKey": true
+  },
+  "ok": true,
+  "status": 200,
+  "durationMs": 275,
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "blockHash": "0x128bee13703d4d4c2e3c5f3d2c1be50e5dfa904bdaaf23f69c6e1387e6ed4247",
+      "blockNumber": "0x1821aaf",
+      "blockTimestamp": "0x6a2c699b",
+      "from": "0x21a31ee1afc51d94c2efccaa2092ad1028285549",
+      "gas": "0x35d14",
+      "gasPrice": "0x42cdf7ce",
+      "maxFeePerGas": "0x2794ca2400",
+      "maxPriorityFeePerGas": "0x3b9aca00",
+      "hash": "0x3a8bbb5dfaa4e94ff87bf7045c7a8ca4293d27d842461cbe7f205e088222c46e",
+      "input": "0xa9059cbb0000000000000000000000001d3e8851e25882dfda90eb78863391da7a6a098a0000000000000000000000000000000000000000000000000000000006979f40",
+      "nonce": "0xe403c5",
+      "to": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+      "transactionIndex": "0x19",
+      "value": "0x0",
+      "type": "0x2",
+      "accessList": [],
+      "chainId": "0x1",
+      "v": "0x1",
+      "r": "0x274fcd760f45361aa29852ade907aa6fa4b9d8ad050cfce799766a2991207076",
+      "s": "0x1b063864c7f5200d21b7532a3c25454fe346e943ca2ca2b02cc3e6e025e0fec9",
+      "yParity": "0x1"
+    }
+  }
+}

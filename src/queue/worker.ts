@@ -4,6 +4,10 @@ import { processBillPaymentStatusJob, BillPaymentStatusJobData } from './jobs/bi
 import { processReloadlyUtilityStatusJob, ReloadlyUtilityStatusJobData } from './jobs/reloadly.utility.status.job';
 import { processCreateVirtualAccountJob, CreateVirtualAccountJobData } from '../jobs/tatum/create.virtual.account.job';
 import { processRetrySellTokenTransferJob, RetrySellTokenTransferJobData } from '../jobs/tatum/retry.sell.token.transfer.job';
+import {
+  processRetryDepositVerificationJob,
+  RetryDepositVerificationJobData,
+} from '../jobs/tatum/deposit.verify.retry.job';
 
 /**
  * Queue Worker
@@ -143,7 +147,9 @@ if (require.main === module) {
       'retry-sell-token-transfer': async (job: Job) => {
         await processRetrySellTokenTransferJob(job as Job<RetrySellTokenTransferJobData>);
       },
-      // Add more tatum job processors here as needed
+      'retry-deposit-verification': async (job: Job) => {
+        await processRetryDepositVerificationJob(job as Job<RetryDepositVerificationJobData>);
+      },
     },
     // Add more queues here as needed
   };
