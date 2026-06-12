@@ -79,6 +79,7 @@ import customersFreezeRouter from './routes/admin/customers.freeze.router';
 import profitAdminRouter from './routes/admin/profit.admin.router';
 import cryptoJobsRouter from './routes/admin/crypto.jobs.router';
 import depositFraudRouter from './routes/admin/deposit.fraud.router';
+import depositVerificationRouter from './routes/admin/deposit.verification.router';
 import scamContractRouter from './routes/admin/scam.contract.router';
 import platformSettingsRouter from './routes/admin/platform.settings.router';
 
@@ -280,6 +281,7 @@ app.use('/api/admin/customers', customersFreezeRouter);
 app.use('/api/admin/profit-tracker', profitAdminRouter);
 app.use('/api/admin/crypto-jobs', cryptoJobsRouter);
 app.use('/api/admin/deposit-fraud', depositFraudRouter);
+app.use('/api/admin/deposit-verification', depositVerificationRouter);
 app.use('/api/admin/scam-contracts', scamContractRouter);
 
 // ============================================
