@@ -103,6 +103,7 @@ function statusToCryptoDbValues(s: string): CryptoTxStatus[] {
   if (s === 'successful') return [CryptoTxStatus.successful];
   if (s === 'declined') return [CryptoTxStatus.failed, CryptoTxStatus.cancelled];
   if (s === 'pending') return [CryptoTxStatus.pending, CryptoTxStatus.processing];
+  if (s === 'revoked') return [CryptoTxStatus.revoked, CryptoTxStatus.fake];
   const values = Object.values(CryptoTxStatus) as string[];
   if (values.includes(s)) return [s as CryptoTxStatus];
   return [];

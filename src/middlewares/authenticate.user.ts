@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { UserRoles } from '@prisma/client';
 import ApiError from '../utils/ApiError';
 import { verifyToken } from '../utils/authUtils';
-import { isUserBanned } from '../utils/customer.restrictions';
+import { BANNED_CUSTOMER_MESSAGE, isUserBanned } from '../utils/customer.restrictions';
 import { prisma } from '../utils/prisma';
 
 const authenticateUser = async (
@@ -36,7 +36,7 @@ const authenticateUser = async (
     }
 
     if (isUser.role === UserRoles.customer && isUserBanned(isUser.status)) {
-      throw ApiError.forbidden('Your account has been banned. Contact support.');
+      throw ApiError.forbidden(BANNED_CUSTOMER_MESSAGE);
     }
 
     // Store user in both req.user (standard Express practice) and req.body._user (for backward compatibility)

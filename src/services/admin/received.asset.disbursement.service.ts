@@ -24,8 +24,8 @@ import { executeSolVendorDisbursement } from './received.asset.disbursement.sol'
 import { fetchOnChainTokenBalance } from '../crypto/onchain.balance.service';
 import { formatCryptoAmount } from '../../utils/cryptoAmount';
 import {
-  isFakeCryptoTxStatus,
   isFakeScamDepositStatus,
+  isRevokedOrFakeCryptoTxStatus,
 } from '../../constants/deposit.fake';
 
 function decryptPrivateKey(encryptedKey: string): string {
@@ -108,8 +108,8 @@ export async function loadReceiveDisbursementForOutbound(
     throw ApiError.notFound('Receive transaction not found');
   }
 
-  if (isFakeCryptoTxStatus(tx.status)) {
-    throw ApiError.conflict('This deposit is marked fake and cannot be disbursed');
+  if (isRevokedOrFakeCryptoTxStatus(tx.status)) {
+    throw ApiError.conflict('This deposit is revoked/fake and cannot be disbursed');
   }
 
   const recv = tx.cryptoReceive;

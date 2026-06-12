@@ -114,6 +114,7 @@ const bodyParser = require('body-parser')
 // ============================================
 import { startReloadlyUtilityStatusScheduler } from './schedulers/reloadly.utility.status.scheduler';
 import { startChangeNowSwapStatusScheduler } from './schedulers/changenow.swap.status.scheduler';
+import rejectBannedCustomer from './middlewares/reject.banned.customer';
 
 const port = process.env.PORT || 5000;
 
@@ -135,6 +136,12 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 // ============================================
 app.use(bodyParser.json({ limit: '5mb' }));
 app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }));
+
+// Reject banned customers on all customer-facing APIs (stale JWT must not load balance/data).
+app.use('/api/v2', rejectBannedCustomer);
+app.use('/api/customer', rejectBannedCustomer);
+app.use('/api/auth', rejectBannedCustomer);
+app.use('/api/public', rejectBannedCustomer);
 
 // ============================================
 // V2 API Routes - Crypto (Grouped by Action)

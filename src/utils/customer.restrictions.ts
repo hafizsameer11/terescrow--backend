@@ -1,5 +1,8 @@
 import { prisma } from './prisma';
 
+export const BANNED_CUSTOMER_MESSAGE =
+  'Your account has been banned. Contact support.';
+
 /** Canonical keys stored in `user_feature_freezes.feature` (lowercase). */
 export const FEATURE_DEPOSIT = 'deposit';
 export const FEATURE_WITHDRAWAL = 'withdrawal';
@@ -51,7 +54,7 @@ export function forbiddenMessageForRestrictions(
   featureLabel: string
 ): string | null {
   if (restrictions.banned) {
-    return 'Your account has been banned. Contact support.';
+    return BANNED_CUSTOMER_MESSAGE;
   }
   if (isFeatureFrozen(restrictions, feature)) {
     return `${featureLabel} is temporarily disabled for your account.`;

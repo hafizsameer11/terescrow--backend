@@ -7,6 +7,7 @@ import {
   NicheType,
   TransactionFilters,
 } from '../../services/admin/transactions.admin.service';
+import { revokeCryptoTransaction } from '../../services/admin/crypto.transaction.revoke.service';
 
 const VALID_NICHES: NicheType[] = ['crypto', 'giftcard', 'billpayment', 'naira'];
 
@@ -51,6 +52,22 @@ export async function getAdminTransactionsByCustomerController(
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to fetch customer transactions'));
+  }
+}
+
+export async function revokeCryptoTransactionController(
+  req: Request, res: Response, next: NextFunction
+) {
+  try {
+    const transactionId = String(req.params.transactionId || '').trim();
+    if (!transactionId) return next(ApiError.badRequest('transactionId is required'));
+    const adminUserId = (req as any).user?.id as number | undefined;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : undefined;
+    const result = await revokeCryptoTransaction(transactionId, { adminUserId, reason });
+    return new ApiResponse(200, result, 'Transaction revoked').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    next(ApiError.internal('Failed to revoke transaction'));
   }
 }
 

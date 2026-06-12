@@ -9,7 +9,7 @@ import { Request, Response, NextFunction } from 'express';
 import ApiError from '../utils/ApiError';
 import ApiResponse from '../utils/ApiResponse';
 import { comparePassword, generateToken } from '../utils/authUtils';
-import { isUserBanned } from '../utils/customer.restrictions';
+import { BANNED_CUSTOMER_MESSAGE, isUserBanned } from '../utils/customer.restrictions';
 import { validationResult } from 'express-validator';
 import { profile } from 'console';
 import axios from 'axios';
@@ -59,7 +59,7 @@ export const loginController = async (
     }
 
     if (isUser.role === UserRoles.customer && isUserBanned(isUser.status)) {
-      return next(ApiError.forbidden('Your account has been banned. Contact support.'));
+      return next(ApiError.forbidden(BANNED_CUSTOMER_MESSAGE));
     }
     
     const isMatch = await comparePassword(password, isUser.password);

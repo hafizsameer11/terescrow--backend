@@ -7,7 +7,13 @@ import {
   DEPOSIT_STATUS_FAKE_SCAM,
   isRevokedOrFakeCryptoTxStatus,
 } from '../../constants/deposit.fake';
-import { creditBucketData, debitBucketData } from '../crypto/virtual.account.balance.helper';
+import {
+  creditBucketData,
+  debitBucketData,
+  getOnChainBalance,
+  getVirtualBalance,
+  syncTotalBalanceFields,
+} from '../crypto/virtual.account.balance.helper';
 import { fiatWalletService } from '../fiat/fiat.wallet.service';
 import tatumLogger from '../../utils/tatum.logger';
 
@@ -113,10 +119,17 @@ async function revokeReceiveTx(tx: Awaited<ReturnType<typeof loadCryptoTx>>) {
 
   const credited = new Decimal(recv.creditedAmount?.toString() ?? recv.amount.toString());
   const bucket: BalanceBucket = tx.balanceBucket === 'virtual' ? 'virtual' : 'on_chain';
-  const bucketData =
+  const virtualBefore = getVirtualBalance(va);
+  const onChainBefore = getOnChainBalance(va);
+  const virtualAfter =
     bucket === 'virtual'
-      ? debitBucketData(va, 'virtual', credited)
-      : debitBucketData(va, 'on_chain', credited);
+      ? Decimal.max(virtualBefore.minus(credited), new Decimal(0))
+      : virtualBefore;
+  const onChainAfter =
+    bucket === 'on_chain'
+      ? Decimal.max(onChainBefore.minus(credited), new Decimal(0))
+      : onChainBefore;
+  const bucketData = syncTotalBalanceFields(virtualAfter, onChainAfter);
 
   await prisma.$transaction([
     prisma.virtualAccount.update({ where: { id: va.id }, data: bucketData }),
