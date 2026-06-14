@@ -17,6 +17,70 @@ import type { DepositVerifyResult } from './deposit.onchain.verifier/types';
 import cryptoTransactionService from '../crypto/crypto.transaction.service';
 import { Decimal } from '@prisma/client/runtime/library';
 
+type DepositVerificationRow = {
+  txHash: string;
+  chain: string;
+  userId: number;
+  virtualAccountId: number;
+  accountId: string | null;
+  webhookAmount: string | null;
+  contractAddress: string | null;
+  depositAddress: string | null;
+  receivedAssetId: number | null;
+  payload: unknown;
+};
+
+/** Rebuild credit context when stored payload is incomplete (e.g. backfilled rejection logs). */
+export async function resolveDepositRetryContext(
+  row: DepositVerificationRow
+): Promise<DepositCreditContext | null> {
+  const payload = row.payload as Partial<DepositCreditContext> | null;
+  if (payload?.blockchain && payload?.txId && payload?.amount && payload?.to) {
+    return {
+      ...(payload as DepositCreditContext),
+      transactionDate: payload.transactionDate
+        ? new Date(payload.transactionDate as string | Date)
+        : new Date(),
+    };
+  }
+
+  const [receivedAsset, virtualAccount] = await Promise.all([
+    row.receivedAssetId
+      ? prisma.receivedAsset.findUnique({ where: { id: row.receivedAssetId } })
+      : prisma.receivedAsset.findFirst({
+          where: { txId: row.txHash, userId: row.userId },
+          orderBy: { id: 'desc' },
+        }),
+    prisma.virtualAccount.findUnique({ where: { id: row.virtualAccountId } }),
+  ]);
+
+  if (!virtualAccount) return null;
+
+  const subscriptionType = payload?.subscriptionType ?? receivedAsset?.subscriptionType ?? undefined;
+  const isToken =
+    payload?.isToken ??
+    (subscriptionType === 'INCOMING_FUNGIBLE_TX' || Boolean(row.contractAddress));
+
+  return {
+    accountId: row.accountId ?? virtualAccount.accountId,
+    virtualAccountId: row.virtualAccountId,
+    userId: row.userId,
+    currency: payload?.currency ?? receivedAsset?.currency ?? virtualAccount.currency,
+    blockchain: virtualAccount.blockchain || row.chain,
+    amount: row.webhookAmount ?? receivedAsset?.amount?.toString() ?? '0',
+    txId: row.txHash,
+    from: payload?.from ?? receivedAsset?.fromAddress ?? '',
+    to: row.depositAddress ?? receivedAsset?.toAddress ?? '',
+    reference: payload?.reference ?? receivedAsset?.reference ?? row.txHash,
+    subscriptionType,
+    transactionDate: receivedAsset?.transactionDate ?? new Date(),
+    index: payload?.index ?? receivedAsset?.index ?? null,
+    blockHeight: payload?.blockHeight ?? null,
+    contractAddress: row.contractAddress ?? payload?.contractAddress ?? undefined,
+    isToken,
+  };
+}
+
 export async function enqueueDepositVerifyRetry(depositVerificationId: number, attemptNumber: number): Promise<void> {
   const { queueManager } = await import('../../queue/queue.manager');
   const delay = getVerifyRetryDelayMs();

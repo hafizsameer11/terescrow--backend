@@ -1,5 +1,5 @@
 import { prisma } from '../../utils/prisma';
-import { enqueueDepositVerifyRetry } from '../tatum/deposit.pending.service';
+import { enqueueDepositVerifyRetry, resolveDepositRetryContext } from '../tatum/deposit.pending.service';
 import { backfillDepositVerificationLogsFromDeposits } from '../tatum/deposit.rejection.log.service';
 import { isDepositVerifyEnabled } from '../tatum/deposit.onchain.verifier/chain.registry';
 import { getDepositRejectionInfo, decodeFailureReason } from '../../constants/deposit.rejection.reasons';
@@ -185,11 +185,17 @@ export async function retryDepositVerification(id: number): Promise<void> {
   if (row.status === 'verified') {
     throw new Error('Deposit already verified');
   }
+  const rebuiltCtx = await resolveDepositRetryContext(row);
+  if (!rebuiltCtx?.blockchain || !rebuiltCtx.txId || !rebuiltCtx.to) {
+    throw new Error('Cannot retry — deposit context is incomplete (missing chain, tx hash, or address)');
+  }
+
   await prisma.depositVerification.update({
     where: { id },
     data: {
       status: 'pending',
       nextRetryAt: new Date(),
+      payload: rebuiltCtx as object,
     },
   });
   await enqueueDepositVerifyRetry(id, row.attempts + 1);

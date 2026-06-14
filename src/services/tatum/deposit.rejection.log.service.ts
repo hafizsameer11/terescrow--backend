@@ -181,6 +181,12 @@ export async function backfillDepositVerificationLogsFromDeposits(): Promise<num
         receivedAssetId: asset.id,
         payload: {
           currency: asset.currency ?? receiveTx?.currency,
+          blockchain: chainSource ?? chain,
+          txId: txHash,
+          amount: asset.amount?.toString() ?? null,
+          to: asset.toAddress,
+          from: asset.fromAddress,
+          subscriptionType: asset.subscriptionType,
           backfilled: true,
           rejection: getDepositRejectionInfo(encodeFailureReason(stage, reasonCode), reasonCode),
         } as object,

@@ -72,8 +72,8 @@ const CHAIN_REGISTRY: Record<string, ChainConfig> = {
   },
 };
 
-export function normalizeChainSlug(blockchain: string): string {
-  const s = blockchain.trim().toLowerCase();
+export function normalizeChainSlug(blockchain: string | null | undefined): string {
+  const s = (blockchain ?? '').trim().toLowerCase();
   if (s === 'binance' || s === 'binancesmartchain') return 'bsc';
   if (s === 'trx') return 'tron';
   if (s === 'bitcoin-mainnet') return 'bitcoin';

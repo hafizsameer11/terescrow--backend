@@ -10,6 +10,7 @@ import {
   enqueueDepositVerifyRetry,
   markDepositVerified,
   markDepositVerifyFailed,
+  resolveDepositRetryContext,
 } from '../../services/tatum/deposit.pending.service';
 import { lockFakeScamDeposit } from '../../services/tatum/deposit.fraud.lock.service';
 import { getMaxVerifyAttempts } from '../../services/tatum/deposit.onchain.verifier/chain.registry';
@@ -36,8 +37,8 @@ export async function processRetryDepositVerificationJob(
     return;
   }
 
-  const ctx = row.payload as DepositCreditContext | null;
-  if (!ctx) {
+  const ctx = await resolveDepositRetryContext(row);
+  if (!ctx?.blockchain || !ctx.txId || !ctx.to) {
     await markDepositVerifyFailed(depositVerificationId, 'missing_payload');
     return;
   }
