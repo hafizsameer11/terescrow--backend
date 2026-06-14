@@ -1,5 +1,6 @@
 import { prisma } from '../../utils/prisma';
 import { enqueueDepositVerifyRetry } from '../tatum/deposit.pending.service';
+import { backfillDepositVerificationLogsFromDeposits } from '../tatum/deposit.rejection.log.service';
 import { isDepositVerifyEnabled } from '../tatum/deposit.onchain.verifier/chain.registry';
 import { getDepositRejectionInfo, decodeFailureReason } from '../../constants/deposit.rejection.reasons';
 import type { DepositCreditContext } from '../tatum/deposit.credit.service';
@@ -97,6 +98,8 @@ export async function listDepositVerificationLogs(params: {
   status?: string;
   search?: string;
 }) {
+  await backfillDepositVerificationLogsFromDeposits();
+
   const page = Math.max(1, params.page ?? 1);
   const limit = Math.min(100, Math.max(1, params.limit ?? 25));
   const skip = (page - 1) * limit;

@@ -16,7 +16,7 @@ export {
   looksLikeEvmContract,
 } from './deposit.scam.guard';
 import { shouldBanUserForRejection } from '../../constants/deposit.rejection.reasons';
-import { recordScamGuardRejection } from './deposit.rejection.log.service';
+import { recordFakeScamDepositVerificationLog } from './deposit.rejection.log.service';
 import { processFakeScamDeposit } from './fake.deposit.service';
 import { getOnChainBalance, type VirtualAccountBalanceFields } from '../crypto/virtual.account.balance.helper';
 import tatumLogger from '../../utils/tatum.logger';
@@ -75,22 +75,10 @@ export async function rejectScamDepositIfNeeded(input: {
   });
 
   if (verdict.action === 'reject_fake') {
-    const lockResult = await lockFakeScamDeposit({
+    await lockFakeScamDeposit({
       ...input.lockPayload,
       contractAddress: verdict.contractAddress,
       rejectionReasonCode: verdict.reason,
-    });
-    await recordScamGuardRejection({
-      reasonCode: verdict.reason,
-      txHash: input.lockPayload.txId,
-      chain: input.chainSlug,
-      userId: input.lockPayload.userId,
-      virtualAccountId: input.lockPayload.virtualAccountId,
-      accountId: input.lockPayload.accountId,
-      webhookAmount: input.lockPayload.grossAmount,
-      depositAddress: input.lockPayload.toAddress,
-      contractAddress: verdict.contractAddress,
-      receivedAssetId: lockResult.receivedAsset?.id ?? null,
     });
     return { rejected: true, reason: verdict.reason };
   }
@@ -135,6 +123,21 @@ export async function lockFakeScamDeposit(
     reference: undefined,
     rejectionReasonCode,
   });
+
+  if (result.receivedAsset?.id) {
+    await recordFakeScamDepositVerificationLog({
+      rejectionReasonCode,
+      txHash: input.txId,
+      chain: input.blockchain,
+      userId: input.userId,
+      virtualAccountId: input.virtualAccountId,
+      accountId: input.accountId,
+      webhookAmount: input.grossAmount,
+      depositAddress: input.toAddress,
+      contractAddress: input.contractAddress || null,
+      receivedAssetId: result.receivedAsset.id,
+    });
+  }
 
   if (!input.skipBan && shouldBanUserForRejection(rejectionReasonCode)) {
     await banUserForFraudDeposit({
