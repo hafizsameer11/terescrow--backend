@@ -5,6 +5,7 @@ import {
   DEPOSIT_STATUS_FAKE_SCAM,
   isFakeScamDepositStatus,
 } from '../../constants/deposit.fake';
+import { buildRejectReference } from '../../constants/deposit.rejection.reasons';
 import cryptoTransactionService from '../crypto/crypto.transaction.service';
 import tatumLogger from '../../utils/tatum.logger';
 
@@ -23,12 +24,15 @@ export interface ProcessFakeScamDepositInput {
   transactionDate: Date;
   index?: number | null;
   reference?: string;
+  rejectionReasonCode?: string;
 }
 
 /** Record a scam/unlisted token deposit — no balance credit, no customer notification. */
 export async function processFakeScamDeposit(input: ProcessFakeScamDepositInput) {
   const grossAmount = new Decimal(input.grossAmount || '0');
-  const reference = input.reference || `fake:${input.contractAddress}`;
+  const reference =
+    input.reference
+    || (input.rejectionReasonCode ? buildRejectReference(input.rejectionReasonCode) : `fake:${input.contractAddress}`);
 
   const existingAsset = await prisma.receivedAsset.findFirst({
     where: { txId: input.txId, status: DEPOSIT_STATUS_FAKE_SCAM },

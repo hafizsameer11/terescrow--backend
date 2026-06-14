@@ -1,4 +1,5 @@
 import { CryptoTxStatus } from '@prisma/client';
+import { parseRejectReference } from './deposit.rejection.reasons';
 
 /** ReceivedAsset.status — unlisted / scam token; never credited or disbursed. */
 export const DEPOSIT_STATUS_FAKE_SCAM = 'fake_scam';
@@ -66,6 +67,7 @@ export function resolveDepositFlag(input: {
   masterWalletStatus?: string | null;
   receivedAssetStatus?: string | null;
   cryptoTxStatus?: string | null;
+  rejectionReference?: string | null;
 }): { flagged: boolean; flagReason: string | null; pendingVerification?: boolean } {
   if (
     isPendingVerificationDepositStatus(input.receivedAssetStatus)
@@ -80,7 +82,8 @@ export function resolveDepositFlag(input: {
     isFakeScamDepositStatus(input.masterWalletStatus)
     || isFakeScamDepositStatus(input.receivedAssetStatus)
   ) {
-    return { flagged: true, flagReason: 'fake_scam_token' };
+    const fromRef = parseRejectReference(input.rejectionReference);
+    return { flagged: true, flagReason: fromRef ?? 'fake_scam_token' };
   }
   if (isFakeCryptoTxStatus(input.cryptoTxStatus)) {
     return { flagged: true, flagReason: 'fake_deposit' };

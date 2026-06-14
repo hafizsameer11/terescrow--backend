@@ -7,6 +7,7 @@ import {
   DEPOSIT_STATUS_PENDING_VERIFICATION,
   resolveDepositFlag,
 } from '../../constants/deposit.fake';
+import { getDepositRejectionInfo } from '../../constants/deposit.rejection.reasons';
 import { formatCryptoAmount } from '../../utils/cryptoAmount';
 import { fetchOnChainTokenBalance } from '../crypto/onchain.balance.service';
 import {
@@ -175,6 +176,10 @@ export interface TrackingDetails {
     attempts: number;
     provider: string | null;
     failureReason: string | null;
+    failureReasonLabel?: string | null;
+    failureReasonDetail?: string | null;
+    rejectionCode?: string | null;
+    rejectionStage?: string | null;
     webhookAmount: string | null;
     onChainAmount: string | null;
     contractAddress: string | null;
@@ -371,10 +376,11 @@ export async function getTransactionTrackingList(filters: {
   const receivedAssets = txHashes.length
     ? await prisma.receivedAsset.findMany({
         where: { txId: { in: txHashes } },
-        select: { txId: true, status: true },
+        select: { txId: true, status: true, reference: true },
       })
     : [];
   const assetStatusMap = new Map(receivedAssets.map((a) => [a.txId, a.status]));
+  const assetReferenceMap = new Map(receivedAssets.map((a) => [a.txId, a.reference]));
 
   const soldMap = await getSoldTotalsMapForReceives(
     receiveRows.map((tx) => ({
@@ -405,6 +411,7 @@ export async function getTransactionTrackingList(filters: {
           masterWalletStatus: masterStatus,
           receivedAssetStatus: masterStatus,
           cryptoTxStatus: tx.status,
+          rejectionReference: assetReferenceMap.get(recv.txHash) ?? null,
         });
         return {
           id: tx.id,
@@ -822,12 +829,16 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
     masterWalletStatus: receivedAsset?.status,
     receivedAssetStatus: receivedAsset?.status,
     cryptoTxStatus: tx.status,
+    rejectionReference: receivedAsset?.reference ?? null,
   });
 
   const depositVerification = await prisma.depositVerification.findFirst({
     where: { txHash: recv.txHash },
     orderBy: { id: 'desc' },
   });
+  const verificationRejection = depositVerification?.failureReason
+    ? getDepositRejectionInfo(depositVerification.failureReason)
+    : null;
 
   return {
     transactionId: tx.transactionId,
@@ -845,6 +856,10 @@ export async function getTrackingDetails(txId: string): Promise<TrackingDetails 
           attempts: depositVerification.attempts,
           provider: depositVerification.provider,
           failureReason: depositVerification.failureReason,
+          failureReasonLabel: verificationRejection?.label ?? null,
+          failureReasonDetail: verificationRejection?.detail ?? null,
+          rejectionCode: verificationRejection?.code ?? null,
+          rejectionStage: verificationRejection?.stage ?? null,
           webhookAmount: depositVerification.webhookAmount,
           onChainAmount: depositVerification.onChainAmount,
           contractAddress: depositVerification.contractAddress,

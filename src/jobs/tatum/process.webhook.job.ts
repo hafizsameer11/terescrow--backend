@@ -14,6 +14,8 @@ import { isUserBanned } from '../../utils/customer.restrictions';
 import { verifyDepositOnChain } from '../../services/tatum/deposit.onchain.verifier';
 import { finalizeDepositCredit, type DepositCreditContext } from '../../services/tatum/deposit.credit.service';
 import { createPendingVerificationDeposit } from '../../services/tatum/deposit.pending.service';
+import { isDefinitiveFraudRejection } from '../../constants/deposit.rejection.reasons';
+import { recordVerifyRejection } from '../../services/tatum/deposit.rejection.log.service';
 
 /** Sender / counterparty from Tatum payloads (field names and shapes differ by chain). */
 function resolveIncomingCounterpartyAddress(webhookData: {
@@ -539,21 +541,32 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
     });
 
     if (verifyResult.status === 'mismatch') {
-      await lockFakeScamDeposit({
-        userId: virtualAccount.userId,
-        virtualAccountId: virtualAccount.id,
-        accountId,
-        txId: txId || `fake-${Date.now()}`,
-        fromAddress: from || '',
-        toAddress: to || '',
-        grossAmount: amount,
-        contractAddress: verifyResult.onChainContract ?? String(webhookContract ?? 'unknown'),
-        blockchain: virtualAccount.blockchain,
-        subscriptionType: webhookData.subscriptionType,
-        transactionDate,
-        index: index ?? null,
-      });
-      return { processed: true, reason: `verify_${verifyResult.reason ?? 'mismatch'}` };
+      if (isDefinitiveFraudRejection(verifyResult.reason)) {
+        await recordVerifyRejection({
+          ctx: creditCtx,
+          verifyResult,
+          status: 'mismatch',
+        });
+        await lockFakeScamDeposit({
+          userId: virtualAccount.userId,
+          virtualAccountId: virtualAccount.id,
+          accountId,
+          txId: txId || `fake-${Date.now()}`,
+          fromAddress: from || '',
+          toAddress: to || '',
+          grossAmount: amount,
+          contractAddress: verifyResult.onChainContract ?? String(webhookContract ?? 'unknown'),
+          blockchain: virtualAccount.blockchain,
+          subscriptionType: webhookData.subscriptionType,
+          transactionDate,
+          index: index ?? null,
+          rejectionReasonCode: verifyResult.reason ?? 'contract_mismatch',
+        });
+        return { processed: true, reason: `verify_${verifyResult.reason ?? 'mismatch'}` };
+      }
+
+      await createPendingVerificationDeposit(creditCtx, verifyResult);
+      return { processed: true, reason: 'pending_verification' };
     }
 
     if (verifyResult.status === 'pending') {

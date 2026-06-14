@@ -1,6 +1,7 @@
 import { prisma } from '../../utils/prisma';
 import { enqueueDepositVerifyRetry } from '../tatum/deposit.pending.service';
 import { isDepositVerifyEnabled } from '../tatum/deposit.onchain.verifier/chain.registry';
+import { getDepositRejectionInfo, decodeFailureReason } from '../../constants/deposit.rejection.reasons';
 import type { DepositCreditContext } from '../tatum/deposit.credit.service';
 
 export type DepositVerificationLogRow = {
@@ -20,6 +21,10 @@ export type DepositVerificationLogRow = {
   depositAddress: string | null;
   provider: string | null;
   failureReason: string | null;
+  failureReasonLabel: string | null;
+  failureReasonDetail: string | null;
+  rejectionStage: string | null;
+  rejectionCode: string | null;
   currency: string | null;
   receivedAssetId: number | null;
   createdAt: string;
@@ -56,6 +61,8 @@ function mapRow(
   user?: { email: string; firstname: string; lastname: string } | null
 ): DepositVerificationLogRow {
   const payload = row.payload as DepositCreditContext | null;
+  const decoded = decodeFailureReason(row.failureReason);
+  const rejection = getDepositRejectionInfo(row.failureReason, decoded.code);
   return {
     id: row.id,
     txHash: row.txHash,
@@ -73,6 +80,10 @@ function mapRow(
     depositAddress: row.depositAddress,
     provider: row.provider,
     failureReason: row.failureReason,
+    failureReasonLabel: rejection.label,
+    failureReasonDetail: rejection.detail,
+    rejectionStage: decoded.stage ?? rejection.stage,
+    rejectionCode: rejection.code,
     currency: payload?.currency ?? null,
     receivedAssetId: row.receivedAssetId,
     createdAt: row.createdAt.toISOString(),

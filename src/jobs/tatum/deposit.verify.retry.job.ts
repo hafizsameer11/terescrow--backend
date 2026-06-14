@@ -13,6 +13,8 @@ import {
 } from '../../services/tatum/deposit.pending.service';
 import { lockFakeScamDeposit } from '../../services/tatum/deposit.fraud.lock.service';
 import { getMaxVerifyAttempts } from '../../services/tatum/deposit.onchain.verifier/chain.registry';
+import { isDefinitiveFraudRejection } from '../../constants/deposit.rejection.reasons';
+import { recordVerifyRejection } from '../../services/tatum/deposit.rejection.log.service';
 import type { WalletCurrency } from '@prisma/client';
 import { blockchainDbVariants } from '../../services/tatum/deposit.token.resolver';
 
@@ -81,23 +83,47 @@ export async function processRetryDepositVerificationJob(
   }
 
   if (verifyResult.status === 'mismatch') {
-    await prisma.depositVerification.update({
-      where: { id: depositVerificationId },
-      data: { status: 'mismatch', failureReason: verifyResult.reason },
-    });
-    await lockFakeScamDeposit({
-      userId: ctx.userId,
-      virtualAccountId: ctx.virtualAccountId,
-      accountId: ctx.accountId,
-      txId: ctx.txId,
-      fromAddress: ctx.from,
-      toAddress: ctx.to,
-      grossAmount: ctx.amount,
-      contractAddress: verifyResult.onChainContract ?? ctx.contractAddress ?? 'unknown',
-      blockchain: ctx.blockchain,
-      subscriptionType: ctx.subscriptionType,
-      transactionDate: new Date(ctx.transactionDate),
-      index: ctx.index ?? null,
+    if (isDefinitiveFraudRejection(verifyResult.reason)) {
+      await recordVerifyRejection({
+        ctx,
+        verifyResult,
+        status: 'mismatch',
+        receivedAssetId: row.receivedAssetId,
+      });
+      await lockFakeScamDeposit({
+        userId: ctx.userId,
+        virtualAccountId: ctx.virtualAccountId,
+        accountId: ctx.accountId,
+        txId: ctx.txId,
+        fromAddress: ctx.from,
+        toAddress: ctx.to,
+        grossAmount: ctx.amount,
+        contractAddress: verifyResult.onChainContract ?? ctx.contractAddress ?? 'unknown',
+        blockchain: ctx.blockchain,
+        subscriptionType: ctx.subscriptionType,
+        transactionDate: new Date(ctx.transactionDate),
+        index: ctx.index ?? null,
+        rejectionReasonCode: verifyResult.reason ?? 'contract_mismatch',
+      });
+      return;
+    }
+
+    if (attempt >= getMaxVerifyAttempts()) {
+      await recordVerifyRejection({
+        ctx,
+        verifyResult,
+        status: 'failed',
+        receivedAssetId: row.receivedAssetId,
+      });
+      await markDepositVerifyFailed(depositVerificationId, verifyResult.reason ?? 'verify_mismatch_timeout');
+      return;
+    }
+
+    await enqueueDepositVerifyRetry(depositVerificationId, attempt + 1);
+    tatumLogger.info('Non-fraud verify mismatch — retrying', {
+      txHash: ctx.txId,
+      attempt,
+      reason: verifyResult.reason,
     });
     return;
   }

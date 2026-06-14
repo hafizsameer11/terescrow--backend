@@ -15,6 +15,8 @@ export {
   isTokenContractIdentifier,
   looksLikeEvmContract,
 } from './deposit.scam.guard';
+import { shouldBanUserForRejection } from '../../constants/deposit.rejection.reasons';
+import { recordScamGuardRejection } from './deposit.rejection.log.service';
 import { processFakeScamDeposit } from './fake.deposit.service';
 import { getOnChainBalance, type VirtualAccountBalanceFields } from '../crypto/virtual.account.balance.helper';
 import tatumLogger from '../../utils/tatum.logger';
@@ -73,9 +75,22 @@ export async function rejectScamDepositIfNeeded(input: {
   });
 
   if (verdict.action === 'reject_fake') {
-    await lockFakeScamDeposit({
+    const lockResult = await lockFakeScamDeposit({
       ...input.lockPayload,
       contractAddress: verdict.contractAddress,
+      rejectionReasonCode: verdict.reason,
+    });
+    await recordScamGuardRejection({
+      reasonCode: verdict.reason,
+      txHash: input.lockPayload.txId,
+      chain: input.chainSlug,
+      userId: input.lockPayload.userId,
+      virtualAccountId: input.lockPayload.virtualAccountId,
+      accountId: input.lockPayload.accountId,
+      webhookAmount: input.lockPayload.grossAmount,
+      depositAddress: input.lockPayload.toAddress,
+      contractAddress: verdict.contractAddress,
+      receivedAssetId: lockResult.receivedAsset?.id ?? null,
     });
     return { rejected: true, reason: verdict.reason };
   }
@@ -99,7 +114,10 @@ export async function rejectScamDepositIfNeeded(input: {
 /**
  * Record a locked fake deposit — no credit, no customer notification, admin alert.
  */
-export async function lockFakeScamDeposit(input: IncomingFungibleDepositInput) {
+export async function lockFakeScamDeposit(
+  input: IncomingFungibleDepositInput & { rejectionReasonCode?: string; skipBan?: boolean }
+) {
+  const rejectionReasonCode = input.rejectionReasonCode ?? 'unlisted_token_contract';
   const result = await processFakeScamDeposit({
     userId: input.userId,
     virtualAccountId: input.virtualAccountId,
@@ -114,21 +132,27 @@ export async function lockFakeScamDeposit(input: IncomingFungibleDepositInput) {
     subscriptionType: input.subscriptionType,
     transactionDate: input.transactionDate,
     index: input.index,
-    reference: `fake:${input.contractAddress}`,
+    reference: undefined,
+    rejectionReasonCode,
   });
 
-  await banUserForFraudDeposit({
-    userId: input.userId,
-    txId: input.txId,
-    contractAddress: input.contractAddress,
-    amount: input.grossAmount,
-    blockchain: input.blockchain,
-  });
+  if (!input.skipBan && shouldBanUserForRejection(rejectionReasonCode)) {
+    await banUserForFraudDeposit({
+      userId: input.userId,
+      txId: input.txId,
+      contractAddress: input.contractAddress,
+      amount: input.grossAmount,
+      blockchain: input.blockchain,
+      rejectionReasonCode,
+    });
+  }
 
-  tatumLogger.warn('Deposit locked as fake_scam — no credit, user banned', {
+  tatumLogger.warn('Deposit locked as fake_scam — no credit', {
     txId: input.txId,
     contractAddress: input.contractAddress,
     userId: input.userId,
+    rejectionReasonCode,
+    banned: !input.skipBan && shouldBanUserForRejection(rejectionReasonCode),
   });
 
   return result;
@@ -141,6 +165,7 @@ async function banUserForFraudDeposit(input: {
   contractAddress: string;
   amount: string;
   blockchain: string;
+  rejectionReasonCode?: string;
 }) {
   const user = await prisma.user.findUnique({
     where: { id: input.userId },
@@ -181,7 +206,7 @@ async function banUserForFraudDeposit(input: {
   }
 
   const fraudSummary =
-    `Fake/scam token deposit blocked (no credit). User: ${label} (${user.email}). ` +
+    `Deposit blocked (no credit). Reason: ${input.rejectionReasonCode ?? 'scam'}. User: ${label} (${user.email}). ` +
     `Chain: ${input.blockchain}. Amount: ${input.amount}. Contract: ${input.contractAddress}. Tx: ${input.txId}`;
 
   const admins = await prisma.user.findMany({

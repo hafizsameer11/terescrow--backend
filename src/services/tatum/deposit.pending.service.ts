@@ -7,6 +7,7 @@ import {
   CRYPTO_TX_STATUS_VERIFY_FAILED,
   DEPOSIT_STATUS_PENDING_VERIFICATION,
 } from '../../constants/deposit.fake';
+import { encodeFailureReason } from '../../constants/deposit.rejection.reasons';
 import {
   getMaxVerifyAttempts,
   getVerifyRetryDelayMs,
@@ -116,7 +117,9 @@ export async function createPendingVerificationDeposit(
       contractAddress: ctx.contractAddress ?? null,
       depositAddress: ctx.to,
       provider: verifyResult.provider ?? null,
-      failureReason: verifyResult.reason ?? null,
+      failureReason: verifyResult.reason
+        ? encodeFailureReason('on_chain_verify', verifyResult.reason)
+        : null,
       rawSnippet: verifyResult.rawSnippet as object | undefined,
       receivedAssetId: receivedAsset.id,
       payload: ctx as object,
@@ -124,7 +127,9 @@ export async function createPendingVerificationDeposit(
     update: {
       attempts: { increment: 1 },
       nextRetryAt: new Date(Date.now() + getVerifyRetryDelayMs()),
-      failureReason: verifyResult.reason ?? null,
+      failureReason: verifyResult.reason
+        ? encodeFailureReason('on_chain_verify', verifyResult.reason)
+        : null,
       provider: verifyResult.provider ?? null,
       receivedAssetId: receivedAsset.id,
       payload: ctx as object,
@@ -169,9 +174,10 @@ export async function createPendingVerificationDeposit(
 }
 
 export async function markDepositVerifyFailed(depositVerificationId: number, reason: string): Promise<void> {
+  const failureReason = encodeFailureReason('on_chain_verify', reason || 'verify_failed_timeout');
   const row = await prisma.depositVerification.update({
     where: { id: depositVerificationId },
-    data: { status: 'failed', failureReason: reason },
+    data: { status: 'failed', failureReason },
   });
 
   if (row.receivedAssetId) {
