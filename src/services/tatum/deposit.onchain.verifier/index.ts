@@ -166,7 +166,7 @@ async function verifyUtxo(input: DepositVerifyInput): Promise<DepositVerifyResul
     return pending(`tatum_error:${tatum.error}`, 'tatum');
   }
   const parsed = parseUtxoOutputs(tatum.body, input.depositAddress);
-  const check = validateUtxoTransfer(parsed, input.expectedAmount);
+  const check = validateUtxoTransfer(parsed, input.expectedAmount, tatum.body);
   if (!check.ok) return mismatch(check.reason, 'tatum', parsed, tatum.body);
   return verified('tatum', parsed!);
 }

@@ -8,6 +8,7 @@ export type DepositRejectionCode =
   | 'contract_mismatch'
   | 'missing_whitelist_contract'
   | 'transfer_not_found_on_chain'
+  | 'deposit_address_mismatch'
   | 'amount_mismatch'
   | 'transaction_failed'
   | 'verify_failed_timeout'
@@ -61,8 +62,16 @@ const REJECTION_CATALOG: Record<string, Omit<DepositRejectionInfo, 'code' | 'sta
     stage: 'on_chain_verify',
     label: 'Transfer not found on-chain',
     detail:
-      'The transaction exists but no inbound transfer to the deposit address was found in the explorer response. This may be indexing delay or a parser/API mismatch — retries continue.',
+      'The transaction is not yet visible on-chain or has no confirmed outputs. Retries continue while the explorer indexes the block.',
     isDefinitiveFraud: false,
+    shouldBanUser: false,
+  },
+  deposit_address_mismatch: {
+    stage: 'on_chain_verify',
+    label: 'Deposit address mismatch',
+    detail:
+      'The transaction was found on-chain but none of its outputs pay this user\'s deposit address. Funds went to a different address — this deposit cannot be credited.',
+    isDefinitiveFraud: true,
     shouldBanUser: false,
   },
   amount_mismatch: {
@@ -113,6 +122,7 @@ export function normalizeRejectionCode(raw: string | null | undefined): DepositR
   if (code.includes('contract_mismatch')) return 'contract_mismatch';
   if (code.includes('unlisted')) return 'unlisted_token_contract';
   if (code.includes('blocklist')) return 'blocklisted_token_contract';
+  if (code.includes('address_mismatch') || code.includes('deposit_address')) return 'deposit_address_mismatch';
   if (code.includes('amount')) return 'amount_mismatch';
   if (code.includes('not_found') || code.includes('transfer_not_found')) return 'transfer_not_found_on_chain';
   if (code.includes('timeout') || code.includes('max_attempt')) return 'verify_failed_timeout';
@@ -167,15 +177,27 @@ export function shouldBanUserForRejection(code: string | null | undefined): bool
   return getDepositRejectionInfo(null, code).shouldBanUser;
 }
 
-/** Native coin verify issues retry — never auto-lock as scam token. */
+/** Native coin verify issues retry — never auto-lock as scam token (except wrong deposit address). */
 export function shouldLockVerifyMismatchAsFakeScam(input: {
   subscriptionType?: string | null;
   isToken: boolean;
   reason?: string | null;
 }): boolean {
+  const code = normalizeRejectionCode(input.reason);
+  if (code === 'deposit_address_mismatch') return true;
   if (input.subscriptionType === 'INCOMING_NATIVE_TX') return false;
   if (!input.isToken) return false;
   return isDefinitiveFraudRejection(input.reason);
+}
+
+/** Whether a verify mismatch should be retried (indexing delay) vs finalized immediately. */
+export function shouldRetryVerifyMismatch(reason?: string | null): boolean {
+  const code = normalizeRejectionCode(reason);
+  if (code === 'deposit_address_mismatch') return false;
+  if (isDefinitiveFraudRejection(reason)) return false;
+  if (code === 'transfer_not_found_on_chain') return true;
+  if (code === 'amount_mismatch') return true;
+  return false;
 }
 
 export const REJECT_REFERENCE_PREFIX = 'reject:';

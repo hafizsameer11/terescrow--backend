@@ -68,3 +68,18 @@ test('Bitcoin UTXO — outputs sum for deposit address', () => {
   const check = validateUtxoTransfer(parsed, '3.14256763');
   assert.equal(check.ok, true);
 });
+
+test('Bitcoin UTXO — confirmed tx with wrong deposit address is address mismatch', () => {
+  const body = {
+    blockNumber: 953612,
+    outputs: [
+      { address: 'bc1qjvn55nluf7dur3586dv2quvcetn4m4cqw2usuc', value: 31052 },
+      { address: 'bc1qrrw6hmevhj5gh4f0xp5j9avmq44q8rkqsl73k6', value: 127664 },
+    ],
+  };
+  const parsed = parseUtxoOutputs(body, 'bc1qu5p5yz4fa33xpar3ayer7dw5uv8c3ksyzc3j60');
+  assert.equal(parsed, null);
+  const check = validateUtxoTransfer(parsed, '0.00031052', body);
+  assert.equal(check.ok, false);
+  if (!check.ok) assert.equal(check.reason, 'deposit_address_mismatch');
+});

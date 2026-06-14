@@ -14,7 +14,7 @@ import {
 } from '../../services/tatum/deposit.pending.service';
 import { lockFakeScamDeposit } from '../../services/tatum/deposit.fraud.lock.service';
 import { getMaxVerifyAttempts } from '../../services/tatum/deposit.onchain.verifier/chain.registry';
-import { shouldLockVerifyMismatchAsFakeScam } from '../../constants/deposit.rejection.reasons';
+import { shouldLockVerifyMismatchAsFakeScam, shouldRetryVerifyMismatch } from '../../constants/deposit.rejection.reasons';
 import { recordVerifyRejection } from '../../services/tatum/deposit.rejection.log.service';
 import type { WalletCurrency } from '@prisma/client';
 import { blockchainDbVariants } from '../../services/tatum/deposit.token.resolver';
@@ -113,6 +113,17 @@ export async function processRetryDepositVerificationJob(
         rejectionReasonCode: verifyResult.reason ?? 'contract_mismatch',
         currencyLabel: ctx.currency,
       });
+      return;
+    }
+
+    if (!shouldRetryVerifyMismatch(verifyResult.reason)) {
+      await recordVerifyRejection({
+        ctx,
+        verifyResult,
+        status: 'mismatch',
+        receivedAssetId: row.receivedAssetId,
+      });
+      await markDepositVerifyFailed(depositVerificationId, verifyResult.reason ?? 'deposit_address_mismatch');
       return;
     }
 

@@ -39,9 +39,17 @@ export function parseUtxoOutputs(
 
 export function validateUtxoTransfer(
   parsed: ParsedOnChainTransfer | null,
-  expectedAmount: string
+  expectedAmount: string,
+  body?: Record<string, unknown>
 ): { ok: true } | { ok: false; reason: string } {
-  if (!parsed) return { ok: false, reason: 'transfer_not_found_on_chain' };
+  if (!parsed) {
+    const hasBlock = Boolean(body && (body.blockNumber != null || body.block_number != null));
+    const outputs = (body?.outputs as UtxoOutput[] | undefined) ?? [];
+    if (hasBlock && outputs.length > 0) {
+      return { ok: false, reason: 'deposit_address_mismatch' };
+    }
+    return { ok: false, reason: 'transfer_not_found_on_chain' };
+  }
   if (!parsed.success) return { ok: false, reason: 'transaction_failed' };
   if (!utxoAmountsMatch(expectedAmount, parsed.amountRaw)) {
     return { ok: false, reason: 'amount_mismatch' };

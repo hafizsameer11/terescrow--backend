@@ -14,7 +14,7 @@ import { isUserBanned } from '../../utils/customer.restrictions';
 import { verifyDepositOnChain } from '../../services/tatum/deposit.onchain.verifier';
 import { finalizeDepositCredit, type DepositCreditContext } from '../../services/tatum/deposit.credit.service';
 import { createPendingVerificationDeposit } from '../../services/tatum/deposit.pending.service';
-import { shouldLockVerifyMismatchAsFakeScam } from '../../constants/deposit.rejection.reasons';
+import { shouldLockVerifyMismatchAsFakeScam, shouldRetryVerifyMismatch } from '../../constants/deposit.rejection.reasons';
 import { recordVerifyRejection } from '../../services/tatum/deposit.rejection.log.service';
 import { resolveWebhookContractAddress } from '../../services/tatum/deposit.scam.guard';
 
@@ -571,6 +571,15 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
           index: index ?? null,
           rejectionReasonCode: verifyResult.reason ?? 'contract_mismatch',
           currencyLabel: currency,
+        });
+        return { processed: true, reason: `verify_${verifyResult.reason ?? 'mismatch'}` };
+      }
+
+      if (!shouldRetryVerifyMismatch(verifyResult.reason)) {
+        await recordVerifyRejection({
+          ctx: creditCtx,
+          verifyResult,
+          status: 'mismatch',
         });
         return { processed: true, reason: `verify_${verifyResult.reason ?? 'mismatch'}` };
       }
