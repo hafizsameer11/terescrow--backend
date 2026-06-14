@@ -13,7 +13,7 @@ import {
 } from '../../services/tatum/deposit.pending.service';
 import { lockFakeScamDeposit } from '../../services/tatum/deposit.fraud.lock.service';
 import { getMaxVerifyAttempts } from '../../services/tatum/deposit.onchain.verifier/chain.registry';
-import { isDefinitiveFraudRejection } from '../../constants/deposit.rejection.reasons';
+import { shouldLockVerifyMismatchAsFakeScam } from '../../constants/deposit.rejection.reasons';
 import { recordVerifyRejection } from '../../services/tatum/deposit.rejection.log.service';
 import type { WalletCurrency } from '@prisma/client';
 import { blockchainDbVariants } from '../../services/tatum/deposit.token.resolver';
@@ -83,7 +83,13 @@ export async function processRetryDepositVerificationJob(
   }
 
   if (verifyResult.status === 'mismatch') {
-    if (isDefinitiveFraudRejection(verifyResult.reason)) {
+    if (
+      shouldLockVerifyMismatchAsFakeScam({
+        subscriptionType: ctx.subscriptionType,
+        isToken: Boolean(ctx.isToken),
+        reason: verifyResult.reason,
+      })
+    ) {
       await recordVerifyRejection({
         ctx,
         verifyResult,
@@ -98,12 +104,13 @@ export async function processRetryDepositVerificationJob(
         fromAddress: ctx.from,
         toAddress: ctx.to,
         grossAmount: ctx.amount,
-        contractAddress: verifyResult.onChainContract ?? ctx.contractAddress ?? 'unknown',
+        contractAddress: verifyResult.onChainContract ?? ctx.contractAddress ?? '',
         blockchain: ctx.blockchain,
         subscriptionType: ctx.subscriptionType,
         transactionDate: new Date(ctx.transactionDate),
         index: ctx.index ?? null,
         rejectionReasonCode: verifyResult.reason ?? 'contract_mismatch',
+        currencyLabel: ctx.currency,
       });
       return;
     }

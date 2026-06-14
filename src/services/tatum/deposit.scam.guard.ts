@@ -12,6 +12,22 @@ const NATIVE_ASSET_IDS = new Set([
   'ETH', 'BNB', 'BSC', 'TRX', 'TRON', 'MATIC', 'BTC', 'LTC', 'DOGE', 'SOL',
 ]);
 
+export function isNativeAssetTicker(value: string | undefined | null): boolean {
+  if (!value) return false;
+  return NATIVE_ASSET_IDS.has(String(value).trim().toUpperCase());
+}
+
+/** Tatum native inbound — no ERC-20/TRC-20 contract to whitelist. */
+export function isNativeCoinWebhook(
+  subscriptionType?: string,
+  currencyField?: string | null,
+  assetField?: string | null
+): boolean {
+  if (subscriptionType === 'INCOMING_NATIVE_TX') return true;
+  const ticker = (currencyField ?? assetField ?? '').trim();
+  return !!ticker && isNativeAssetTicker(ticker) && subscriptionType !== 'INCOMING_FUNGIBLE_TX';
+}
+
 /** EVM contract address shape (40 hex). */
 export function looksLikeEvmContract(addr: string): boolean {
   const t = addr.trim();
@@ -35,6 +51,20 @@ export function isTokenContractIdentifier(contractOrAsset: string | undefined | 
   // Tatum Tron symbol e.g. USDT_TRON
   if (s.includes('_') && s.length > 3) return true;
   return false;
+}
+
+/** For webhooks: do not treat native tickers (BTC, ETH, …) as token contracts. */
+export function resolveWebhookContractAddress(webhookData: {
+  subscriptionType?: string;
+  contractAddress?: unknown;
+  asset?: unknown;
+}): string | null {
+  const explicit = webhookData.contractAddress != null ? String(webhookData.contractAddress).trim() : '';
+  if (explicit) return explicit;
+  if (webhookData.subscriptionType === 'INCOMING_NATIVE_TX') return null;
+  const asset = webhookData.asset != null ? String(webhookData.asset).trim() : '';
+  if (!asset || isNativeAssetTicker(asset)) return null;
+  return asset;
 }
 
 export function isFungibleTokenWebhook(subscriptionType?: string, contractAddress?: unknown): boolean {
@@ -72,8 +102,19 @@ export async function evaluateIncomingDeposit(input: {
   subscriptionType?: string;
   contractAddress?: string | null;
   assetField?: string | null;
+  currencyField?: string | null;
   webhookType?: string;
 }): Promise<DepositGuardVerdict> {
+  if (
+    isNativeCoinWebhook(input.subscriptionType, input.currencyField, input.assetField)
+    && !isTokenContractIdentifier(input.contractAddress)
+  ) {
+    if (isUserBanned(input.userStatus)) {
+      return { action: 'reject_banned', reason: 'user_banned' };
+    }
+    return { action: 'allow', walletCurrency: null, isToken: false };
+  }
+
   const isFungibleSub = input.subscriptionType === 'INCOMING_FUNGIBLE_TX';
   const tokenId = resolveTokenIdentifier(input);
 

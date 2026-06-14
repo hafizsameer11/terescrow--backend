@@ -41,6 +41,7 @@ export interface IncomingFungibleDepositInput {
   subscriptionType?: string;
   transactionDate: Date;
   index?: number | null;
+  currencyLabel?: string;
 }
 
 /**
@@ -59,6 +60,7 @@ export async function rejectScamDepositIfNeeded(input: {
   subscriptionType?: string;
   contractAddress?: string | null;
   assetField?: string | null;
+  currencyField?: string | null;
   webhookType?: string;
   lockPayload: IncomingFungibleDepositInput;
 }): Promise<
@@ -71,6 +73,7 @@ export async function rejectScamDepositIfNeeded(input: {
     subscriptionType: input.subscriptionType,
     contractAddress: input.contractAddress,
     assetField: input.assetField,
+    currencyField: input.currencyField,
     webhookType: input.webhookType,
   });
 
@@ -105,7 +108,7 @@ export async function rejectScamDepositIfNeeded(input: {
 export async function lockFakeScamDeposit(
   input: IncomingFungibleDepositInput & { rejectionReasonCode?: string; skipBan?: boolean }
 ) {
-  const rejectionReasonCode = input.rejectionReasonCode ?? 'unlisted_token_contract';
+  const rejectionReasonCode = input.rejectionReasonCode ?? 'verify_mismatch';
   const result = await processFakeScamDeposit({
     userId: input.userId,
     virtualAccountId: input.virtualAccountId,
@@ -115,7 +118,7 @@ export async function lockFakeScamDeposit(
     toAddress: input.toAddress,
     grossAmount: input.grossAmount,
     contractAddress: input.contractAddress,
-    currencyLabel: 'FAKE_TOKEN',
+    currencyLabel: input.currencyLabel ?? 'UNKNOWN',
     blockchain: input.blockchain,
     subscriptionType: input.subscriptionType,
     transactionDate: input.transactionDate,

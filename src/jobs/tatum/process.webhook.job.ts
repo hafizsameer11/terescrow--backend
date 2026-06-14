@@ -14,8 +14,9 @@ import { isUserBanned } from '../../utils/customer.restrictions';
 import { verifyDepositOnChain } from '../../services/tatum/deposit.onchain.verifier';
 import { finalizeDepositCredit, type DepositCreditContext } from '../../services/tatum/deposit.credit.service';
 import { createPendingVerificationDeposit } from '../../services/tatum/deposit.pending.service';
-import { isDefinitiveFraudRejection } from '../../constants/deposit.rejection.reasons';
+import { shouldLockVerifyMismatchAsFakeScam } from '../../constants/deposit.rejection.reasons';
 import { recordVerifyRejection } from '../../services/tatum/deposit.rejection.log.service';
+import { resolveWebhookContractAddress } from '../../services/tatum/deposit.scam.guard';
 
 /** Sender / counterparty from Tatum payloads (field names and shapes differ by chain). */
 function resolveIncomingCounterpartyAddress(webhookData: {
@@ -129,7 +130,7 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       // Process as receive transaction
       const addressVirtualAccount = depositAddressRecord.virtualAccount;
       const amountStr = webhookData.amount || '0';
-      const contractAddress = webhookData.contractAddress || webhookData.asset;
+      const contractAddress = resolveWebhookContractAddress(webhookData);
       const chainSlug = addressVirtualAccount.blockchain.toLowerCase();
 
       const depositUser = await prisma.user.findUnique({
@@ -239,8 +240,9 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
         userStatus: depositUser?.status,
         chainSlug,
         subscriptionType: webhookData.subscriptionType,
-        contractAddress: contractAddress ? String(contractAddress) : null,
+        contractAddress,
         assetField: webhookData.asset ? String(webhookData.asset) : null,
+        currencyField: webhookData.currency ? String(webhookData.currency) : null,
         webhookType: webhookData.type,
         lockPayload: {
           userId: addressVirtualAccount.userId,
@@ -477,14 +479,15 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
       return { processed: false, reason: 'user_banned' };
     }
 
-    const webhookContract = webhookData.contractAddress || webhookData.asset;
+    const webhookContract = resolveWebhookContractAddress(webhookData);
 
     const scamVerdict = await rejectScamDepositIfNeeded({
       userStatus: depositUser?.status,
       chainSlug: virtualAccount.blockchain.toLowerCase(),
       subscriptionType: webhookData.subscriptionType,
-      contractAddress: webhookContract ? String(webhookContract) : null,
+      contractAddress: webhookContract,
       assetField: webhookData.asset ? String(webhookData.asset) : null,
+      currencyField: webhookData.currency ? String(webhookData.currency) : null,
       webhookType: webhookData.type,
       lockPayload: {
         userId: virtualAccount.userId,
@@ -541,7 +544,13 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
     });
 
     if (verifyResult.status === 'mismatch') {
-      if (isDefinitiveFraudRejection(verifyResult.reason)) {
+      if (
+        shouldLockVerifyMismatchAsFakeScam({
+          subscriptionType: webhookData.subscriptionType,
+          isToken: scamVerdict.isToken,
+          reason: verifyResult.reason,
+        })
+      ) {
         await recordVerifyRejection({
           ctx: creditCtx,
           verifyResult,
@@ -555,12 +564,13 @@ export async function processBlockchainWebhook(webhookData: TatumWebhookPayload 
           fromAddress: from || '',
           toAddress: to || '',
           grossAmount: amount,
-          contractAddress: verifyResult.onChainContract ?? String(webhookContract ?? 'unknown'),
+          contractAddress: verifyResult.onChainContract ?? String(webhookContract ?? ''),
           blockchain: virtualAccount.blockchain,
           subscriptionType: webhookData.subscriptionType,
           transactionDate,
           index: index ?? null,
           rejectionReasonCode: verifyResult.reason ?? 'contract_mismatch',
+          currencyLabel: currency,
         });
         return { processed: true, reason: `verify_${verifyResult.reason ?? 'mismatch'}` };
       }

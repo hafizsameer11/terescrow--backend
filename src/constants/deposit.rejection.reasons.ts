@@ -167,6 +167,17 @@ export function shouldBanUserForRejection(code: string | null | undefined): bool
   return getDepositRejectionInfo(null, code).shouldBanUser;
 }
 
+/** Native coin verify issues retry — never auto-lock as scam token. */
+export function shouldLockVerifyMismatchAsFakeScam(input: {
+  subscriptionType?: string | null;
+  isToken: boolean;
+  reason?: string | null;
+}): boolean {
+  if (input.subscriptionType === 'INCOMING_NATIVE_TX') return false;
+  if (!input.isToken) return false;
+  return isDefinitiveFraudRejection(input.reason);
+}
+
 export const REJECT_REFERENCE_PREFIX = 'reject:';
 
 export function buildRejectReference(code: string): string {

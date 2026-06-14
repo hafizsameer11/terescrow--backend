@@ -5,6 +5,7 @@ import {
   isFungibleTokenWebhook,
   isTokenContractIdentifier,
   looksLikeEvmContract,
+  resolveWebhookContractAddress,
 } from './deposit.scam.guard';
 import { tokenContractMatches } from './deposit.token.resolver';
 import { prisma } from '../../utils/prisma';
@@ -131,6 +132,34 @@ test('evaluateIncomingDeposit rejects blocklisted contract first', async (t) => 
   if (verdict.action === 'reject_fake') {
     assert.equal(verdict.reason, 'blocklisted_token_contract');
   }
+});
+
+test('evaluateIncomingDeposit allows native BTC INCOMING_NATIVE_TX with currency field', async (t) => {
+  stubPrisma(t, { blocklistRow: null });
+
+  const verdict = await evaluateIncomingDeposit({
+    chainSlug: 'bitcoin-mainnet',
+    subscriptionType: 'INCOMING_NATIVE_TX',
+    currencyField: 'BTC',
+    assetField: 'BTC',
+  });
+
+  assert.equal(verdict.action, 'allow');
+  if (verdict.action === 'allow') {
+    assert.equal(verdict.isToken, false);
+    assert.equal(verdict.walletCurrency, null);
+  }
+});
+
+test('resolveWebhookContractAddress ignores BTC asset on native webhook', () => {
+  assert.equal(
+    resolveWebhookContractAddress({
+      subscriptionType: 'INCOMING_NATIVE_TX',
+      asset: 'BTC',
+      contractAddress: undefined,
+    }),
+    null
+  );
 });
 
 test('evaluateIncomingDeposit allows native BSC deposit', async (t) => {
