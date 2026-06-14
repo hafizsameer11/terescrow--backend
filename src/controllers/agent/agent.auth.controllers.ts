@@ -14,6 +14,7 @@ import { profile } from 'console';
 import ApiError from '../../utils/ApiError';
 import { comparePassword, generateToken } from '../../utils/authUtils';
 import ApiResponse from '../../utils/ApiResponse';
+import { isAppleReviewUser } from '../../utils/apple.review.user';
 
 const prisma = new PrismaClient();
 
@@ -110,6 +111,7 @@ export const loginController = async (
             profilePicture:isUser.profilePicture,
             email: isUser.email,
             role: isUser.role,
+            readOnlyMode: isAppleReviewUser(isUser),
             phoneNumber: isUser.phoneNumber,
             country: isUser.country,
             gender: isUser.gender,

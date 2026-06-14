@@ -4,6 +4,7 @@ import ApiError from '../utils/ApiError';
 import { verifyToken } from '../utils/authUtils';
 import { BANNED_CUSTOMER_MESSAGE, isUserBanned } from '../utils/customer.restrictions';
 import { prisma } from '../utils/prisma';
+import { isAppleReviewUser, isReadOnlyHttpMethod } from '../utils/apple.review.user';
 
 const authenticateUser = async (
   req: Request,
@@ -39,9 +40,18 @@ const authenticateUser = async (
       throw ApiError.forbidden(BANNED_CUSTOMER_MESSAGE);
     }
 
+    if (isAppleReviewUser(isUser) && !isReadOnlyHttpMethod(req.method)) {
+      throw ApiError.forbidden('You do not have permission to perform this action.');
+    }
+
+    const userWithFlags = {
+      ...isUser,
+      readOnlyMode: isAppleReviewUser(isUser),
+    };
+
     // Store user in both req.user (standard Express practice) and req.body._user (for backward compatibility)
-    (req as any).user = isUser;
-    req.body._user = isUser;
+    (req as any).user = userWithFlags;
+    req.body._user = userWithFlags;
     next();
   } catch (error) {
     if (error instanceof ApiError) {
