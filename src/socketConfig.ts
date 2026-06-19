@@ -11,6 +11,7 @@ import {
 } from './utils/socketUtils';
 import { PrismaClient, UserRoles } from '@prisma/client';
 import { isUserBanned } from './utils/customer.restrictions';
+import { v1Compat } from './config/v1.compat.config';
 
 const app: Application = express();
 const httpServer = createServer(app);
@@ -72,7 +73,7 @@ io.on('connection', async (socket) => {
     userRole = role;
     if (!role) return socket.disconnect();
 
-    if (role === UserRoles.customer) {
+    if (v1Compat.enableBannedCustomerChecks && role === UserRoles.customer) {
       const customer = await prisma.user.findUnique({
         where: { id: userId },
         select: { status: true },

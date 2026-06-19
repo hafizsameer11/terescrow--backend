@@ -15,6 +15,7 @@ import ApiError from '../../utils/ApiError';
 import { comparePassword, generateToken } from '../../utils/authUtils';
 import ApiResponse from '../../utils/ApiResponse';
 import { isAppleReviewUser } from '../../utils/apple.review.user';
+import { v1Compat } from '../../config/v1.compat.config';
 
 const prisma = new PrismaClient();
 
@@ -80,8 +81,7 @@ export const loginController = async (
             return next(ApiError.badRequest('This email is not registerd'));
         }
         
-        // Check if user has verified their OTP/email
-        if (isUser.isVerified === false) {
+        if (v1Compat.blockUnverifiedLogin && isUser.isVerified === false) {
             return next(ApiError.badRequest('Your account is not verified. Please verify your email with the OTP sent to your email address'));
         }
         
@@ -111,7 +111,9 @@ export const loginController = async (
             profilePicture:isUser.profilePicture,
             email: isUser.email,
             role: isUser.role,
-            readOnlyMode: isAppleReviewUser(isUser),
+            ...(v1Compat.enableReadOnlyReviewAgent
+                ? { readOnlyMode: isAppleReviewUser(isUser) }
+                : {}),
             phoneNumber: isUser.phoneNumber,
             country: isUser.country,
             gender: isUser.gender,

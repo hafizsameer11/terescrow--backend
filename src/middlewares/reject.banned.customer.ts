@@ -4,6 +4,7 @@ import ApiError from '../utils/ApiError';
 import { verifyToken } from '../utils/authUtils';
 import { BANNED_CUSTOMER_MESSAGE, isUserBanned } from '../utils/customer.restrictions';
 import { prisma } from '../utils/prisma';
+import { v1Compat } from '../config/v1.compat.config';
 
 /**
  * Blocks banned customers on any customer-facing API call, even when a stale JWT is still stored.
@@ -14,6 +15,10 @@ export async function rejectBannedCustomer(
   _res: Response,
   next: NextFunction
 ) {
+  if (!v1Compat.enableBannedCustomerChecks) {
+    return next();
+  }
+
   try {
     const token =
       (req.cookies?.token as string | undefined) ||

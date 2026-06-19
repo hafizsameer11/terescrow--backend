@@ -8,6 +8,7 @@ import { UserRequest } from '../customer/auth.controllers';
 import { validationResult } from 'express-validator';
 import upload from '../../middlewares/multer.middleware';
 import { sendPushNotification } from '../../utils/pushService';
+import { v1Compat, wantsLegacyQuery } from '../../config/v1.compat.config';
 
 const prisma = new PrismaClient();
 
@@ -24,6 +25,38 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
         }
 
         const userId = req.params.id;
+
+        if (v1Compat.useV1AdminCustomerDetail || wantsLegacyQuery(req)) {
+            const customer = await prisma.user.findUnique({
+                where: { id: parseInt(userId) },
+                include: {
+                    KycStateTwo: {
+                        take: 1,
+                        orderBy: { createdAt: 'desc' },
+                    },
+                    AccountActivity: {
+                        take: 6,
+                        orderBy: { createdAt: 'desc' },
+                    },
+                },
+            });
+
+            if (!customer) {
+                return next(ApiError.notFound('Customer not found'));
+            }
+
+            const kycStateTwo = customer.KycStateTwo.length > 0 ? customer.KycStateTwo[0] : null;
+
+            return new ApiResponse(
+                200,
+                {
+                    ...customer,
+                    KycStateTwo: kycStateTwo,
+                },
+                'Customer details fetched successfully'
+            ).send(res);
+        }
+
         const customer = await prisma.user.findUnique({
             where: {
                 id: parseInt(userId),
@@ -122,6 +155,28 @@ export const getAllCustomers = async (req: Request, res: Response, next: NextFun
 
         if (!user || (user.role == UserRoles.customer)) {
             return next(ApiError.unauthorized('You are not authorized'));
+        }
+
+        if (v1Compat.useV1AdminCustomerList || wantsLegacyQuery(req)) {
+            const customers = await prisma.user.findMany({
+                where: { role: UserRoles.customer },
+                include: {
+                    inappNotification: { orderBy: { createdAt: 'desc' }, take: 6 },
+                    KycStateTwo: { orderBy: { createdAt: 'desc' }, take: 1 },
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+
+            if (!customers || customers.length === 0) {
+                return next(ApiError.notFound('Customers not found'));
+            }
+
+            const modifiedCustomers = customers.map((customer) => ({
+                ...customer,
+                KycStateTwo: customer.KycStateTwo.length > 0 ? customer.KycStateTwo[0] : null,
+            }));
+
+            return new ApiResponse(200, modifiedCustomers, 'Customers fetched successfully').send(res);
         }
 
         const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
@@ -955,8 +1010,25 @@ export const getDepartmentStatsByTransaction = async (
 };
 export const updateKycStatus = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const submissionId = req.params.submissionId || req.params.userId; // Support both old and new format
+        const userIdParam = req.params.userId;
         const { kycStatus, tier, reason } = req.body;
+
+        if (v1Compat.useV1KycUpdateLogic || wantsLegacyQuery(req)) {
+            const user = await prisma.user.findUnique({ where: { id: parseInt(userIdParam) } });
+            if (!user) {
+                return next(ApiError.notFound('User not found'));
+            }
+            const updateKycStates = await prisma.kycStateTwo.updateMany({
+                where: { userId: parseInt(userIdParam) },
+                data: {
+                    state: kycStatus,
+                    reason: reason || 'Your Information has been verified successfully',
+                },
+            });
+            return new ApiResponse(200, updateKycStates, 'Kyc status updated successfully').send(res);
+        }
+
+        const submissionId = req.params.submissionId || userIdParam;
         
         if (!kycStatus) {
             return next(ApiError.badRequest('kycStatus is required'));

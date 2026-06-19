@@ -2,12 +2,12 @@ import { Request, Response, NextFunction } from 'express';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { validationResult } from 'express-validator';
-import { Gender, OtpType, PrismaClient, User, UserRoles } from '@prisma/client';
+import { Gender, KycTier, OtpType, PrismaClient, User, UserRoles } from '@prisma/client';
 import cryptoRateService, { TransactionType } from '../../services/crypto/crypto.rate.service';
 
+import { v1Compat } from '../../config/v1.compat.config';
+
 const prisma = new PrismaClient();
-
-
 export const kycTierTwoRequest = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user: User = req.body._user;
@@ -17,18 +17,23 @@ export const kycTierTwoRequest = async (req: Request, res: Response, next: NextF
     const userId = user.id
     const { firstName, surName, bvn, dob } = req.body
     
-    // This is the legacy endpoint - defaulting to tier2 for backward compatibility
-    // New code should use /api/v2/kyc/tier2/submit
+    const kycData = {
+      firtName: firstName,
+      bvn: bvn || '',
+      surName: surName,
+      dob: dob || '',
+      userId: userId,
+      tier: 'tier2' as KycTier,
+      status: 'tier2' as KycTier,
+    };
+
+    if (v1Compat.useV1LegacyKycTier) {
+      kycData.tier = 'tier1';
+      kycData.status = 'tier1';
+    }
+
     const kycTierTwoRequest = await prisma.kycStateTwo.create({
-      data: {
-        firtName: firstName,
-        bvn: bvn || '',
-        surName: surName,
-        dob: dob || '',
-        userId: userId,
-        tier: 'tier2', // Required field - defaulting to tier2
-        status: 'tier2' // Legacy field
-      }
+      data: kycData,
     });
     if (!kycTierTwoRequest) {
       return next(ApiError.notFound('KycTierTwoRequest not found'));

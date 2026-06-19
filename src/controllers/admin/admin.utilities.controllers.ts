@@ -14,6 +14,7 @@ import { hashPassword } from '../../utils/authUtils';
 import { UserRequest } from '../customer/auth.controllers';
 import { validationResult } from 'express-validator';
 import upload from '../../middlewares/multer.middleware';
+import { v1Compat, wantsLegacyQuery } from '../../config/v1.compat.config';
 
 const prisma = new PrismaClient();
 
@@ -1344,6 +1345,14 @@ export const getAccountActivityofUser = async (req: Request, res: Response, next
   try {
     const { id } = req.params;
     const userId = parseInt(id, 10);
+
+    if (v1Compat.useV1AccountActivityResponse || wantsLegacyQuery(req)) {
+      const accitivities = await prisma.accountActivity.findMany({
+        where: { userId },
+      });
+      return new ApiResponse(200, accitivities, 'AccountActivites retrieved successfully').send(res);
+    }
+
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit || '5'), 10) || 5));
     const skip = (page - 1) * limit;

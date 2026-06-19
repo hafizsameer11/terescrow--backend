@@ -9,6 +9,7 @@ import { Request, Response, NextFunction } from 'express';
 import ApiError from '../utils/ApiError';
 import ApiResponse from '../utils/ApiResponse';
 import { comparePassword, generateToken } from '../utils/authUtils';
+import { v1Compat } from '../config/v1.compat.config';
 import { BANNED_CUSTOMER_MESSAGE, isUserBanned } from '../utils/customer.restrictions';
 import { validationResult } from 'express-validator';
 import { profile } from 'console';
@@ -53,12 +54,11 @@ export const loginController = async (
       return next(ApiError.badRequest('This email is not registerd'));
     }
     
-    // Check if user has verified their OTP/email
-    if (isUser.isVerified === false) {
+    if (v1Compat.blockUnverifiedLogin && isUser.isVerified === false) {
       return next(ApiError.badRequest('Your account is not verified. Please verify your email with the OTP sent to your email address'));
     }
 
-    if (isUser.role === UserRoles.customer && isUserBanned(isUser.status)) {
+    if (v1Compat.enableBannedCustomerChecks && isUser.role === UserRoles.customer && isUserBanned(isUser.status)) {
       return next(ApiError.forbidden(BANNED_CUSTOMER_MESSAGE));
     }
     

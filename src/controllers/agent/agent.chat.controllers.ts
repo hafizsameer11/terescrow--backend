@@ -12,6 +12,7 @@ import {
 import { getCustomerSocketId } from '../../socketConfig';
 import { io } from '../../socketConfig';
 import { sendPushNotification } from '../../utils/pushService';
+import { v1Compat } from '../../config/v1.compat.config';
 
 const prisma = new PrismaClient();
 
@@ -82,7 +83,8 @@ export const sendToCustomerController = async (
         },
         data: {
           updatedAt: new Date(),
-          ...(chat.chatDetails?.status === ChatStatus.pending
+          ...(v1Compat.autoChatProcessingStatus &&
+          chat.chatDetails?.status === ChatStatus.pending
             ? {
                 chatDetails: {
                   update: {
