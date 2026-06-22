@@ -287,15 +287,12 @@ const verifyUserController = async (
       });
       throw ApiError.badRequest('Invalid OTP');
     }
-    const updateUser = await prisma.user.upsert({
+    const updateUser = await prisma.user.update({
       where: {
         id: user.id,
       },
-      update: {
+      data: {
         isVerified: true,
-      },
-      create: {
-        ...user,
       },
     });
     // console.log(updateUser.isVerified);
