@@ -15,6 +15,7 @@ import {
 import { prisma } from '../../utils/prisma';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { creditSignupBonus } from '../../services/referral/referral.commission.service';
+import { v1Compat } from '../../config/v1.compat.config';
 
 const registerCustomerController = async (
   req: Request,
@@ -88,31 +89,32 @@ const registerCustomerController = async (
       },
     })
 
-    // Referral code = username (case-insensitive lookup supported)
+    // Referral code = username (v2 only — off by default for v1 production)
     const referralCode = username;
 
     let referrerId: number | null = null;
-    const providedReferralCode =
-      referralCodeInput || referralCodeFromBody || referralCodeSnakeCase;
+    if (v1Compat.enableV2RegisterReferral) {
+      const providedReferralCode =
+        referralCodeInput || referralCodeFromBody || referralCodeSnakeCase;
 
-    if (providedReferralCode) {
-      const codeToLookup = providedReferralCode.toString().trim();
+      if (providedReferralCode) {
+        const codeToLookup = providedReferralCode.toString().trim();
 
-      // Match by username first (as requested), fallback to referralCode.
-      let referrer = await prisma.user.findFirst({
-        where: { username: codeToLookup },
-        select: { id: true },
-      });
-
-      if (!referrer) {
-        referrer = await prisma.user.findFirst({
-          where: { referralCode: codeToLookup },
+        let referrer = await prisma.user.findFirst({
+          where: { username: codeToLookup },
           select: { id: true },
         });
-      }
 
-      if (referrer) {
-        referrerId = referrer.id;
+        if (!referrer) {
+          referrer = await prisma.user.findFirst({
+            where: { referralCode: codeToLookup },
+            select: { id: true },
+          });
+        }
+
+        if (referrer) {
+          referrerId = referrer.id;
+        }
       }
     }
 
@@ -130,8 +132,12 @@ const registerCustomerController = async (
         profilePicture,
         meansId: selectMeans?.id || 1,
         role: UserRoles.customer,
-        referralCode,
-        ...(referrerId ? { referredBy: referrerId } : {}),
+        ...(v1Compat.enableV2RegisterReferral
+          ? {
+              referralCode,
+              ...(referrerId ? { referredBy: referrerId } : {}),
+            }
+          : {}),
       },
     });
 
@@ -139,7 +145,7 @@ const registerCustomerController = async (
       throw ApiError.internal('User creation failed');
     }
 
-    if (referrerId) {
+    if (v1Compat.enableV2RegisterReferral && referrerId) {
       creditSignupBonus(newUser.id, referrerId)
         .catch((err) => console.error('[Register] Referral signup bonus error:', err));
     }
@@ -248,13 +254,12 @@ const verifyUserController = async (
     const userOTP = await prisma.userOTP.findUnique({
       where: {
         userId: user.id,
-        type: OtpType.email_verification,
       },
     });
 
     // console.log(userOTP);
 
-    if (!userOTP) {
+    if (!userOTP || userOTP.type !== OtpType.email_verification) {
       return next(ApiError.badRequest('User not found'));
     }
 
@@ -300,8 +305,12 @@ const verifyUserController = async (
       return next(ApiError.internal('User verification Failed!'));
     }
 
-    // Auto-verify Tier 1 and create default wallet when user verifies email (only if not already verified)
-    if (!user.isVerified && updateUser.isVerified) {
+    // v2 only: tier1 + fiat wallet + Tatum queue (off by default for v1 production)
+    if (
+      v1Compat.enableV2PostVerifySetup &&
+      !user.isVerified &&
+      updateUser.isVerified
+    ) {
       try {
         // Auto-set Tier 1 verification
         await prisma.user.update({
