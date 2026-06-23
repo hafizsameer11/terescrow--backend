@@ -15,6 +15,7 @@ import {
   verifyForgotPasswordOtp,
   verifyPinController,
   verifyUserController,
+  getAccountBootstrapController,
 } from '../../controllers/customer/auth.controllers';
 import authenticateUser from '../../middlewares/authenticate.user';
 import { editCustomer } from '../../controllers/admin/admin.operation.controller';
@@ -127,6 +128,20 @@ authRouter.post('/logout', logoutController);
  *         description: Invalid or expired OTP
  */
 authRouter.post('/verify-email-otp', authenticateUser, verifyUserController);
+
+/**
+ * @swagger
+ * /api/auth/account-bootstrap:
+ *   get:
+ *     summary: Provision missing v2 records and return PIN/setup status
+ *     tags: [Customer Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Bootstrap status retrieved
+ */
+authRouter.get('/account-bootstrap', authenticateUser, getAccountBootstrapController);
 
 /**
  * @swagger

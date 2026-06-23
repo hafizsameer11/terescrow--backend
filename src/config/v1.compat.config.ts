@@ -6,6 +6,11 @@
 export const v1Compat = {
   blockUnverifiedLogin: process.env.BLOCK_UNVERIFIED_LOGIN === 'true',
   enableBannedCustomerChecks: process.env.ENABLE_BANNED_CUSTOMER_CHECKS === 'true',
+  /** Backfill tier1 / fiat wallet / virtual accounts for verified customers (login, bootstrap, wallet reads). */
+  enableV2UserSetup: process.env.ENABLE_V2_USER_SETUP !== 'false',
+  /** Run full v2 setup immediately after first email verification. */
+  enableV2PostVerifySetup: process.env.ENABLE_V2_POST_VERIFY_SETUP === 'true',
+  enableV2RegisterReferral: process.env.ENABLE_V2_REGISTER_REFERRAL === 'true',
   enableReadOnlyReviewAgent: process.env.ENABLE_READ_ONLY_REVIEW_AGENT !== 'false',
   useV1AdminCustomerList: process.env.USE_V1_ADMIN_CUSTOMER_LIST !== 'false',
   useV1AccountActivityResponse: process.env.USE_V1_ACCOUNT_ACTIVITY_RESPONSE !== 'false',

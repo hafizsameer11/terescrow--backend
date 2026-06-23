@@ -11,6 +11,7 @@ import ApiResponse from '../utils/ApiResponse';
 import { comparePassword, generateToken } from '../utils/authUtils';
 import { v1Compat } from '../config/v1.compat.config';
 import { BANNED_CUSTOMER_MESSAGE, isUserBanned } from '../utils/customer.restrictions';
+import { triggerV2UserSetupIfNeeded } from '../services/user/ensure.v2.user.setup.service';
 import { validationResult } from 'express-validator';
 import { profile } from 'console';
 import axios from 'axios';
@@ -66,6 +67,11 @@ export const loginController = async (
     if (!isMatch) {
       return next(ApiError.badRequest('Your password is not correct'));
     }
+
+    if (isUser.role === UserRoles.customer && isUser.isVerified) {
+      triggerV2UserSetupIfNeeded(isUser.id);
+    }
+
     const token = generateToken(isUser.id, isUser.username, isUser.role);
     res.cookie('token', token, {
       httpOnly: true,
@@ -91,6 +97,7 @@ export const loginController = async (
       country: isUser.country,
       gender: isUser.gender,
       isVerified: isUser.isVerified,
+      pinSet: !!isUser.pin,
       KycStateTwo: isUser.KycStateTwo[0],
       unReadNotification: getNotificationCount.length
     };

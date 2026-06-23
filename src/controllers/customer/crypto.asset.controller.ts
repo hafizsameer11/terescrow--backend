@@ -9,6 +9,7 @@ import cryptoAssetService from '../../services/crypto/crypto.asset.service';
 import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
+import { triggerV2UserSetupIfNeeded } from '../../services/user/ensure.v2.user.setup.service';
 
 /**
  * Get user's crypto assets (all virtual accounts with balances)
@@ -24,6 +25,8 @@ export async function getUserAssetsController(req: Request, res: Response) {
         message: 'Unauthorized',
       });
     }
+
+    triggerV2UserSetupIfNeeded(userId);
 
     const assets = await cryptoAssetService.getUserAssets(userId);
 
@@ -266,6 +269,8 @@ export async function getCryptoBalanceController(req: Request, res: Response) {
         message: 'Unauthorized',
       });
     }
+
+    triggerV2UserSetupIfNeeded(userId);
 
     const balance = await cryptoAssetService.getCryptoBalance(userId);
 

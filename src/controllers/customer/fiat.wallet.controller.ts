@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
+import { triggerV2UserSetupIfNeeded } from '../../services/user/ensure.v2.user.setup.service';
 
 /**
  * Get wallet overview
@@ -14,6 +15,8 @@ export const getWalletOverviewController = async (
 ) => {
   try {
     const user = req.body._user;
+
+    triggerV2UserSetupIfNeeded(user.id);
 
     const overview = await fiatWalletService.getWalletOverview(user.id);
 

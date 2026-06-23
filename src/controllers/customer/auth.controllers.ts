@@ -13,9 +13,10 @@ import {
   verifyToken,
 } from '../../utils/authUtils';
 import { prisma } from '../../utils/prisma';
-import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { creditSignupBonus } from '../../services/referral/referral.commission.service';
 import { v1Compat } from '../../config/v1.compat.config';
+import { ensureV2UserSetup } from '../../services/user/ensure.v2.user.setup.service';
+import { getAccountBootstrap } from '../../services/user/account.bootstrap.service';
 
 const registerCustomerController = async (
   req: Request,
@@ -305,50 +306,17 @@ const verifyUserController = async (
       return next(ApiError.internal('User verification Failed!'));
     }
 
-    // v2 only: tier1 + fiat wallet + Tatum queue (off by default for v1 production)
+    // v2: tier1 + fiat wallet + Tatum queue for first-time email verify
     if (
       v1Compat.enableV2PostVerifySetup &&
       !user.isVerified &&
       updateUser.isVerified
     ) {
       try {
-        // Auto-set Tier 1 verification
-        await prisma.user.update({
-          where: { id: updateUser.id },
-          data: {
-            kycTier1Verified: true,
-            currentKycTier: 'tier1',
-          },
-        });
-        console.log(`Tier 1 auto-verified for user ${updateUser.id}`);
-        
-        // Get user's country to determine default currency
-        // Default to NGN if country is Nigeria, otherwise use NGN as default
-        const defaultCurrency = user.country?.toLowerCase().includes('nigeria') ? 'NGN' : 'NGN';
-        
-        // Create default wallet (getOrCreateWallet is idempotent)
-        await fiatWalletService.getOrCreateWallet(updateUser.id, defaultCurrency);
-        console.log(`Default ${defaultCurrency} wallet created for user ${updateUser.id}`);
-
-        // Create Tatum virtual accounts (async, don't block verification)
-        // Dispatch job to queue system
-        const { queueManager } = await import('../../queue/queue.manager');
-        await queueManager.addJob(
-          'tatum',
-          'create-virtual-account',
-          { userId: updateUser.id },
-          {
-            attempts: 3, // Retry 3 times on failure
-            backoff: {
-              type: 'exponential',
-              delay: 5000, // Start with 5 second delay
-            },
-          }
-        );
-        console.log(`Virtual account creation job dispatched to queue for user ${updateUser.id}`);
+        await ensureV2UserSetup(updateUser.id);
+        console.log(`Post-verify v2 setup completed for user ${updateUser.id}`);
       } catch (walletError) {
-        // Log error but don't fail verification if wallet creation fails
-        console.error('Error creating default wallet during email verification:', walletError);
+        console.error('Error running post-verify v2 setup:', walletError);
       }
     }
 
@@ -856,25 +824,17 @@ export const setPinController = async (
 
     const { email, pin } = req.body as { email: string; pin: string };
 
-    // Find user by email
     const user = await prisma.user.findUnique({
-      where: {
-        email,
-      },
+      where: { email },
     });
 
     if (!user) {
       return next(ApiError.notFound('User not found'));
     }
 
-    // Update user with PIN
     const updatedUser = await prisma.user.update({
-      where: {
-        id: user.id,
-      },
-      data: {
-        pin: pin,
-      },
+      where: { id: user.id },
+      data: { pin },
       select: {
         id: true,
         email: true,
@@ -912,25 +872,17 @@ export const updatePinController = async (
 
     const { email, pin } = req.body as { email: string; pin: string };
 
-    // Find user by email
     const user = await prisma.user.findUnique({
-      where: {
-        email,
-      },
+      where: { email },
     });
 
     if (!user) {
       return next(ApiError.notFound('User not found'));
     }
 
-    // Update user with new PIN
     const updatedUser = await prisma.user.update({
-      where: {
-        id: user.id,
-      },
-      data: {
-        pin: pin,
-      },
+      where: { id: user.id },
+      data: { pin },
       select: {
         id: true,
         email: true,
@@ -949,6 +901,28 @@ export const updatePinController = async (
       return next(error);
     }
     return next(ApiError.internal('Internal Server Error'));
+  }
+};
+
+export const getAccountBootstrapController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const user = req.body._user;
+    if (!user?.id) {
+      return next(ApiError.unauthorized('You are not authorized'));
+    }
+
+    const bootstrap = await getAccountBootstrap(user.id);
+    return new ApiResponse(200, bootstrap, 'Account bootstrap retrieved').send(res);
+  } catch (error) {
+    console.error(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Failed to load account bootstrap'));
   }
 };
 

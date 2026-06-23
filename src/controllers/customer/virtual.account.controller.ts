@@ -9,6 +9,7 @@ import virtualAccountService from '../../services/tatum/virtual.account.service'
 import depositAddressService from '../../services/tatum/deposit.address.service';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
+import { triggerV2UserSetupIfNeeded } from '../../services/user/ensure.v2.user.setup.service';
 
 /**
  * Get user's virtual accounts
@@ -26,6 +27,7 @@ export const getUserVirtualAccountsController = async (
     }
 
     const userId = authenticatedUser.id;
+    triggerV2UserSetupIfNeeded(userId);
     const accounts = await virtualAccountService.getUserVirtualAccounts(userId);
 
     // Format response
@@ -77,6 +79,8 @@ export const getDepositAddressController = async (
     if (!currency || !blockchain) {
       throw ApiError.badRequest('Currency and blockchain are required');
     }
+
+    triggerV2UserSetupIfNeeded(userId);
 
     const depositAddress = await depositAddressService.getDepositAddress(
       userId,
