@@ -17,6 +17,8 @@ export const v1Compat = {
   useV1LegacyKycTier: process.env.USE_V1_LEGACY_KYC_TIER !== 'false',
   autoChatProcessingStatus: process.env.AUTO_CHAT_PROCESSING_STATUS === 'true',
   useV1AdminCustomerDetail: process.env.USE_V1_ADMIN_CUSTOMER_DETAIL !== 'false',
+  /** Tier1 auto-verify, fiat wallet, Tatum queue on email verify (needs v2 schema + Redis). */
+  // enableV2PostVerifySetup: process.env.ENABLE_V2_POST_VERIFY_SETUP === 'true',
 };
 
 export function wantsLegacyQuery(req: { query?: Record<string, unknown> }): boolean {
