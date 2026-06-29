@@ -78,19 +78,30 @@ export async function ensureV2UserSetup(userId: number): Promise<V2SetupStatus> 
 
   if (virtualAccountCount === 0) {
     const { queueManager } = await import('../../queue/queue.manager');
-    await queueManager.addJob(
-      'tatum',
-      'create-virtual-account',
-      { userId },
-      {
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 5000,
-        },
+    const jobId = `create-virtual-account-${userId}`;
+    try {
+      await queueManager.addJob(
+        'tatum',
+        'create-virtual-account',
+        { userId },
+        {
+          jobId,
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 5000,
+          },
+        }
+      );
+      status.virtualAccountsQueued = true;
+    } catch (error: any) {
+      const msg = String(error?.message || error);
+      if (msg.includes('Job') && msg.includes('exists')) {
+        console.log(`[ensureV2UserSetup] create-virtual-account already queued for user ${userId}`);
+      } else {
+        throw error;
       }
-    );
-    status.virtualAccountsQueued = true;
+    }
   }
 
   return status;

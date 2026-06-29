@@ -65,36 +65,56 @@ class VirtualAccountService {
             continue;
           }
 
-          // Generate our own accountId (UUID)
           const accountId = randomUUID();
           const accountCode = `user_${userId}_${currency.currency}`;
 
-          // Create virtual account in our own system (not in Tatum)
-          const virtualAccount = await prisma.virtualAccount.create({
-            data: {
-              userId,
-              blockchain: currency.blockchain,
-              currency: currency.currency,
-              customerId: String(userId), // Use userId as customerId
-              accountId: accountId,
-              accountCode: accountCode,
-              active: true,
-              frozen: false,
-              accountBalance: '0',
-              availableBalance: '0',
-              accountingCurrency: 'USD',
-              currencyId: currency.id,
-            },
-          });
+          try {
+            const virtualAccount = await prisma.virtualAccount.create({
+              data: {
+                userId,
+                blockchain: currency.blockchain,
+                currency: currency.currency,
+                customerId: String(userId),
+                accountId,
+                accountCode,
+                active: true,
+                frozen: false,
+                accountBalance: '0',
+                availableBalance: '0',
+                accountingCurrency: 'USD',
+                currencyId: currency.id,
+              },
+            });
 
-          createdAccounts.push(virtualAccount);
-          console.log(`Virtual account created for user ${userId}, currency: ${currency.currency}`);
+            createdAccounts.push(virtualAccount);
+            console.log(`Virtual account created for user ${userId}, currency: ${currency.currency}`);
+          } catch (error: any) {
+            if (error?.code === 'P2002') {
+              const raced = await prisma.virtualAccount.findFirst({
+                where: {
+                  userId,
+                  currency: currency.currency,
+                  blockchain: currency.blockchain,
+                },
+              });
+              if (raced) {
+                console.log(
+                  `Virtual account for ${currency.currency} already exists (race) for user ${userId}`
+                );
+                createdAccounts.push(raced);
+                continue;
+              }
+            }
+            console.error(
+              `Error creating virtual account for ${currency.currency}:`,
+              error.message
+            );
+          }
         } catch (error: any) {
           console.error(
             `Error creating virtual account for ${currency.currency}:`,
             error.message
           );
-          // Continue with other currencies even if one fails
         }
       }
 

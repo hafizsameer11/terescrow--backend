@@ -331,8 +331,20 @@ const generateWalletForBlockchain = async (
           virtualAccounts.push(virtualAccount);
           console.log(`Created virtual account for ${walletCurrency.currency} on ${blockchain}`);
         } catch (error: any) {
+          if (error?.code === 'P2002') {
+            const raced = await prisma.virtualAccount.findFirst({
+              where: {
+                userId: userIdNum,
+                currency: walletCurrency.currency,
+                blockchain: walletCurrency.blockchain,
+              },
+            });
+            if (raced) {
+              virtualAccounts.push(raced);
+              continue;
+            }
+          }
           console.error(`Error creating virtual account for ${walletCurrency.currency}:`, error.message);
-          // Continue with other currencies
         }
       }
     }
