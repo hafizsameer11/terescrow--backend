@@ -1126,29 +1126,9 @@ class CryptoSellService {
     const quote = await this.calculateSellQuote(amountInput, currency, blockchain, amountType);
     const amountCryptoDecimal = new Decimal(quote.amountCrypto);
     const amountNgnDecimal = new Decimal(quote.amountNgn);
+    const finalAmountNgnDecimal = amountNgnDecimal;
 
-    // Initialize gas fee variables - SIMULATED
-    let totalGasFeeEth = new Decimal('0');
-    let totalGasFeeUsd = new Decimal('0');
-    let totalGasFeeNgn = new Decimal('10'); // Simulated minimum gas fee in NGN
-    let needsEthTransfer = false;
-    let ethTransferGasFeeNgn = new Decimal('0');
-    let tokenTransferGasFeeNgn = new Decimal('10'); // Simulated
-    let ethNeededForGas = new Decimal('0');
-    let ethNeededNgn = new Decimal('0');
-    let userEthBalance = new Decimal('0');
-    let gasEstimate: any = null;
-    
-    // Initialize ETH transfer gas fee variables (outside if block for scope)
-    let ethTransferGasFeeEth = new Decimal('0');
-    let ethTransferGasFeeUsd = new Decimal('0');
-    let ethGasLimit = 0;
-    let ethGasPriceWei = '0';
-    let ethToSendPreview: Decimal = new Decimal('0');
-
-    // BLOCKCHAIN CODE COMMENTED OUT - Simulated gas fees only
-    // For USDT ERC-20: Check ETH balance FIRST, then calculate gas fees
-    // COMMENTED OUT: Real blockchain gas fee calculation
+    // Calculate balances after transaction
     /* if (blockchain.toLowerCase() === 'ethereum' && currency.toUpperCase() === 'USDT') {
       try {
         console.log('[CRYPTO SELL PREVIEW] Starting gas fee calculations for Ethereum USDT sell');
@@ -1365,28 +1345,12 @@ class CryptoSellService {
       }
     } */
 
-    // Calculate final amount after deducting gas fees
-    const finalAmountNgn = amountNgnDecimal.minus(totalGasFeeNgn);
-    const finalAmountNgnDecimal = finalAmountNgn.greaterThan(0) ? finalAmountNgn : new Decimal('0');
-
-    // Calculate balances after transaction
     const cryptoBalanceAfter = cryptoBalanceBefore.minus(amountCryptoDecimal);
     const fiatBalanceAfter = fiatBalanceBefore.plus(finalAmountNgnDecimal);
 
-    // Check if sufficient balance
     const hasSufficientBalance = cryptoBalanceBefore.gte(amountCryptoDecimal);
     const hasSufficientAmountAfterGas = finalAmountNgnDecimal.greaterThan(0);
     const canProceed = hasSufficientBalance && hasSufficientAmountAfterGas;
-
-    console.log('[CRYPTO SELL PREVIEW] Final calculations:');
-    console.log('  Amount before gas:', amountNgnDecimal.toString(), 'NGN');
-    console.log('  Total gas fee:', totalGasFeeNgn.toString(), 'NGN');
-    console.log('  Final amount received:', finalAmountNgnDecimal.toString(), 'NGN');
-    console.log('  Can proceed:', canProceed);
-
-    console.log('\n========================================');
-    console.log('[CRYPTO SELL PREVIEW] Preview complete');
-    console.log('========================================\n');
 
     return {
       // Transaction details
@@ -1398,23 +1362,8 @@ class CryptoSellService {
       // Amounts
       amountCrypto: quote.amountCrypto,
       amountUsd: quote.amountUsd,
-      amountNgn: quote.amountNgn, // Amount before gas fees
+      amountNgn: quote.amountNgn,
       
-      // Gas fees (Ethereum only)
-      gasFee: blockchain.toLowerCase() === 'ethereum' ? {
-        eth: totalGasFeeEth.toString(),
-        usd: totalGasFeeUsd.toString(),
-        ngn: totalGasFeeNgn.toString(),
-        tokenTransfer: gasEstimate?.tokenTransfer,
-        ethTransfer: gasEstimate?.ethTransfer || null,
-        needsEthTransfer: needsEthTransfer,
-        userEthBalance: userEthBalance.toString(),
-        ethNeededForGas: ethNeededForGas.toString(),
-        ethNeededUsd: gasEstimate?.ethNeededUsd || '0',
-        ethNeededNgn: ethNeededNgn.toString(),
-      } : null,
-      
-      // Final amount after gas fees
       finalAmountNgn: finalAmountNgnDecimal.toString(),
       
       // Rates

@@ -1,7 +1,6 @@
 /**
  * V1 production compatibility flags.
  * Defaults preserve v1 behavior so v2 can deploy alongside existing mobile/admin clients.
- * See V1_BREAKING_CHANGES_AND_PATCHES.md
  */
 export const v1Compat = {
   blockUnverifiedLogin: process.env.BLOCK_UNVERIFIED_LOGIN === 'true',

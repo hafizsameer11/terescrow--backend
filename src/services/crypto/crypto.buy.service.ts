@@ -818,41 +818,9 @@ class CryptoBuyService {
     const quote = await this.calculateBuyQuote(amountCrypto, currency, blockchain);
     const amountCryptoDecimal = new Decimal(amountCrypto);
     const amountNgnDecimal = new Decimal(quote.amountNgn);
+    const totalAmountNgn = amountNgnDecimal;
 
-    // Initialize gas fee variables (for Ethereum only) - SIMULATED
-    let gasFeeEth = new Decimal('0');
-    let gasFeeUsd = new Decimal('0');
-    let gasFeeNgn = new Decimal('0');
-    let totalAmountNgn = amountNgnDecimal;
-    let masterWalletBalance: string | null = null;
-    let hasSufficientMasterBalance = true;
-    let gasEstimate: any = null;
-
-    // BLOCKCHAIN CODE COMMENTED OUT - Simulated gas fees only
-    // For Ethereum blockchain: Check master wallet balance and calculate gas fees
-    if (blockchain.toLowerCase() === 'ethereum' && (currency.toUpperCase() === 'ETH' || currency.toUpperCase() === 'USDT')) {
-      // Simulated gas fee values
-      gasFeeEth = new Decimal('0.001'); // Simulated 0.001 ETH
-      const ethWalletCurrency = await prisma.walletCurrency.findFirst({
-        where: { currency: 'ETH', blockchain: 'ethereum' },
-      });
-      const ethPrice = ethWalletCurrency?.price ? new Decimal(ethWalletCurrency.price.toString()) : new Decimal('2500');
-      gasFeeUsd = gasFeeEth.mul(ethPrice);
-      const quoteUsdToNgnRate = parseFloat(quote.rateNgnToUsd);
-      if (quoteUsdToNgnRate > 0) {
-        gasFeeNgn = gasFeeUsd.mul(new Decimal(quoteUsdToNgnRate.toString()));
-      }
-      totalAmountNgn = amountNgnDecimal.plus(gasFeeNgn);
-      
-      gasEstimate = {
-        gasLimit: currency.toUpperCase() === 'ETH' ? '21000' : '65000',
-        gasPrice: { wei: '30000000000', gwei: '30' },
-      };
-      
-      hasSufficientMasterBalance = true;
-    }
-
-    // COMMENTED OUT: Real blockchain gas fee calculation
+    // Calculate balances after transaction
     /* if (blockchain.toLowerCase() === 'ethereum' && (currency.toUpperCase() === 'ETH' || currency.toUpperCase() === 'USDT')) {
       console.log('[CRYPTO BUY PREVIEW] Entering Ethereum gas fee calculation block');
       try {
@@ -1038,32 +1006,9 @@ class CryptoBuyService {
     console.log('  Crypto balance before:', cryptoBalanceBefore.toString());
     console.log('  Crypto balance after:', cryptoBalanceAfter.toString());
 
-    // Check if sufficient balance (including gas fees)
+    // Check if sufficient balance
     const hasSufficientBalance = fiatBalance.gte(totalAmountNgn);
-    const canProceed = hasSufficientBalance && hasSufficientMasterBalance;
-    
-    console.log('[CRYPTO BUY PREVIEW] Sufficiency checks:');
-    console.log('  Has sufficient fiat balance:', hasSufficientBalance);
-    console.log('  Has sufficient master wallet balance:', hasSufficientMasterBalance);
-    console.log('  Can proceed:', canProceed);
-
-    console.log('\n========================================');
-    console.log('[CRYPTO BUY PREVIEW] Preview complete');
-    console.log('========================================');
-    console.log('Gas fee estimate:', {
-      eth: gasFeeEth.toString(),
-      usd: gasFeeUsd.toString(),
-      ngn: gasFeeNgn.toString(),
-      gasLimit: gasEstimate?.gasLimit || 'undefined',
-      gasPriceGwei: gasEstimate?.gasPrice?.gwei || 'undefined',
-      gasEstimateObject: gasEstimate ? 'exists' : 'null/undefined',
-    });
-    console.log('Total amount breakdown:');
-    console.log('  Crypto amount (NGN):', amountNgnDecimal.toString());
-    console.log('  Gas fee (NGN):', gasFeeNgn.toString());
-    console.log('  Total amount (NGN):', totalAmountNgn.toString());
-    console.log('Can proceed:', canProceed);
-    console.log('========================================\n');
+    const canProceed = hasSufficientBalance;
 
     return {
       // Transaction details
@@ -1077,27 +1022,12 @@ class CryptoBuyService {
       amountUsd: quote.amountUsd,
       amountNgn: quote.amountNgn,
       
-      // Gas fees (Ethereum only)
-      gasFee: blockchain.toLowerCase() === 'ethereum' ? {
-        eth: gasFeeEth.toString(),
-        usd: gasFeeUsd.toString(),
-        ngn: gasFeeNgn.toString(),
-        gasLimit: gasEstimate?.gasLimit,
-        gasPrice: gasEstimate?.gasPrice,
-      } : null,
-      
-      // Total amount including gas fees
+      // Total amount (same as amountNgn; gas not charged to user in preview)
       totalAmountNgn: totalAmountNgn.toString(),
       
       // Rates
       rateUsdToCrypto: quote.rateUsdToCrypto,
       rateNgnToUsd: quote.rateNgnToUsd,
-      
-      // Master wallet info (Ethereum only)
-      masterWallet: blockchain.toLowerCase() === 'ethereum' ? {
-        balance: masterWalletBalance,
-        hasSufficientBalance: hasSufficientMasterBalance,
-      } : null,
       
       // Current balances
       fiatBalanceBefore: fiatBalance.toString(),
