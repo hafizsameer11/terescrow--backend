@@ -3,15 +3,31 @@ import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { io } from '../../socketConfig';
 import { Chat, ChatStatus, ChatType, PrismaClient, TransactionStatus, User, UserRoles } from '@prisma/client';
+import { resolveStatsTimeWindow } from '../../utils/statsTimeWindow';
 const prisma = new PrismaClient();
 export const getChatStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.body._user;
+        const timeWindow = (req.query.timeWindow as string) || 'all';
+        const startParam = req.query.start as string | undefined;
+        const endParam = req.query.end as string | undefined;
+
+        let createdAtFilter: { gte?: Date; lte?: Date } | undefined;
+        if (startParam || endParam) {
+            createdAtFilter = {};
+            if (startParam) createdAtFilter.gte = new Date(startParam);
+            if (endParam) createdAtFilter.lte = new Date(endParam);
+        } else {
+            const window = resolveStatsTimeWindow(timeWindow);
+            if (window.gte || window.lte) createdAtFilter = window;
+        }
 
         // Conditions for filtering based on the user's role
         const userFilter = user.role == UserRoles.customer ? {
             participants: { some: { userId: user.id } }
         } : {};
+
+        const chatTimeFilter = createdAtFilter ? { updatedAt: createdAtFilter } : {};
 
         // Date calculations for the current and previous month
         const currentMonthStart = new Date();
@@ -20,12 +36,13 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
         previousMonthStart.setMonth(previousMonthStart.getMonth() - 1);
 
         // Fetch current month data
-        const totalChats = await prisma.chat.count({ where: { chatType: ChatType.customer_to_agent, ...userFilter } });
+        const totalChats = await prisma.chat.count({ where: { chatType: ChatType.customer_to_agent, ...userFilter, ...chatTimeFilter } });
 
         const successfulTransactions = await prisma.transaction.count({
             where: {
                 status: TransactionStatus.successful,
-                chat: { ...userFilter },
+                chat: { ...userFilter, ...chatTimeFilter },
+                ...(createdAtFilter ? { createdAt: createdAtFilter } : {}),
             },
         });
 
@@ -40,6 +57,7 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
                     },
                 },
                 ...userFilter,
+                ...chatTimeFilter,
             },
         });
 
@@ -48,6 +66,7 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
             where: {
                 chatDetails: { status: ChatStatus.declined },
                 ...userFilter,
+                ...chatTimeFilter,
             },
         });
 
@@ -55,6 +74,7 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
             where: {
                 chatDetails: { status: ChatStatus.unsucessful },
                 ...userFilter,
+                ...chatTimeFilter,
             },
         });
 

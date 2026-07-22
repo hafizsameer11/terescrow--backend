@@ -281,6 +281,7 @@ export const getAllCustomerWithAgentsChats = async (
     const type = (req.query.type as string) || 'All';
     const category = (req.query.category as string) || 'All';
     const q = (req.query.q as string) || '';
+    const customerId = req.query.customerId ? Number(req.query.customerId) : undefined;
     const start = req.query.start ? new Date(String(req.query.start)) : undefined;
     const end = req.query.end ? new Date(String(req.query.end)) : undefined;
 
@@ -314,6 +315,15 @@ export const getAllCustomerWithAgentsChats = async (
               { lastname: { contains: q } },
             ],
           },
+        },
+      };
+    }
+
+    if (customerId && !Number.isNaN(customerId)) {
+      where.participants = {
+        some: {
+          userId: customerId,
+          user: { role: UserRoles.customer },
         },
       };
     }

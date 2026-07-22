@@ -38,7 +38,10 @@ export const createTransactionCard = async (
       categoryId,
       exchangeRate,
       amountNaira,
-      profit
+      profit,
+      vendorName,
+      vendorRate,
+      vendorId,
     } = req.body;
     if (!subCategoryId || !amount || !chatId) {
       return next(ApiError.badRequest('Missing required fields'));
@@ -74,6 +77,29 @@ export const createTransactionCard = async (
     }
     const transactionId = 'TRSC' + Math.floor(Math.random() * 1000000000);
 
+    const parsedAmount = parseFloat(amount);
+    const parsedExchangeRate = exchangeRate ? parseFloat(exchangeRate) : 0;
+    const parsedVendorRate = vendorRate ? parseFloat(vendorRate) : 0;
+    const computedAmountNaira =
+      amountNaira != null && amountNaira !== ''
+        ? parseFloat(amountNaira)
+        : parsedAmount * parsedExchangeRate;
+    const computedProfit =
+      profit != null && profit !== ''
+        ? parseFloat(profit)
+        : parsedVendorRate > 0
+          ? parsedAmount * (parsedExchangeRate - parsedVendorRate)
+          : 0;
+
+    let resolvedVendorName = vendorName || null;
+    if (!resolvedVendorName && vendorId) {
+      const vendor = await prisma.vendor.findUnique({
+        where: { id: parseInt(vendorId, 10) },
+        select: { name: true },
+      });
+      resolvedVendorName = vendor?.name ?? null;
+    }
+
     const transaction = await prisma.transaction.create({
       data: {
         chatId: parseInt(chatId, 10),
@@ -82,11 +108,14 @@ export const createTransactionCard = async (
         cardNumber: cardNumber || null,
         departmentId: parseInt(departmentId, 10),
         categoryId: parseInt(categoryId, 10),
-        amount: parseFloat(amount),
-        exchangeRate: exchangeRate ? parseFloat(exchangeRate) : null,
-        amountNaira: amountNaira ? parseFloat(amountNaira) : null,
+        amount: parsedAmount,
+        exchangeRate: parsedExchangeRate || null,
+        amountNaira: computedAmountNaira || null,
+        vendorName: resolvedVendorName,
+        vendorRate: parsedVendorRate || null,
+        transactionRef: transactionId,
         status: TransactionStatus.successful,
-        profit: profit ? parseFloat(profit) : 0,
+        profit: computedProfit,
       },
     });
     //create notification for customer
@@ -167,7 +196,7 @@ export const createTransactionCard = async (
 
     return new ApiResponse(
       201,
-      undefined,
+      transaction,
       'Transaction created successfully'
     ).send(res);
   } catch (error) {

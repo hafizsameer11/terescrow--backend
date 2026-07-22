@@ -314,6 +314,9 @@ model Transaction {
   categoryId    Int?              @map("Transaction_Category_FK")
   departmentId  Int?              @map("Transaction_Department_FK")
   profit        Float             @default(0)
+  vendorName    String?
+  vendorRate    Float?
+  transactionRef String?
   category      Category?         @relation(fields: [categoryId], references: [id], map: "Transaction_Category_FK")
   chat          Chat              @relation(fields: [chatId], references: [id], map: "Transaction_Chat_FK")
   country       Country?          @relation(fields: [countryId], references: [id], map: "Transaction_Country_FK")
