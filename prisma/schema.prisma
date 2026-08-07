@@ -75,6 +75,7 @@ model User {
   masterWalletTransactionsPerformed MasterWalletTransaction[] @relation("MasterWalletTxPerformedBy")
   onChainSurplusTransfersAdmin     OnChainSurplusTransfer[]    @relation("AdminOnChainSurplusTransfers")
   onChainSurplusTransfersCustomer  OnChainSurplusTransfer[]    @relation("CustomerOnChainSurplusTransfers")
+  merchantTopupLogs                MerchantTopupLog[]
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
@@ -739,6 +740,48 @@ model PalmPayConfig {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+/// Singleton admin settings for StroWallet top-up bank (API keys live in .env).
+model StroWalletConfig {
+  id                 Int      @id @default(1)
+  topupBankCode      String?  @map("topup_bank_code") @db.VarChar(20)
+  topupBankName      String?  @map("topup_bank_name") @db.VarChar(120)
+  topupAccountNumber String?  @map("topup_account_number") @db.VarChar(30)
+  topupAccountName   String?  @map("topup_account_name") @db.VarChar(120)
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("strowallet_config")
+}
+
+/// Admin-initiated PalmPay payout to fund a merchant wallet (e.g. StroWallet).
+model MerchantTopupLog {
+  id               String    @id @default(uuid())
+  merchant         String    @db.VarChar(30)
+  amount           Decimal   @db.Decimal(15, 2)
+  currency         String    @default("NGN") @db.VarChar(10)
+  bankCode         String    @map("bank_code") @db.VarChar(20)
+  bankName         String?   @map("bank_name") @db.VarChar(120)
+  accountNumber    String    @map("account_number") @db.VarChar(30)
+  accountName      String?   @map("account_name") @db.VarChar(120)
+  palmpayOrderId   String?   @map("palmpay_order_id") @db.VarChar(64)
+  palmpayOrderNo   String?   @map("palmpay_order_no") @db.VarChar(64)
+  palmpayStatus    String?   @map("palmpay_status") @db.VarChar(20)
+  status           String    @default("pending") @db.VarChar(20)
+  initiatedById    Int       @map("initiated_by_id")
+  errorMessage     String?   @map("error_message") @db.Text
+  providerResponse Json?     @map("provider_response")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  completedAt      DateTime? @map("completed_at")
+  initiatedBy      User      @relation(fields: [initiatedById], references: [id], onDelete: Restrict)
+
+  @@index([merchant])
+  @@index([status])
+  @@index([createdAt])
+  @@map("merchant_topup_logs")
 }
 
 model PalmPayUserVirtualAccount {
