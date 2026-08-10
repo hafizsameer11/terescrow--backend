@@ -5,13 +5,68 @@ import ApiResponse from '../../utils/ApiResponse';
 import { prisma } from '../../utils/prisma';
 import { palmpayBillPaymentService } from '../../services/palmpay/palmpay.billpayment.service';
 import { vtpassBillPaymentService } from '../../services/vtpass/vtpass.billpayment.service';
-import { reloadlyAirtimeService } from '../../services/reloadly/reloadly.airtime.service';
-import { reloadlyUtilitiesService } from '../../services/reloadly/reloadly.utilities.service';
+import { strowalletBillPaymentService } from '../../services/strowallet/strowallet.billpayment.service';
+import { resolveBillPaymentProvider } from '../../services/strowallet/strowallet.billpayment.catalog';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { palmpayConfig } from '../../services/palmpay/palmpay.config';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PalmPaySceneCode, PalmPayOrderStatus } from '../../types/palmpay.types';
 import { creditReferralCommission, ReferralService } from '../../services/referral/referral.commission.service';
+
+function mapStroWalletStatus(status: 'completed' | 'pending' | 'failed'): number {
+  if (status === 'completed') return 2;
+  if (status === 'failed') return 3;
+  return 1;
+}
+
+async function completeBillPaymentIfSuccessful(params: {
+  userId: number;
+  transactionId: string;
+  billPaymentId: string;
+  amountNum: number;
+  orderStatus: number;
+  orderNo: string | null;
+  requestId: string | null;
+  providerStatus: string;
+  providerResponse: unknown;
+  billReference?: string | null;
+}) {
+  await prisma.fiatTransaction.update({
+    where: { id: params.transactionId },
+    data: {
+      palmpayOrderId: params.requestId || undefined,
+      palmpayOrderNo: params.orderNo || undefined,
+      palmpayStatus: params.providerStatus,
+    },
+  });
+
+  await prisma.billPayment.update({
+    where: { id: params.billPaymentId },
+    data: {
+      palmpayOrderId: params.requestId || undefined,
+      palmpayOrderNo: params.orderNo || undefined,
+      palmpayStatus: params.providerStatus,
+      providerResponse: JSON.stringify(params.providerResponse),
+    },
+  });
+
+  if (params.orderStatus === 2) {
+    await prisma.fiatTransaction.update({
+      where: { id: params.transactionId },
+      data: { status: 'completed', completedAt: new Date() },
+    });
+    await prisma.billPayment.update({
+      where: { id: params.billPaymentId },
+      data: {
+        status: 'completed',
+        completedAt: new Date(),
+        billReference: params.billReference || params.orderNo || undefined,
+      },
+    });
+    creditReferralCommission(params.userId, ReferralService.BILL_PAYMENT, params.amountNum)
+      .catch((err) => console.error('[BillPayment] Referral commission error:', err));
+  }
+}
 
 /**
  * Query Billers (Operators) for a scene code
@@ -29,38 +84,12 @@ export const queryBillersController = async (
       return next(ApiError.badRequest('sceneCode is required and must be a string'));
     }
 
-    if (provider !== 'palmpay' && provider !== 'vtpass' && provider !== 'reloadly') {
-      return next(ApiError.badRequest('provider must be either "palmpay", "vtpass", or "reloadly"'));
-    }
-
     let billers;
-    let actualProvider = provider;
-    
-    // For airtime, always use Reloadly
-    if (sceneCode === 'airtime') {
-      const reloadlyBillers = await reloadlyAirtimeService.getBillers();
-      billers = reloadlyBillers.map(b => ({
-        billerId: b.billerId,
-        billerName: b.billerName,
-        operatorId: b.operatorId,
-      }));
-      actualProvider = 'reloadly';
-    } 
-    // For electricity with Reloadly
-    else if (sceneCode === 'electricity' && provider === 'reloadly') {
-      const reloadlyBillers = await reloadlyUtilitiesService.getNigeriaElectricityBillers();
-      billers = reloadlyBillers.map(b => ({
-        billerId: b.id.toString(), // Use Reloadly biller ID as string
-        billerName: b.name,
-        serviceType: b.serviceType,
-        type: b.type,
-        minAmount: b.minLocalTransactionAmount,
-        maxAmount: b.maxLocalTransactionAmount,
-        currency: b.localTransactionCurrencyCode,
-      }));
-      actualProvider = 'reloadly';
-    } 
-    else if (provider === 'vtpass') {
+    const actualProvider = resolveBillPaymentProvider(sceneCode, typeof provider === 'string' ? provider : undefined);
+
+    if (actualProvider === 'strowallet') {
+      billers = strowalletBillPaymentService.wrapBillersForApi(sceneCode);
+    } else if (provider === 'vtpass') {
       billers = await vtpassBillPaymentService.queryBillers(sceneCode as any);
     } else {
       billers = await palmpayBillPaymentService.queryBillers(sceneCode as any);
@@ -98,24 +127,12 @@ export const queryItemsController = async (
       return next(ApiError.badRequest('billerId is required'));
     }
 
-    if (provider !== 'palmpay' && provider !== 'vtpass' && provider !== 'reloadly') {
-      return next(ApiError.badRequest('provider must be either "palmpay", "vtpass", or "reloadly"'));
-    }
+    let items: any = [];
+    const actualProvider = resolveBillPaymentProvider(sceneCode, typeof provider === 'string' ? provider : undefined);
 
-    let items: any[] = [];
-    let actualProvider = provider;
-    
-    // For airtime, always use Reloadly (returns empty items - user-specified amounts)
-    if (sceneCode === 'airtime') {
-      items = []; // Reloadly airtime uses user-specified amounts
-      actualProvider = 'reloadly';
-    } 
-    // For electricity with Reloadly (returns empty items - user-specified amounts)
-    else if (sceneCode === 'electricity' && provider === 'reloadly') {
-      items = []; // Reloadly utilities uses user-specified amounts
-      actualProvider = 'reloadly';
-    } 
-    else if (provider === 'vtpass') {
+    if (actualProvider === 'strowallet') {
+      items = await strowalletBillPaymentService.queryItems(sceneCode, billerId);
+    } else if (provider === 'vtpass') {
       items = await vtpassBillPaymentService.queryItems(sceneCode as any, billerId);
     } else {
       items = await palmpayBillPaymentService.queryItems(sceneCode as any, billerId);
@@ -158,42 +175,48 @@ export const verifyAccountController = async (
       return next(ApiError.badRequest('rechargeAccount must be 50 characters or less'));
     }
 
-    if (provider !== 'palmpay' && provider !== 'vtpass') {
-      return next(ApiError.badRequest('provider must be either "palmpay" or "vtpass"'));
-    }
+    const actualProvider = resolveBillPaymentProvider(sceneCode, typeof provider === 'string' ? provider : undefined);
 
-    // For betting (PalmPay only), billerId and itemId are required
-    if (provider === 'palmpay' && sceneCode === 'betting' && (!billerId || !itemId)) {
+    if (actualProvider === 'palmpay' && sceneCode === 'betting' && (!billerId || !itemId)) {
       return next(ApiError.badRequest('billerId and itemId are required for betting'));
     }
 
-    // For electricity (VTpass), itemId (meterType) is required
-    if (provider === 'vtpass' && sceneCode === 'electricity' && !itemId) {
-      return next(ApiError.badRequest('itemId (meterType: prepaid or postpaid) is required for electricity verification'));
-    }
-
     let result;
-    let actualProvider = provider;
-    
-    // For airtime, use Reloadly auto-detect
-    if (sceneCode === 'airtime') {
-      const operator = await reloadlyAirtimeService.autoDetectOperator(rechargeAccount, 'NG');
-      if (operator) {
+    if (actualProvider === 'strowallet') {
+      if (sceneCode === 'electricity') {
+        if (!billerId) {
+          return next(ApiError.badRequest('billerId is required for electricity verification'));
+        }
+        result = await strowalletBillPaymentService.verifyMeter({
+          billerId,
+          meterNumber: rechargeAccount,
+        });
+      } else if (sceneCode === 'cable') {
+        if (!billerId) {
+          return next(ApiError.badRequest('billerId is required for cable verification'));
+        }
+        result = await strowalletBillPaymentService.verifySmartcard({
+          billerId,
+          smartcardNumber: rechargeAccount,
+        });
+      } else if (sceneCode === 'education') {
+        const valid = /^0\d{10}$/.test(rechargeAccount);
         result = {
-          biller: operator.name,
-          billerId: billerId || operator.name.toUpperCase(),
-          valid: true,
+          biller: billerId || 'WAEC',
+          billerId: billerId || 'WAEC',
+          valid,
+          error: valid ? undefined : 'Phone number must be 11 digits starting with 0',
         };
       } else {
-        // If auto-detect fails, still return valid (basic phone validation)
-        result = {
-          biller: billerId || 'Unknown',
-          billerId: billerId || 'UNKNOWN',
-          valid: /^0\d{10}$/.test(rechargeAccount), // Basic phone format validation
-        };
+        result = await strowalletBillPaymentService.verifyAirtimeOrDataPhone(
+          rechargeAccount,
+          billerId || 'UNKNOWN'
+        );
       }
-      actualProvider = 'reloadly';
     } else if (provider === 'vtpass') {
+      if (sceneCode === 'electricity' && !itemId) {
+        return next(ApiError.badRequest('itemId (meterType: prepaid or postpaid) is required for electricity verification'));
+      }
       result = await vtpassBillPaymentService.queryRechargeAccount(
         sceneCode as any,
         rechargeAccount,
@@ -209,7 +232,6 @@ export const verifyAccountController = async (
       );
     }
 
-    // Handle different result types from different providers
     const billerName = (result as any).biller || (result as any).billerId || undefined;
     const isValid = (result as any).valid !== undefined ? (result as any).valid !== false : true;
 
@@ -253,40 +275,37 @@ export const createBillOrderController = async (
 ) => {
   try {
     const user = req.body._user;
-    const { sceneCode, billerId, itemId, rechargeAccount, amount, pin, provider = 'palmpay', phone } = req.body;
+    const { sceneCode, billerId, itemId, rechargeAccount, amount, pin, provider = 'palmpay', phone, itemName } = req.body;
 
     // Validate inputs
     if (!sceneCode || typeof sceneCode !== 'string') {
       return next(ApiError.badRequest('sceneCode is required and must be a string'));
     }
 
-    // Determine actual provider (for airtime, always use Reloadly)
-    const actualProvider = sceneCode === 'airtime' ? 'reloadly' : provider;
+    const actualProvider = resolveBillPaymentProvider(sceneCode, typeof provider === 'string' ? provider : undefined);
 
-    if (actualProvider !== 'palmpay' && actualProvider !== 'vtpass' && actualProvider !== 'reloadly') {
-      return next(ApiError.badRequest('provider must be either "palmpay" or "vtpass"'));
-    }
-
-    // For airtime (Reloadly), itemId is not required
-    if (sceneCode === 'airtime') {
+    if (actualProvider === 'strowallet') {
       if (!billerId || !rechargeAccount || !amount) {
         return next(ApiError.badRequest('Missing required fields: billerId, rechargeAccount, amount'));
       }
-    }
-    // For PalmPay (non-airtime), all fields required
-    else if (actualProvider === 'palmpay' && (!billerId || !itemId || !rechargeAccount || !amount)) {
+      if (sceneCode === 'data' && !itemId) {
+        return next(ApiError.badRequest('itemId is required for data'));
+      }
+      if (sceneCode === 'cable' && !itemId) {
+        return next(ApiError.badRequest('itemId is required for cable'));
+      }
+      if (sceneCode === 'education' && !itemId) {
+        return next(ApiError.badRequest('itemId is required for education'));
+      }
+    } else if (actualProvider === 'palmpay' && (!billerId || !itemId || !rechargeAccount || !amount)) {
       return next(ApiError.badRequest('Missing required fields: billerId, itemId, rechargeAccount, amount'));
-    }
-    // For VTpass
-    else if (actualProvider === 'vtpass') {
+    } else if (actualProvider === 'vtpass') {
       if (!billerId || !rechargeAccount || !amount) {
         return next(ApiError.badRequest('Missing required fields: billerId, rechargeAccount, amount'));
       }
-      // For VTpass, itemId is optional for airtime, required for others
       if (sceneCode !== 'airtime' && !itemId) {
         return next(ApiError.badRequest('itemId is required for VTpass ' + sceneCode));
       }
-      // Phone is required for VTpass
       if (!phone || typeof phone !== 'string') {
         return next(ApiError.badRequest('phone is required for VTpass'));
       }
@@ -300,7 +319,7 @@ export const createBillOrderController = async (
     // Verify PIN
     const userRecord = await prisma.user.findUnique({
       where: { id: user.id },
-      select: { pin: true },
+      select: { pin: true, phoneNumber: true },
     });
 
     if (!userRecord?.pin || userRecord.pin !== pin) {
@@ -329,8 +348,8 @@ export const createBillOrderController = async (
     }
 
     // Generate unique order ID / request ID
-    const outOrderNo = provider === 'vtpass' 
-      ? undefined // VTpass generates its own request_id
+    const outOrderNo = actualProvider === 'vtpass'
+      ? undefined
       : `bill_${uuidv4().replace(/-/g, '')}`.substring(0, 64);
     const transactionId = uuidv4();
 
@@ -351,31 +370,13 @@ export const createBillOrderController = async (
       },
     });
 
-    // Get biller info for VTpass/Reloadly
     let serviceID: string | undefined;
     let billerName: string | undefined;
-    let operatorId: number | undefined;
-    let reloadlyBillerId: number | undefined;
-    
-    if (actualProvider === 'reloadly' && sceneCode === 'airtime') {
-      // Get Reloadly operator info
-      const operator = await reloadlyAirtimeService.findOperatorByBillerId(billerId);
-      if (!operator) {
-        return next(ApiError.badRequest(`Invalid billerId: ${billerId} for Reloadly airtime`));
-      }
-      operatorId = operator.operatorId;
-      billerName = operator.name;
-    } else if (actualProvider === 'reloadly' && sceneCode === 'electricity') {
-      // Get Reloadly utility biller info
-      reloadlyBillerId = parseInt(billerId, 10);
-      if (isNaN(reloadlyBillerId)) {
-        return next(ApiError.badRequest(`Invalid billerId: ${billerId}. Reloadly electricity billerId must be a number`));
-      }
-      const biller = await reloadlyUtilitiesService.getBillerById(reloadlyBillerId);
-      if (!biller) {
-        return next(ApiError.badRequest(`Invalid billerId: ${billerId} for Reloadly electricity`));
-      }
-      billerName = biller.name;
+
+    if (actualProvider === 'strowallet') {
+      const wrapped = strowalletBillPaymentService.wrapBillersForApi(sceneCode);
+      const biller = wrapped.data.find((b) => b.billerId === billerId);
+      billerName = biller?.billerName || billerId;
     } else if (actualProvider === 'vtpass') {
       const billers = await vtpassBillPaymentService.queryBillers(sceneCode as any);
       const biller = billers.find(b => b.billerId === billerId);
@@ -421,142 +422,70 @@ export const createBillOrderController = async (
         `Bill payment: ${sceneCode} - ${billerId} (${actualProvider})`
       );
 
-      // For airtime, use Reloadly
-      if (actualProvider === 'reloadly' && sceneCode === 'airtime') {
-        if (!operatorId) {
-          throw new Error('Operator ID not found');
+      if (actualProvider === 'strowallet') {
+        const contactPhone = (phone || userRecord?.phoneNumber || rechargeAccount).toString();
+        let stroResult;
+
+        if (sceneCode === 'airtime') {
+          stroResult = await strowalletBillPaymentService.buyAirtime({
+            billerId,
+            phone: rechargeAccount,
+            amount: amountNum,
+          });
+        } else if (sceneCode === 'data') {
+          stroResult = await strowalletBillPaymentService.buyData({
+            billerId,
+            phone: rechargeAccount,
+            amount: amountNum,
+            variationCode: itemId,
+            planName: itemId,
+          });
+        } else if (sceneCode === 'electricity') {
+          stroResult = await strowalletBillPaymentService.buyElectricity({
+            billerId,
+            meterNumber: rechargeAccount,
+            amount: amountNum,
+            phone: contactPhone,
+          });
+        } else if (sceneCode === 'cable') {
+          stroResult = await strowalletBillPaymentService.buyCable({
+            billerId,
+            smartcardNumber: rechargeAccount,
+            amount: amountNum,
+            variationCode: itemId,
+            planName: (typeof itemName === 'string' && itemName) || itemId,
+            phone: contactPhone,
+          });
+        } else if (sceneCode === 'education') {
+          stroResult = await strowalletBillPaymentService.buyEducation({
+            billerId,
+            phone: rechargeAccount,
+            amount: amountNum,
+            variationCode: itemId,
+          });
+        } else {
+          throw new Error(`StroWallet does not support sceneCode: ${sceneCode}`);
         }
 
-        // Create Reloadly top-up
-        const reloadlyResponse = await reloadlyAirtimeService.makeTopup(
-          operatorId,
-          rechargeAccount,
+        orderStatus = mapStroWalletStatus(stroResult.status);
+        orderNo = stroResult.transactionId;
+        requestId = outOrderNo || stroResult.transactionId;
+        providerResponse = stroResult.raw;
+
+        await completeBillPaymentIfSuccessful({
+          userId: user.id,
+          transactionId: transaction.id,
+          billPaymentId: billPayment.id,
           amountNum,
-          transaction.id // Use transaction ID as custom identifier
-        );
-
-        // Map Reloadly status to our order status format
-        const statusMap: Record<string, number> = {
-          'SUCCESSFUL': 2,
-          'PENDING': 1,
-          'FAILED': 3,
-          'REFUNDED': 3,
-        };
-        orderStatus = statusMap[reloadlyResponse.status] || 1;
-        orderNo = reloadlyResponse.transactionId.toString();
-        requestId = reloadlyResponse.customIdentifier || reloadlyResponse.transactionId.toString();
-        providerResponse = reloadlyResponse;
-
-        // Update transaction and bill payment
-        await prisma.fiatTransaction.update({
-          where: { id: transaction.id },
-          data: {
-            palmpayOrderId: requestId,
-            palmpayOrderNo: orderNo,
-            palmpayStatus: reloadlyResponse.status,
-          },
+          orderStatus,
+          orderNo,
+          requestId,
+          providerStatus: stroResult.status,
+          providerResponse: stroResult.raw,
+          billReference: (stroResult as { token?: string | null; pin?: string | null }).token
+            || (stroResult as { pin?: string | null }).pin
+            || stroResult.transactionId,
         });
-
-        await prisma.billPayment.update({
-          where: { id: billPayment.id },
-          data: {
-            palmpayOrderId: requestId,
-            palmpayOrderNo: orderNo,
-            palmpayStatus: reloadlyResponse.status,
-            providerResponse: JSON.stringify(reloadlyResponse),
-          },
-        });
-
-        // If order status is SUCCESSFUL, mark transaction as completed
-        if (reloadlyResponse.status === 'SUCCESSFUL') {
-          await prisma.fiatTransaction.update({
-            where: { id: transaction.id },
-            data: {
-              status: 'completed',
-              completedAt: new Date(),
-            },
-          });
-
-          await prisma.billPayment.update({
-            where: { id: billPayment.id },
-            data: {
-              status: 'completed',
-              completedAt: new Date(),
-              billReference: reloadlyResponse.operatorTransactionId || orderNo,
-            },
-          });
-
-          creditReferralCommission(user.id, ReferralService.BILL_PAYMENT, amountNum)
-            .catch((err) => console.error('[BillPayment] Referral commission error:', err));
-        }
-      } else if (actualProvider === 'reloadly' && sceneCode === 'electricity') {
-        if (!reloadlyBillerId) {
-          throw new Error('Reloadly biller ID not found');
-        }
-
-        // Create Reloadly utility payment
-        const reloadlyResponse = await reloadlyUtilitiesService.payBill({
-          billerId: reloadlyBillerId,
-          subscriberAccountNumber: rechargeAccount,
-          amount: amountNum,
-          referenceId: transaction.id,
-          useLocalAmount: true, // Use NGN
-        });
-
-        // Map Reloadly status to our order status format
-        const statusMap: Record<string, number> = {
-          'SUCCESSFUL': 2,
-          'PROCESSING': 1,
-          'FAILED': 3,
-          'REFUNDED': 3,
-        };
-        orderStatus = statusMap[reloadlyResponse.status] || 1;
-        orderNo = reloadlyResponse.id.toString();
-        requestId = reloadlyResponse.referenceId;
-        providerResponse = reloadlyResponse;
-
-        // Update transaction and bill payment
-        await prisma.fiatTransaction.update({
-          where: { id: transaction.id },
-          data: {
-            palmpayOrderId: requestId,
-            palmpayOrderNo: orderNo,
-            palmpayStatus: reloadlyResponse.status,
-          },
-        });
-
-        await prisma.billPayment.update({
-          where: { id: billPayment.id },
-          data: {
-            palmpayOrderId: requestId,
-            palmpayOrderNo: orderNo,
-            palmpayStatus: reloadlyResponse.status,
-            providerResponse: JSON.stringify(reloadlyResponse),
-          },
-        });
-
-        // If order status is SUCCESSFUL, mark transaction as completed
-        if (reloadlyResponse.status === 'SUCCESSFUL') {
-          await prisma.fiatTransaction.update({
-            where: { id: transaction.id },
-            data: {
-              status: 'completed',
-              completedAt: new Date(),
-            },
-          });
-
-          await prisma.billPayment.update({
-            where: { id: billPayment.id },
-            data: {
-              status: 'completed',
-              completedAt: new Date(),
-              billReference: reloadlyResponse.referenceId || orderNo,
-            },
-          });
-
-          creditReferralCommission(user.id, ReferralService.BILL_PAYMENT, amountNum)
-            .catch((err) => console.error('[BillPayment] Referral commission error:', err));
-        }
       } else if (actualProvider === 'vtpass') {
         // Get meterType for electricity
         const meterType = sceneCode === 'electricity' && itemId 
