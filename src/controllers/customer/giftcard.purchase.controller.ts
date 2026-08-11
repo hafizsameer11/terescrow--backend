@@ -22,6 +22,9 @@ import {
   debitWalletForGiftCardPurchase,
   refundGiftCardWalletDebit,
 } from '../../services/giftcard/giftcard.purchase.wallet.service';
+import { resolveGiftCardProvider } from '../../services/giftcard/giftcard.provider';
+import { pagocardGiftcardsService } from '../../services/pagocard/pagocard.giftcards.service';
+import { resolvePagocardSku, upsertPagocardGiftcardProduct } from '../../services/giftcard/giftcard.pagocard.store';
 
 /**
  * Process gift card purchase
@@ -69,9 +72,9 @@ export const purchaseController = async (
       throw ApiError.notFound('User not found');
     }
 
-    // Extract order data from request body (matching Reloadly's structure)
     const {
       productId,
+      sku,
       quantity,
       unitPrice,
       senderName,
@@ -80,40 +83,253 @@ export const purchaseController = async (
       recipientEmail,
       recipientPhoneDetails,
       productAdditionalRequirements,
+      provider,
     } = req.body as ReloadlyOrderRequest & {
+      sku?: string;
+      provider?: string;
       recipientPhoneDetails?: {
         countryCode?: string;
         phoneNumber?: string;
       };
     };
 
-    // Validate required fields
-    if (!productId || !quantity || !unitPrice || !senderName) {
+    const giftProvider = resolveGiftCardProvider(provider);
+
+    if (giftProvider === 'pagocard') {
+      const pagocardSku = resolvePagocardSku({ sku, productId: productId as string | number });
+      if (!pagocardSku || !quantity || !unitPrice || !senderName) {
+        throw ApiError.badRequest('Missing required fields: sku/productId, quantity, unitPrice, senderName');
+      }
+
+      const product = await pagocardGiftcardsService.getGiftcardBySku(pagocardSku);
+      const unitPriceNum = typeof unitPrice === 'number' ? unitPrice : parseFloat(String(unitPrice));
+      const quantityNum = typeof quantity === 'number' ? quantity : parseInt(String(quantity), 10);
+
+      if (Number.isNaN(unitPriceNum) || unitPriceNum <= 0) {
+        throw ApiError.badRequest('Invalid unitPrice');
+      }
+      if (Number.isNaN(quantityNum) || quantityNum < 1) {
+        throw ApiError.badRequest('Invalid quantity');
+      }
+
+      const fixedAmounts = product.fixedAmounts || [];
+      if (fixedAmounts.length > 0 && !fixedAmounts.includes(unitPriceNum)) {
+        throw ApiError.badRequest(
+          `Invalid unitPrice. For this product, unitPrice must be one of: ${fixedAmounts.join(', ')}`
+        );
+      }
+      if (product.minAmount != null && unitPriceNum < product.minAmount) {
+        throw ApiError.badRequest(`Invalid unitPrice. Minimum amount is ${product.minAmount}`);
+      }
+      if (product.maxAmount != null && unitPriceNum > product.maxAmount) {
+        throw ApiError.badRequest(`Invalid unitPrice. Maximum amount is ${product.maxAmount}`);
+      }
+
+      const availability = await pagocardGiftcardsService.checkSkuAvailability(
+        pagocardSku,
+        quantityNum,
+        unitPriceNum
+      );
+      if (!availability.available) {
+        throw ApiError.badRequest(availability.message || 'Selected gift card is not available');
+      }
+
+      const dbProduct = await upsertPagocardGiftcardProduct(product);
+      const orderCustomIdentifier = customIdentifier || `GC-${userId}-${Date.now()}`;
+      const emailToSend = recipientEmail || user.email;
+      const totalFaceValue = unitPriceNum * quantityNum;
+
+      const walletDebit = await debitWalletForGiftCardPurchase({
+        userId,
+        unitPrice: unitPriceNum,
+        quantity: quantityNum,
+        productCurrencyCode: product.currency || 'USD',
+        productName: product.title || product.name || `Gift Card ${pagocardSku}`,
+      });
+
+      let pagocardOrder;
+      try {
+        pagocardOrder = await pagocardGiftcardsService.purchaseGiftcard({
+          sku: pagocardSku,
+          quantity: quantityNum,
+          amount: unitPriceNum,
+        });
+      } catch (error: any) {
+        const msg = error?.message || 'Unknown error';
+        await refundGiftCardWalletDebit({
+          userId,
+          walletId: walletDebit.walletId,
+          amountNgn: walletDebit.amountNgn,
+          originalFiatTxId: walletDebit.fiatTransactionId,
+          errorMessage: msg,
+        }).catch((refundErr) =>
+          console.error('[GIFT CARD PURCHASE] Refund after Pagocard failure failed:', refundErr)
+        );
+        return next(ApiError.internal(`Failed to create order with Pagocard: ${msg}`));
+      }
+
+      let cardCode = pagocardOrder.cardCode || undefined;
+      let cardPin = pagocardOrder.cardPin || undefined;
+      let shareLink = pagocardOrder.shareLink || null;
+
+      if ((!cardCode || !shareLink) && pagocardOrder.referenceCode) {
+        try {
+          const orderDetails = await pagocardGiftcardsService.getGiftcardOrder(pagocardOrder.referenceCode);
+          cardCode = cardCode || orderDetails.cardCode || undefined;
+          cardPin = cardPin || orderDetails.cardPin || undefined;
+          shareLink = shareLink || orderDetails.shareLink || null;
+        } catch (detailsError) {
+          console.log('[GIFT CARD PURCHASE] Pagocard order details not ready yet');
+        }
+      }
+
+      const isSuccessful = ['success', 'successful', 'completed', 'delivered'].includes(
+        pagocardOrder.status.toLowerCase()
+      );
+
+      const order = await prisma.giftCardOrder.create({
+        data: {
+          userId,
+          productId: dbProduct.id,
+          quantity: quantityNum,
+          currencyCode: product.currency || 'USD',
+          faceValue: unitPriceNum,
+          totalAmount: totalFaceValue,
+          fees: 0,
+          exchangeRate: new Decimal(walletDebit.ngnPerUsd),
+          paymentMethod: 'wallet',
+          paymentStatus: isSuccessful ? 'completed' : 'pending',
+          paymentTransactionId: walletDebit.fiatTransactionId,
+          status: isSuccessful ? 'completed' : 'processing',
+          recipientEmail: emailToSend,
+          senderName,
+          countryCode: product.region || 'US',
+          cardType: 'E-Code',
+          reloadlyOrderId: pagocardOrder.referenceCode,
+          reloadlyTransactionId: pagocardOrder.referenceCode,
+          reloadlyStatus: pagocardOrder.status,
+          cardCode: cardCode || null,
+          cardPin: cardPin || null,
+          metadata: JSON.stringify({
+            provider: 'pagocard',
+            pagocard: pagocardOrder.raw,
+            shareLink,
+            billing: {
+              fiatTransactionId: walletDebit.fiatTransactionId,
+              chargedNgn: walletDebit.amountNgn,
+              usdNotional: walletDebit.usdNotional,
+              ngnPerUsd: walletDebit.ngnPerUsd,
+            },
+          }),
+          completedAt: isSuccessful ? new Date() : null,
+        },
+      });
+
+      if (emailToSend) {
+        try {
+          await sendGiftCardOrderEmail(emailToSend, {
+            transactionId: pagocardOrder.referenceCode as unknown as number,
+            productName: product.title || product.name || `Gift Card ${pagocardSku}`,
+            brandName: product.title || product.name,
+            countryCode: product.region,
+            quantity: quantityNum,
+            unitPrice: unitPriceNum,
+            currencyCode: product.currency || 'USD',
+            totalAmount: totalFaceValue,
+            fee: 0,
+            status: isSuccessful ? 'SUCCESSFUL' : pagocardOrder.status.toUpperCase(),
+            cardCode,
+            cardPin,
+            expiryDate: null,
+            redemptionInstructions: product.instructions || shareLink || undefined,
+            transactionCreatedTime: new Date().toISOString(),
+            senderName,
+          });
+        } catch (emailError) {
+          console.error('[GIFT CARD PURCHASE] Failed to send email:', emailError);
+        }
+      }
+
+      if (isSuccessful) {
+        creditReferralCommission(userId, ReferralService.GIFT_CARD_BUY, totalFaceValue)
+          .catch((err) => console.error('[GiftCardPurchase] Referral commission error:', err));
+      }
+
+      return new ApiResponse(200, {
+        transactionId: pagocardOrder.referenceCode,
+        amount: totalFaceValue,
+        discount: 0,
+        currencyCode: product.currency || 'USD',
+        fee: 0,
+        totalFee: 0,
+        recipientEmail: emailToSend,
+        customIdentifier: orderCustomIdentifier,
+        status: isSuccessful ? 'SUCCESSFUL' : pagocardOrder.status.toUpperCase(),
+        product: {
+          productId: pagocardSku,
+          productName: product.title || product.name || `Gift Card ${pagocardSku}`,
+          brand: product.title || product.name ? { brandName: product.title || product.name } : undefined,
+          countryCode: product.region || 'US',
+          quantity: quantityNum,
+          unitPrice: unitPriceNum,
+          currencyCode: product.currency || 'USD',
+        },
+        transactionCreatedTime: new Date().toISOString(),
+        preOrdered: false,
+        orderId: order.id,
+        provider: 'pagocard',
+        shareLink,
+        cardCode,
+        cardPin,
+        chargedNgn: walletDebit.amountNgn,
+        usdNotionalBilled: walletDebit.usdNotional,
+        ngnPerUsdApplied: walletDebit.ngnPerUsd,
+        fiatTransactionId: walletDebit.fiatTransactionId,
+      }, 'Gift card order created successfully').send(res);
+    }
+
+    // Reloadly flow
+    const reloadlyBody = req.body as ReloadlyOrderRequest & {
+      recipientPhoneDetails?: {
+        countryCode?: string;
+        phoneNumber?: string;
+      };
+    };
+
+    if (!reloadlyBody.productId || !reloadlyBody.quantity || !reloadlyBody.unitPrice || !reloadlyBody.senderName) {
       throw ApiError.badRequest('Missing required fields: productId, quantity, unitPrice, senderName');
     }
 
-    // Fetch product details from Reloadly API only (not database)
+    const {
+      productId: reloadlyProductId,
+      quantity: reloadlyQuantity,
+      unitPrice: reloadlyUnitPrice,
+      senderName: reloadlySenderName,
+      customIdentifier: reloadlyCustomIdentifier,
+      preOrder: reloadlyPreOrder = false,
+      recipientEmail: reloadlyRecipientEmail,
+      recipientPhoneDetails: reloadlyRecipientPhoneDetails,
+      productAdditionalRequirements: reloadlyProductAdditionalRequirements,
+    } = reloadlyBody;
+
     let product;
     try {
-      product = await reloadlyProductsService.getProductById(productId);
+      product = await reloadlyProductsService.getProductById(Number(reloadlyProductId));
     } catch (error) {
-      throw ApiError.notFound(`Product ${productId} not found in Reloadly`);
+      throw ApiError.notFound(`Product ${reloadlyProductId} not found in Reloadly`);
     }
 
-    // Validate unitPrice against product's denomination requirements
     if (product.denominationType === 'FIXED') {
-      // For FIXED denomination, unitPrice must be in fixedRecipientDenominations
       const fixedDenominations = product.fixedRecipientDenominations || [];
-      if (!fixedDenominations.includes(unitPrice)) {
+      if (!fixedDenominations.includes(reloadlyUnitPrice)) {
         throw ApiError.badRequest(
           `Invalid unitPrice. For this product, unitPrice must be one of: ${fixedDenominations.join(', ')}`
         );
       }
     } else if (product.denominationType === 'RANGE') {
-      // For RANGE denomination, unitPrice must be within min/max
       const minPrice = product.minRecipientDenomination || 0;
       const maxPrice = product.maxRecipientDenomination || Infinity;
-      if (unitPrice < minPrice || unitPrice > maxPrice) {
+      if (reloadlyUnitPrice < minPrice || reloadlyUnitPrice > maxPrice) {
         throw ApiError.badRequest(
           `Invalid unitPrice. For this product, unitPrice must be between ${minPrice} and ${maxPrice}`
         );
@@ -137,8 +353,8 @@ export const purchaseController = async (
       }
     }
     
-    const unitPriceNum = typeof unitPrice === 'number' ? unitPrice : parseFloat(String(unitPrice));
-    const quantityNum = typeof quantity === 'number' ? quantity : parseInt(String(quantity), 10);
+    const unitPriceNum = typeof reloadlyUnitPrice === 'number' ? reloadlyUnitPrice : parseFloat(String(reloadlyUnitPrice));
+    const quantityNum = typeof reloadlyQuantity === 'number' ? reloadlyQuantity : parseInt(String(reloadlyQuantity), 10);
 
     const dbProduct = await prisma.giftCardProduct.upsert({
       where: { reloadlyProductId: product.productId },
@@ -186,32 +402,24 @@ export const purchaseController = async (
     });
 
     // Generate custom identifier if not provided
-    const orderCustomIdentifier = customIdentifier || `GC-${userId}-${Date.now()}`;
+    const orderCustomIdentifier = reloadlyCustomIdentifier || `GC-${userId}-${Date.now()}`;
+    const emailToSendToReloadly = reloadlyRecipientEmail || user.email;
 
-    // Always send user's email to Reloadly (use recipientEmail if provided, otherwise use user's email)
-    const emailToSendToReloadly = recipientEmail || user.email;
-
-    // Prepare Reloadly order request (following Reloadly API architecture)
-    // Only include optional fields if they have values (to match API requirements)
     const reloadlyOrderRequest: ReloadlyOrderRequest = {
-      productId,
-      quantity,
-      unitPrice,
-      senderName,
+      productId: Number(reloadlyProductId),
+      quantity: reloadlyQuantity,
+      unitPrice: reloadlyUnitPrice,
+      senderName: reloadlySenderName,
       customIdentifier: orderCustomIdentifier,
-      // Always include recipientEmail (user's email or provided recipientEmail)
       recipientEmail: emailToSendToReloadly,
-      // Only include preOrder if it's true (API defaults to false if omitted)
-      ...(preOrder === true && { preOrder: true }),
-      // Only include recipientPhoneDetails if provided
-      ...(recipientPhoneDetails?.countryCode && recipientPhoneDetails?.phoneNumber && {
+      ...(reloadlyPreOrder === true && { preOrder: true }),
+      ...(reloadlyRecipientPhoneDetails?.countryCode && reloadlyRecipientPhoneDetails?.phoneNumber && {
         recipientPhoneDetails: {
-          countryCode: recipientPhoneDetails.countryCode,
-          phoneNumber: recipientPhoneDetails.phoneNumber,
+          countryCode: reloadlyRecipientPhoneDetails.countryCode,
+          phoneNumber: reloadlyRecipientPhoneDetails.phoneNumber,
         },
       }),
-      // Only include productAdditionalRequirements if provided
-      ...(productAdditionalRequirements && { productAdditionalRequirements }),
+      ...(reloadlyProductAdditionalRequirements && { productAdditionalRequirements: reloadlyProductAdditionalRequirements }),
     };
 
     // Log the complete request object before sending to Reloadly
@@ -339,7 +547,7 @@ export const purchaseController = async (
           expiryDate: expiryDate,
           redemptionInstructions: redemptionInstructions,
           transactionCreatedTime: reloadlyOrder.transactionCreatedTime,
-          senderName: senderName,
+          senderName: reloadlySenderName,
         });
         console.log(`[GIFT CARD PURCHASE] Email sent to ${emailToSendToReloadly} for order #${reloadlyOrder.transactionId}`);
       } catch (emailError) {

@@ -64,11 +64,25 @@ const pinValidation = [
 // Gift Card Validations
 // ============================================
 
-// Gift card purchase validation - matches Reloadly's official order API structure
+// Gift card purchase validation - supports Reloadly productId or Pagocard sku
 const giftCardPurchaseValidation = [
   body('productId')
-    .isInt({ min: 1 })
-    .withMessage('Valid product ID is required'),
+    .optional({ values: 'falsy' })
+    .custom((value, { req }) => {
+      const sku = req.body?.sku;
+      if (sku && String(sku).trim()) return true;
+      if (value == null || value === '') {
+        throw new Error('Valid product ID or SKU is required');
+      }
+      const asString = String(value).trim();
+      if (!asString) throw new Error('Valid product ID or SKU is required');
+      return true;
+    }),
+
+  body('sku')
+    .optional({ values: 'falsy' })
+    .isString()
+    .withMessage('SKU must be a string if provided'),
   
   body('quantity')
     .isInt({ min: 1 })

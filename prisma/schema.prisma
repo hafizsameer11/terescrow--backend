@@ -76,6 +76,8 @@ model User {
   onChainSurplusTransfersAdmin     OnChainSurplusTransfer[]    @relation("AdminOnChainSurplusTransfers")
   onChainSurplusTransfersCustomer  OnChainSurplusTransfer[]    @relation("CustomerOnChainSurplusTransfers")
   merchantTopupLogs                MerchantTopupLog[]
+  bushaCustomersCreated            BushaCustomer[]
+  bushaTradesInitiated             BushaTradeLog[]
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
@@ -782,6 +784,82 @@ model MerchantTopupLog {
   @@index([status])
   @@index([createdAt])
   @@map("merchant_topup_logs")
+}
+
+/// Admin Busha integration settings (singleton).
+model BushaConfig {
+  id                    Int      @id @default(1)
+  payoutBankCode        String?  @map("payout_bank_code") @db.VarChar(20)
+  payoutBankName        String?  @map("payout_bank_name") @db.VarChar(120)
+  payoutAccountNumber   String?  @map("payout_account_number") @db.VarChar(30)
+  payoutAccountName     String?  @map("payout_account_name") @db.VarChar(120)
+  payoutRecipientId     String?  @map("payout_recipient_id") @db.VarChar(64)
+  isActive              Boolean  @default(true) @map("is_active")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("busha_config")
+}
+
+/// Busha customer profiles created from admin for testing.
+model BushaCustomer {
+  id              String          @id @default(uuid())
+  bushaProfileId  String          @unique @map("busha_profile_id") @db.VarChar(64)
+  email           String          @db.VarChar(120)
+  firstName       String          @map("first_name") @db.VarChar(80)
+  lastName        String          @map("last_name") @db.VarChar(80)
+  phone           String          @db.VarChar(30)
+  countryId       String          @default("NG") @map("country_id") @db.VarChar(5)
+  status          String          @default("inactive") @db.VarChar(30)
+  createdById     Int             @map("created_by_id")
+  providerData    Json?           @map("provider_data")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+  createdBy       User            @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  trades          BushaTradeLog[]
+
+  @@index([email])
+  @@index([status])
+  @@map("busha_customers")
+}
+
+/// Admin Busha buy/sell test trades (PalmPay + Busha orchestration).
+model BushaTradeLog {
+  id                 String         @id @default(uuid())
+  customerId         String         @map("customer_id")
+  side               String         @db.VarChar(10)
+  sourceCurrency     String         @map("source_currency") @db.VarChar(10)
+  targetCurrency     String         @map("target_currency") @db.VarChar(10)
+  sourceAmount       String         @map("source_amount") @db.VarChar(40)
+  targetAmount       String?        @map("target_amount") @db.VarChar(40)
+  bushaQuoteId       String?        @map("busha_quote_id") @db.VarChar(64)
+  bushaTransferId    String?        @map("busha_transfer_id") @db.VarChar(64)
+  bushaStatus        String?        @map("busha_status") @db.VarChar(40)
+  palmpayOrderId     String?        @map("palmpay_order_id") @db.VarChar(64)
+  palmpayOrderNo     String?        @map("palmpay_order_no") @db.VarChar(64)
+  palmpayStatus      String?        @map("palmpay_status") @db.VarChar(20)
+  payInBankCode      String?        @map("pay_in_bank_code") @db.VarChar(20)
+  payInBankName      String?        @map("pay_in_bank_name") @db.VarChar(120)
+  payInAccountNumber String?        @map("pay_in_account_number") @db.VarChar(30)
+  payInAccountName   String?        @map("pay_in_account_name") @db.VarChar(120)
+  payInExpiresAt     DateTime?      @map("pay_in_expires_at")
+  cryptoDepositAddress String?      @map("crypto_deposit_address") @db.VarChar(120)
+  cryptoDepositNetwork String?      @map("crypto_deposit_network") @db.VarChar(20)
+  status             String         @default("pending") @db.VarChar(30)
+  errorMessage       String?        @map("error_message") @db.Text
+  providerResponse   Json?          @map("provider_response")
+  initiatedById      Int            @map("initiated_by_id")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+  completedAt        DateTime?      @map("completed_at")
+  customer           BushaCustomer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  initiatedBy        User           @relation(fields: [initiatedById], references: [id], onDelete: Restrict)
+
+  @@index([side])
+  @@index([status])
+  @@index([createdAt])
+  @@index([customerId])
+  @@map("busha_trade_logs")
 }
 
 model PalmPayUserVirtualAccount {

@@ -15,6 +15,9 @@ import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { reloadlyProductsService } from '../../services/reloadly/reloadly.products.service';
 import { reloadlyCountriesService } from '../../services/reloadly/reloadly.countries.service';
+import { resolveGiftCardProvider } from '../../services/giftcard/giftcard.provider';
+import { pagocardGiftcardsService } from '../../services/pagocard/pagocard.giftcards.service';
+import { mapPagocardGiftcardToApiProduct } from '../../services/pagocard/pagocard.giftcards.mapper';
 
 /**
  * Get all gift card products
@@ -25,7 +28,38 @@ export const getProductsController = async (
   next: NextFunction
 ) => {
   try {
-    const { countryCode, category, search, page = '1', limit = '50' } = req.query;
+    const { countryCode, category, search, page = '1', limit = '50', provider } = req.query;
+    const giftProvider = resolveGiftCardProvider(typeof provider === 'string' ? provider : undefined);
+
+    if (giftProvider === 'pagocard') {
+      const pageNum = parseInt(page as string, 10);
+      const limitNum = parseInt(limit as string, 10);
+      const pagocardResult = await pagocardGiftcardsService.getGiftcards({
+        page: pageNum,
+        limit: limitNum,
+        search: search as string | undefined,
+        country: countryCode as string | undefined,
+      });
+
+      let formattedProducts = pagocardResult.items.map(mapPagocardGiftcardToApiProduct);
+      if (category) {
+        formattedProducts = formattedProducts.filter(
+          (product) => product.category?.name?.toLowerCase() === (category as string).toLowerCase()
+        );
+      }
+
+      return new ApiResponse(200, {
+        provider: giftProvider,
+        products: formattedProducts,
+        pagination: {
+          page: pagocardResult.page,
+          limit: limitNum,
+          total: pagocardResult.total,
+          totalPages: pagocardResult.totalPages,
+          returned: formattedProducts.length,
+        },
+      }, 'Products retrieved successfully').send(res);
+    }
 
     const pageNum = parseInt(page as string, 10);
     const limitNum = parseInt(limit as string, 10);
@@ -200,6 +234,14 @@ export const getProductByIdController = async (
 ) => {
   try {
     const { productId } = req.params;
+    const { provider } = req.query;
+    const giftProvider = resolveGiftCardProvider(typeof provider === 'string' ? provider : undefined);
+
+    if (giftProvider === 'pagocard') {
+      const card = await pagocardGiftcardsService.getGiftcardBySku(String(productId));
+      const formattedProduct = mapPagocardGiftcardToApiProduct(card);
+      return new ApiResponse(200, formattedProduct, 'Product retrieved successfully').send(res);
+    }
 
     // Always fetch from Reloadly to get complete and up-to-date product data
     try {
@@ -405,6 +447,30 @@ export const getCountriesController = async (
   next: NextFunction
 ) => {
   try {
+    const { provider } = req.query;
+    const giftProvider = resolveGiftCardProvider(typeof provider === 'string' ? provider : undefined);
+
+    if (giftProvider === 'pagocard') {
+      const pagocardResult = await pagocardGiftcardsService.getGiftcards({ page: 1, limit: 200 });
+      const countries = new Map<string, { isoName: string; name: string; currencyCode: string; currencyName: string; flag: string | null }>();
+      for (const item of pagocardResult.items) {
+        const code = item.region || item.country || 'US';
+        if (!countries.has(code)) {
+          countries.set(code, {
+            isoName: code,
+            name: item.country || code,
+            currencyCode: item.currency || 'USD',
+            currencyName: item.currency || 'USD',
+            flag: null,
+          });
+        }
+      }
+      return new ApiResponse(200, {
+        countries: Array.from(countries.values()),
+        total: countries.size,
+      }, 'Countries retrieved successfully').send(res);
+    }
+
     const countriesResponse = await reloadlyCountriesService.getCountries();
 
     // Service always returns ReloadlyCountriesResponse with content property
@@ -469,6 +535,25 @@ export const getCategoriesController = async (
   next: NextFunction
 ) => {
   try {
+    const { provider } = req.query;
+    const giftProvider = resolveGiftCardProvider(typeof provider === 'string' ? provider : undefined);
+
+    if (giftProvider === 'pagocard') {
+      const pagocardResult = await pagocardGiftcardsService.getGiftcards({ page: 1, limit: 200 });
+      const categories = new Map<string, { id: string; name: string; value: string }>();
+      for (const item of pagocardResult.items) {
+        const name = item.category || 'Gift Card';
+        if (!categories.has(name)) {
+          categories.set(name, { id: name, name, value: name });
+        }
+      }
+      const formattedCategories = Array.from(categories.values());
+      return new ApiResponse(200, {
+        categories: formattedCategories,
+        total: formattedCategories.length,
+      }, 'Categories retrieved successfully').send(res);
+    }
+
     const categories = await reloadlyCountriesService.getCategories();
 
     // Format response to match expected structure

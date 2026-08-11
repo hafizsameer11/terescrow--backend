@@ -83,6 +83,7 @@ import depositVerificationRouter from './routes/admin/deposit.verification.route
 import scamContractRouter from './routes/admin/scam.contract.router';
 import platformSettingsRouter from './routes/admin/platform.settings.router';
 import merchantsRouter from './routes/admin/merchants.router';
+import bushaRouter from './routes/admin/busha.router';
 
 // ============================================
 // V1 API Routes (Legacy - if any)
@@ -275,6 +276,7 @@ app.use('/api/admin/vendors', vendorsRouter);
 app.use('/api/admin/daily-report', dailyReportRouter);
 app.use('/api/admin/platform-settings', platformSettingsRouter);
 app.use('/api/admin/merchants', merchantsRouter);
+app.use('/api/admin/busha', bushaRouter);
 app.use('/api/admin/transaction-tracking', transactionTrackingRouter);
 app.use('/api/admin/changenow', changenowAdminRouter);
 app.use('/api/admin/referrals', referralsAdminRouter);

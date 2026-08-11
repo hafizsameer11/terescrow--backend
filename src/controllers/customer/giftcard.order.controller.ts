@@ -13,6 +13,7 @@ import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { reloadlyOrdersService } from '../../services/reloadly/reloadly.orders.service';
 import { sendGiftCardOrderEmail } from '../../utils/authUtils';
+import { pagocardGiftcardsService } from '../../services/pagocard/pagocard.giftcards.service';
 
 /**
  * Get user's gift card orders
@@ -214,8 +215,70 @@ export const getCardDetailsController = async (
       throw ApiError.notFound('Order not found');
     }
 
-    // If order is still processing, try to fetch card code from Reloadly
-    if (order.status === 'processing' && order.reloadlyTransactionId) {
+    // If order is still processing, try to fetch card code from provider
+    if ((order.status === 'processing' || order.status === 'pending') && order.reloadlyTransactionId) {
+      const metadata = order.metadata ? JSON.parse(order.metadata) : {};
+      const provider = metadata.provider || 'reloadly';
+
+      if (provider === 'pagocard') {
+        try {
+          const pagocardOrder = await pagocardGiftcardsService.getGiftcardOrder(order.reloadlyTransactionId);
+          const hadCardCode = !!order.cardCode;
+          const cardCode = pagocardOrder.cardCode || order.cardCode;
+          const cardPin = pagocardOrder.cardPin || order.cardPin;
+
+          if (cardCode || pagocardOrder.shareLink) {
+            await prisma.giftCardOrder.update({
+              where: { id: order.id },
+              data: {
+                cardCode: cardCode || order.cardCode,
+                cardPin: cardPin || order.cardPin,
+                status: 'completed',
+                completedAt: new Date(),
+                metadata: JSON.stringify({
+                  ...metadata,
+                  shareLink: pagocardOrder.shareLink || metadata.shareLink || null,
+                  pagocard: pagocardOrder.raw,
+                }),
+              },
+            });
+
+            const updatedOrder = await prisma.giftCardOrder.findUnique({
+              where: { id: order.id },
+              include: {
+                product: {
+                  select: {
+                    productName: true,
+                    brandName: true,
+                    reloadlyImageUrl: true,
+                    imageUrl: true,
+                    redemptionInstructions: true,
+                  },
+                },
+              },
+            });
+
+            if (updatedOrder) {
+              return new ApiResponse(200, {
+                orderId: updatedOrder.id,
+                status: updatedOrder.status,
+                productName: updatedOrder.product.productName,
+                brandName: updatedOrder.product.brandName,
+                faceValue: Number(updatedOrder.faceValue),
+                currencyCode: updatedOrder.currencyCode,
+                cardCode: updatedOrder.cardCode,
+                cardPin: updatedOrder.cardPin,
+                expiryDate: updatedOrder.expiryDate,
+                redemptionInstructions: updatedOrder.product.redemptionInstructions || pagocardOrder.shareLink,
+                cardImageUrl: updatedOrder.product.reloadlyImageUrl || updatedOrder.product.imageUrl,
+                shareLink: pagocardOrder.shareLink || metadata.shareLink || null,
+              }, 'Card details retrieved successfully').send(res);
+            }
+          }
+        } catch (error) {
+          console.log('Pagocard card details not available yet');
+        }
+      } else {
       try {
         const cardCodes = await reloadlyOrdersService.getCardCodes(
           parseInt(order.reloadlyTransactionId, 10)
@@ -311,6 +374,7 @@ export const getCardDetailsController = async (
       } catch (error) {
         // Card code not available yet
         console.log('Card code not available yet');
+      }
       }
     }
 
