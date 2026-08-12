@@ -6,7 +6,9 @@ import {
   putBushaSettingsController,
   syncBushaRecipientController,
   listBushaCustomersController,
+  getBushaCustomerController,
   createBushaCustomerController,
+  submitBushaCustomerKycController,
   verifyBushaCustomerController,
   refreshBushaCustomerController,
   previewBushaQuoteController,
@@ -26,6 +28,9 @@ router.post('/recipients/sync', ...adminOnly, syncBushaRecipientController);
 
 router.get('/customers', ...adminOnly, listBushaCustomersController);
 router.post('/customers', ...adminOnly, createBushaCustomerController);
+router.get('/customers/:id', ...adminOnly, getBushaCustomerController);
+router.put('/customers/:id/kyc', ...adminOnly, submitBushaCustomerKycController);
+router.post('/customers/:id/kyc', ...adminOnly, submitBushaCustomerKycController);
 router.post('/customers/:id/verify', ...adminOnly, verifyBushaCustomerController);
 router.post('/customers/:id/refresh', ...adminOnly, refreshBushaCustomerController);
 

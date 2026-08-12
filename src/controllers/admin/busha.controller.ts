@@ -6,7 +6,9 @@ import {
   upsertBushaSettings,
   syncBushaPayoutRecipient,
   listBushaCustomers,
+  getBushaCustomer,
   createBushaCustomer,
+  submitBushaCustomerKyc,
   verifyBushaCustomer,
   refreshBushaCustomer,
   previewBushaQuote,
@@ -79,9 +81,57 @@ export async function createBushaCustomerController(req: Request, res: Response,
   }
 }
 
+export async function getBushaCustomerController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await getBushaCustomer(req.params.id);
+    return new ApiResponse(200, data, 'Busha customer fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to fetch Busha customer'));
+  }
+}
+
+function parseKycBody(body: Record<string, unknown> | undefined) {
+  if (!body) return undefined;
+  const { documentType, documentNumber, selfieBase64, documentImageBase64, birthDate } = body;
+  if (!documentType && !documentNumber && !selfieBase64) return undefined;
+  return {
+    documentType: documentType as 'national-id' | 'passport' | 'drivers-license',
+    documentNumber: String(documentNumber || ''),
+    selfieBase64: String(selfieBase64 || ''),
+    documentImageBase64: documentImageBase64 ? String(documentImageBase64) : undefined,
+    birthDate: birthDate ? String(birthDate) : undefined,
+  };
+}
+
+export async function submitBushaCustomerKycController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { documentType, documentNumber, selfieBase64, documentImageBase64, birthDate } = req.body ?? {};
+    if (!documentType || !documentNumber || !selfieBase64) {
+      throw ApiError.badRequest('documentType, documentNumber, and selfieBase64 are required');
+    }
+    const data = await submitBushaCustomerKyc(req.params.id, {
+      documentType,
+      documentNumber: String(documentNumber),
+      selfieBase64: String(selfieBase64),
+      documentImageBase64: documentImageBase64 ? String(documentImageBase64) : undefined,
+      birthDate: birthDate ? String(birthDate) : undefined,
+    });
+    return new ApiResponse(200, data, 'Busha customer KYC submitted').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to submit Busha customer KYC'));
+  }
+}
+
 export async function verifyBushaCustomerController(req: Request, res: Response, next: NextFunction) {
   try {
-    const data = await verifyBushaCustomer(req.params.id);
+    const kyc = parseKycBody(req.body);
+    const data = await verifyBushaCustomer(req.params.id, kyc);
     return new ApiResponse(200, data, 'Busha customer verification submitted').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);

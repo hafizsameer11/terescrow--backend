@@ -216,10 +216,135 @@ export async function createBushaCustomer(params: {
   });
 }
 
-export async function verifyBushaCustomer(customerId: string) {
+export type BushaCustomerKycInput = {
+  documentType: 'national-id' | 'passport' | 'drivers-license';
+  documentNumber: string;
+  selfieBase64: string;
+  documentImageBase64?: string;
+  birthDate?: string;
+};
+
+function stripBase64DataUrl(value: string): string {
+  const trimmed = value.trim();
+  const comma = trimmed.indexOf(',');
+  if (trimmed.startsWith('data:') && comma !== -1) {
+    return trimmed.slice(comma + 1);
+  }
+  return trimmed;
+}
+
+function buildIdentifyingInformation(input: BushaCustomerKycInput) {
+  const country = 'NG';
+  const selfie = stripBase64DataUrl(input.selfieBase64);
+  const docImage = input.documentImageBase64 ? stripBase64DataUrl(input.documentImageBase64) : undefined;
+  const docs: Array<{
+    type: string;
+    number?: string;
+    country?: string;
+    image_front?: string;
+  }> = [
+    {
+      type: input.documentType,
+      number: input.documentNumber.trim(),
+      country,
+      ...(docImage ? { image_front: docImage } : {}),
+    },
+    {
+      type: 'selfie',
+      image_front: selfie,
+      number: '',
+      country,
+    },
+  ];
+  return docs;
+}
+
+export async function getBushaCustomer(customerId: string) {
+  assertBushaConfigured();
+  const customer = await bushaCustomerModel.findUnique({
+    where: { id: customerId },
+    include: {
+      createdBy: { select: { id: true, firstname: true, lastname: true, email: true } },
+      _count: { select: { trades: true } },
+    },
+  });
+  if (!customer) throw ApiError.notFound('Busha customer not found');
+
+  const remote = await bushaClient.getCustomer(customer.bushaProfileId);
+  const updated = await bushaCustomerModel.update({
+    where: { id: customerId },
+    data: {
+      status: remote.status || customer.status,
+      providerData: remote as any,
+    },
+    include: {
+      createdBy: { select: { id: true, firstname: true, lastname: true, email: true } },
+      _count: { select: { trades: true } },
+    },
+  });
+
+  return {
+    ...updated,
+    bushaRemote: remote,
+  };
+}
+
+export async function submitBushaCustomerKyc(customerId: string, kyc: BushaCustomerKycInput) {
   assertBushaConfigured();
   const customer = await bushaCustomerModel.findUnique({ where: { id: customerId } });
   if (!customer) throw ApiError.notFound('Busha customer not found');
+
+  if (!kyc.documentNumber?.trim() || !kyc.selfieBase64?.trim()) {
+    throw ApiError.badRequest('documentNumber and selfieBase64 are required');
+  }
+
+  if (
+    (kyc.documentType === 'passport' || kyc.documentType === 'drivers-license') &&
+    !kyc.documentImageBase64?.trim()
+  ) {
+    throw ApiError.badRequest('documentImageBase64 is required for passport and drivers-license');
+  }
+
+  const providerData = (customer.providerData as Record<string, unknown>) || {};
+  const address = (providerData.address as Record<string, string>) || {
+    city: 'Lagos',
+    state: 'Lagos',
+    country_id: customer.countryId || 'NG',
+    address_line_1: '10 Allen Avenue',
+    postal_code: '100001',
+  };
+
+  const updated = await bushaClient.updateCustomer(customer.bushaProfileId, {
+    email: customer.email,
+    first_name: customer.firstName,
+    last_name: customer.lastName,
+    phone: customer.phone,
+    country_id: customer.countryId || 'NG',
+    birth_date: kyc.birthDate || (providerData.birth_date as string) || '15-06-1990',
+    address,
+    identifying_information: buildIdentifyingInformation(kyc),
+  });
+
+  return bushaCustomerModel.update({
+    where: { id: customerId },
+    data: {
+      status: updated.status || customer.status,
+      providerData: updated as any,
+    },
+    include: {
+      createdBy: { select: { id: true, firstname: true, lastname: true, email: true } },
+    },
+  });
+}
+
+export async function verifyBushaCustomer(customerId: string, kyc?: BushaCustomerKycInput) {
+  assertBushaConfigured();
+  const customer = await bushaCustomerModel.findUnique({ where: { id: customerId } });
+  if (!customer) throw ApiError.notFound('Busha customer not found');
+
+  if (kyc) {
+    await submitBushaCustomerKyc(customerId, kyc);
+  }
 
   await bushaClient.verifyCustomer(customer.bushaProfileId);
   const remote = await bushaClient.getCustomer(customer.bushaProfileId);
@@ -229,6 +354,9 @@ export async function verifyBushaCustomer(customerId: string) {
     data: {
       status: remote.status || customer.status,
       providerData: remote as any,
+    },
+    include: {
+      createdBy: { select: { id: true, firstname: true, lastname: true, email: true } },
     },
   });
 }

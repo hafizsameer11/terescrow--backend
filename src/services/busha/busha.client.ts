@@ -75,6 +75,13 @@ export type BushaRecipient = {
   country?: string;
 };
 
+export type BushaIdentifyingDocument = {
+  type: 'national-id' | 'passport' | 'drivers-license' | 'selfie';
+  number?: string;
+  country?: string;
+  image_front?: string;
+};
+
 export type CreateBushaCustomerInput = {
   email: string;
   first_name: string;
@@ -90,6 +97,11 @@ export type CreateBushaCustomerInput = {
     address_line_1: string;
     postal_code: string;
   };
+  identifying_information?: BushaIdentifyingDocument[];
+};
+
+export type UpdateBushaCustomerInput = CreateBushaCustomerInput & {
+  type?: 'individual';
 };
 
 export type CreateBushaQuoteInput = {
@@ -144,8 +156,13 @@ class BushaClient {
       return response.data.data;
     } catch (error) {
       if (error instanceof AxiosError && error.response?.data) {
-        const data = error.response.data as { message?: string; error?: string };
-        throw new Error(data.message || data.error || error.message);
+        const data = error.response.data as {
+          message?: string;
+          error?: string | { name?: string; message?: string };
+        };
+        const nested =
+          typeof data.error === 'object' && data.error?.message ? data.error.message : null;
+        throw new Error(nested || data.message || (typeof data.error === 'string' ? data.error : null) || error.message);
       }
       throw error;
     }
@@ -173,6 +190,14 @@ class BushaClient {
 
   getCustomer(customerId: string): Promise<BushaCustomer> {
     return this.request<BushaCustomer>('GET', `/v1/customers/${customerId}`);
+  }
+
+  updateCustomer(bushaProfileId: string, input: UpdateBushaCustomerInput): Promise<BushaCustomer> {
+    return this.request<BushaCustomer>('PUT', `/v1/customers/${bushaProfileId}`, {
+      ...input,
+      type: input.type || 'individual',
+      has_accepted_terms: input.has_accepted_terms ?? true,
+    });
   }
 
   verifyCustomer(customerId: string): Promise<{ message?: string }> {
