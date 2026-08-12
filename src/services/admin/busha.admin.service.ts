@@ -3,7 +3,8 @@ import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import { bushaConfig } from '../busha/busha.config';
 import { bushaClient, type BushaIdentifyingDocument } from '../busha/busha.client';
-import { resolvePalmpayBankCode } from '../busha/busha.bank.mapper';
+import { resolvePalmpayBankCode, resolveBushaBankCodeFromPalmpay } from '../busha/busha.bank.mapper';
+import { createPalmpayVirtualBankAccount } from '../palmpay/palmpay.virtual.account.service';
 import {
   BUSHA_CRYPTO_CURRENCIES,
   BUSHA_FIAT_CURRENCIES,
@@ -383,6 +384,10 @@ export async function previewBushaQuote(params: {
   amountField?: 'source' | 'target';
   fundingMethod?: 'temporary_bank_account' | 'balance' | 'address';
   network?: string;
+  /** Force NGN/crypto proceeds to stay on Busha balance (ignores dashboard payout bank). */
+  payoutToBalance?: boolean;
+  /** Use a specific Busha recipient for sell pay_out (e.g. PalmPay temp account). */
+  payoutRecipientId?: string;
 }) {
   assertBushaConfigured();
   const customer = await bushaCustomerModel.findUnique({ where: { id: params.customerId } });
@@ -421,7 +426,14 @@ export async function previewBushaQuote(params: {
     }
 
     const settings = await getBushaConfigRow();
-    if (settings?.payoutRecipientId) {
+    if (params.payoutToBalance) {
+      quoteInput.pay_out = { type: 'balance' };
+    } else if (params.payoutRecipientId?.trim()) {
+      quoteInput.pay_out = {
+        type: 'bank_transfer',
+        recipient_id: params.payoutRecipientId.trim(),
+      };
+    } else if (settings?.payoutRecipientId) {
       quoteInput.pay_out = {
         type: 'bank_transfer',
         recipient_id: settings.payoutRecipientId,
@@ -568,6 +580,110 @@ export async function executeBushaBuy(params: {
   }
 }
 
+export async function prepareBushaSellPalmpayPayout(params: {
+  adminUserId: number;
+  customerId: string;
+  sourceCurrency: string;
+  targetCurrency: string;
+  sourceAmount: string;
+  fundingMethod?: 'balance' | 'address';
+  network?: string;
+}) {
+  assertBushaConfigured();
+  if (!palmpayConfig.getMerchantId() || !palmpayConfig.getAppId()) {
+    throw ApiError.badRequest('PalmPay merchant is not configured on the server.');
+  }
+
+  const customer = await getCustomerOrThrow(params.customerId);
+  const targetCurrency = params.targetCurrency.toUpperCase();
+  if (targetCurrency !== 'NGN') {
+    throw ApiError.badRequest('PalmPay temp payout is only supported for NGN sells.');
+  }
+
+  const estimate = await previewBushaQuote({
+    customerId: params.customerId,
+    side: 'sell',
+    sourceCurrency: params.sourceCurrency,
+    targetCurrency: params.targetCurrency,
+    amount: params.sourceAmount,
+    fundingMethod: params.fundingMethod,
+    network: params.network,
+    payoutToBalance: true,
+  });
+
+  const targetNgn = parseFloat(String(estimate.quote.target_amount || '0'));
+  if (!Number.isFinite(targetNgn) || targetNgn < 100) {
+    throw ApiError.badRequest(
+      `Estimated NGN payout (${estimate.quote.target_amount}) is below PalmPay minimum of 100 NGN.`
+    );
+  }
+
+  const palmpay = await createPalmpayVirtualBankAccount({
+    amountNgn: Math.ceil(targetNgn),
+    title: 'Busha sell payout',
+    description: `Sell ${params.sourceAmount} ${params.sourceCurrency.toUpperCase()} payout`,
+    remark: `Busha sell ${customer.bushaProfileId} admin ${params.adminUserId}`,
+    userId: params.adminUserId,
+    orderIdPrefix: 'busha_sell_',
+  }).catch((error: any) => {
+    throw ApiError.badRequest(error?.message || 'Failed to create PalmPay virtual account');
+  });
+
+  const bank = await resolveBushaBankCodeFromPalmpay({
+    bankName: palmpay.bankName,
+    bankCode: palmpay.payerAccountId,
+  }).catch((error: any) => {
+    throw ApiError.badRequest(error?.message || 'Failed to map PalmPay bank to Busha');
+  });
+
+  const recipient = await bushaClient.createRecipient(
+    {
+      currency: 'NGN',
+      country_code: 'NG',
+      type: 'ngn_bank',
+      bank_name: bank.bankName,
+      bank_code: bank.bankCode,
+      account_number: palmpay.accountNumber,
+      account_name: palmpay.accountName,
+    },
+    customer.bushaProfileId
+  );
+
+  const payoutQuote = await previewBushaQuote({
+    customerId: params.customerId,
+    side: 'sell',
+    sourceCurrency: params.sourceCurrency,
+    targetCurrency: params.targetCurrency,
+    amount: params.sourceAmount,
+    fundingMethod: params.fundingMethod,
+    network: params.network,
+    payoutRecipientId: recipient.id,
+  });
+
+  return {
+    customer: {
+      id: customer.id,
+      bushaProfileId: customer.bushaProfileId,
+      email: customer.email,
+    },
+    estimateQuote: estimate.quote,
+    payoutQuote: payoutQuote.quote,
+    palmpay: {
+      merchantOrderId: palmpay.merchantOrderId,
+      orderNo: palmpay.orderNo,
+      orderStatus: palmpay.orderStatus,
+      amountNgn: palmpay.amountNgn,
+      virtualAccount: {
+        bankName: palmpay.bankName,
+        accountName: palmpay.accountName,
+        accountNumber: palmpay.accountNumber,
+      },
+      bankMapping: bank,
+    },
+    bushaRecipient: recipient,
+  };
+}
+
 export async function executeBushaSell(params: {
   adminUserId: number;
   customerId: string;
@@ -576,6 +692,10 @@ export async function executeBushaSell(params: {
   sourceAmount: string;
   fundingMethod?: 'balance' | 'address';
   network?: string;
+  /** Override dashboard payout recipient — e.g. PalmPay temp account mapped in Busha. */
+  payoutRecipientId?: string;
+  palmpayPayoutOrderId?: string;
+  palmpayPayoutOrderNo?: string;
 }) {
   assertBushaConfigured();
   const customer = await getCustomerOrThrow(params.customerId);
@@ -603,7 +723,12 @@ export async function executeBushaSell(params: {
     quoteInput.pay_in = { type: 'balance' };
   }
 
-  if (settings?.payoutRecipientId && targetCurrency === 'NGN') {
+  if (params.payoutRecipientId?.trim()) {
+    quoteInput.pay_out = {
+      type: 'bank_transfer',
+      recipient_id: params.payoutRecipientId.trim(),
+    };
+  } else if (settings?.payoutRecipientId && targetCurrency === 'NGN') {
     quoteInput.pay_out = {
       type: 'bank_transfer',
       recipient_id: settings.payoutRecipientId,
@@ -644,7 +769,24 @@ export async function executeBushaSell(params: {
       payInExpiresAt: transfer.pay_in?.expires_at ? new Date(transfer.pay_in.expires_at) : null,
       status,
       initiatedById: params.adminUserId,
-      providerResponse: { quote, transfer, payoutRecipientId: settings?.payoutRecipientId || null } as any,
+      palmpayOrderId: params.palmpayPayoutOrderId || null,
+      palmpayOrderNo: params.palmpayPayoutOrderNo || null,
+      providerResponse: {
+        quote,
+        transfer,
+        payoutRecipientId: params.payoutRecipientId || settings?.payoutRecipientId || null,
+        payoutMode: params.payoutRecipientId
+          ? 'palmpay_temp'
+          : settings?.payoutRecipientId
+            ? 'dashboard_bank'
+            : 'balance',
+        palmpayPayout: params.palmpayPayoutOrderId
+          ? {
+              merchantOrderId: params.palmpayPayoutOrderId,
+              orderNo: params.palmpayPayoutOrderNo || null,
+            }
+          : null,
+      } as any,
     },
     include: {
       customer: true,

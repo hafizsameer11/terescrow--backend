@@ -12,6 +12,7 @@ import {
   verifyBushaCustomer,
   refreshBushaCustomer,
   previewBushaQuote,
+  prepareBushaSellPalmpayPayout,
   executeBushaBuy,
   executeBushaSell,
   executeBushaCryptoReceive,
@@ -159,7 +160,7 @@ export async function refreshBushaCustomerController(req: Request, res: Response
 
 export async function previewBushaQuoteController(req: Request, res: Response, next: NextFunction) {
   try {
-    const { customerId, side, sourceCurrency, targetCurrency, amount, amountField, fundingMethod, network } =
+    const { customerId, side, sourceCurrency, targetCurrency, amount, amountField, fundingMethod, network, payoutToBalance, payoutRecipientId } =
       req.body ?? {};
     if (!customerId || !side || !sourceCurrency || !targetCurrency || !amount) {
       throw ApiError.badRequest('customerId, side, sourceCurrency, targetCurrency, and amount are required');
@@ -173,6 +174,8 @@ export async function previewBushaQuoteController(req: Request, res: Response, n
       amountField,
       fundingMethod,
       network: network ? String(network) : undefined,
+      payoutToBalance: payoutToBalance === true,
+      payoutRecipientId: payoutRecipientId ? String(payoutRecipientId) : undefined,
     });
     return new ApiResponse(200, data, 'Busha quote preview').send(res);
   } catch (error) {
@@ -203,10 +206,43 @@ export async function executeBushaBuyController(req: Request, res: Response, nex
   }
 }
 
-export async function executeBushaSellController(req: Request, res: Response, next: NextFunction) {
+export async function prepareBushaSellPalmpayPayoutController(req: Request, res: Response, next: NextFunction) {
   try {
     const admin = (req as any).user;
     const { customerId, sourceCurrency, targetCurrency, sourceAmount, fundingMethod, network } = req.body ?? {};
+    if (!customerId || !sourceCurrency || !targetCurrency || !sourceAmount) {
+      throw ApiError.badRequest('customerId, sourceCurrency, targetCurrency, and sourceAmount are required');
+    }
+    const data = await prepareBushaSellPalmpayPayout({
+      adminUserId: admin.id,
+      customerId,
+      sourceCurrency,
+      targetCurrency,
+      sourceAmount: String(sourceAmount),
+      fundingMethod,
+      network: network ? String(network) : undefined,
+    });
+    return new ApiResponse(200, data, 'PalmPay payout account prepared for Busha sell').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to prepare PalmPay payout for Busha sell'));
+  }
+}
+
+export async function executeBushaSellController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const admin = (req as any).user;
+    const {
+      customerId,
+      sourceCurrency,
+      targetCurrency,
+      sourceAmount,
+      fundingMethod,
+      network,
+      payoutRecipientId,
+      palmpayPayoutOrderId,
+      palmpayPayoutOrderNo,
+    } = req.body ?? {};
     if (!customerId || !sourceCurrency || !targetCurrency || !sourceAmount) {
       throw ApiError.badRequest('customerId, sourceCurrency, targetCurrency, and sourceAmount are required');
     }
@@ -218,6 +254,9 @@ export async function executeBushaSellController(req: Request, res: Response, ne
       sourceAmount: String(sourceAmount),
       fundingMethod,
       network: network ? String(network) : undefined,
+      payoutRecipientId: payoutRecipientId ? String(payoutRecipientId) : undefined,
+      palmpayPayoutOrderId: palmpayPayoutOrderId ? String(palmpayPayoutOrderId) : undefined,
+      palmpayPayoutOrderNo: palmpayPayoutOrderNo ? String(palmpayPayoutOrderNo) : undefined,
     });
     return new ApiResponse(200, data, 'Busha sell initiated').send(res);
   } catch (error) {

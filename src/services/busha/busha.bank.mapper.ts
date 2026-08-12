@@ -61,3 +61,40 @@ export async function resolvePalmpayBankCode(params: {
 
   return { bankCode: match.bankCode, bankName: match.bankName, matchedBy: 'name' };
 }
+
+/**
+ * Resolve Nigerian bank code for Busha recipient creation from PalmPay virtual account details.
+ */
+export async function resolveBushaBankCodeFromPalmpay(params: {
+  bankName?: string | null;
+  bankCode?: string | null;
+}): Promise<{ bankCode: string; bankName: string; matchedBy: 'direct' | 'name' }> {
+  const directCode = params.bankCode?.trim();
+  if (directCode) {
+    const banks = await getPalmpayBanks();
+    const exact = banks.find((b) => b.bankCode === directCode);
+    return {
+      bankCode: directCode,
+      bankName: exact?.bankName || params.bankName?.trim() || directCode,
+      matchedBy: 'direct',
+    };
+  }
+
+  const bankName = params.bankName?.trim();
+  if (!bankName) {
+    throw new Error('PalmPay did not return bank name for the virtual account.');
+  }
+
+  const banks = await getPalmpayBanks();
+  const normalized = normalizeBankName(bankName);
+  const match =
+    banks.find((b) => normalizeBankName(b.bankName) === normalized) ||
+    banks.find((b) => normalizeBankName(b.bankName).includes(normalized)) ||
+    banks.find((b) => normalized.includes(normalizeBankName(b.bankName)));
+
+  if (!match) {
+    throw new Error(`Could not map PalmPay bank "${bankName}" to a Busha bank code.`);
+  }
+
+  return { bankCode: match.bankCode, bankName: match.bankName, matchedBy: 'name' };
+}

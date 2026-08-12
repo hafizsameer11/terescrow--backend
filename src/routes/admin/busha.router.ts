@@ -12,6 +12,7 @@ import {
   verifyBushaCustomerController,
   refreshBushaCustomerController,
   previewBushaQuoteController,
+  prepareBushaSellPalmpayPayoutController,
   executeBushaBuyController,
   executeBushaSellController,
   executeBushaCryptoReceiveController,
@@ -49,6 +50,7 @@ router.get('/customers/:id/quotes/:quoteId', ...adminOnly, getBushaCustomerQuote
 router.get('/customers/:id/recipients', ...adminOnly, listBushaCustomerRecipientsController);
 
 router.post('/quote/preview', ...adminOnly, previewBushaQuoteController);
+router.post('/sell/prepare-palmpay-payout', ...adminOnly, prepareBushaSellPalmpayPayoutController);
 router.post('/trades/buy', ...adminOnly, executeBushaBuyController);
 router.post('/trades/sell', ...adminOnly, executeBushaSellController);
 router.post('/trades/crypto/receive', ...adminOnly, executeBushaCryptoReceiveController);
