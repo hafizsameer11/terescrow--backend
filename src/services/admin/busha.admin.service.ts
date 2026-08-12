@@ -2,8 +2,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import { bushaConfig } from '../busha/busha.config';
-import { bushaClient } from '../busha/busha.client';
+import { bushaClient, type BushaIdentifyingDocument } from '../busha/busha.client';
 import { resolvePalmpayBankCode } from '../busha/busha.bank.mapper';
+import {
+  BUSHA_CRYPTO_CURRENCIES,
+  BUSHA_FIAT_CURRENCIES,
+  getBushaCurrenciesForAdmin,
+  resolveBushaNetwork,
+} from '../busha/busha.currencies';
 import { palmpayConfig } from '../palmpay/palmpay.config';
 import { palmpayPayout } from '../palmpay/palmpay.payout.service';
 import { palmpayMerchantService } from '../palmpay/palmpay.merchant.service';
@@ -12,15 +18,7 @@ const bushaConfigModel = (prisma as any).bushaConfig;
 const bushaCustomerModel = (prisma as any).bushaCustomer;
 const bushaTradeLogModel = (prisma as any).bushaTradeLog;
 
-export const BUSHA_FIAT_CURRENCIES = ['NGN'] as const;
-export const BUSHA_CRYPTO_CURRENCIES = ['BTC', 'ETH', 'USDT', 'USDC'] as const;
-
-const CRYPTO_NETWORK: Record<string, string> = {
-  BTC: 'BTC',
-  ETH: 'ETH',
-  USDT: 'TRX',
-  USDC: 'ETH',
-};
+export { BUSHA_CRYPTO_CURRENCIES, BUSHA_FIAT_CURRENCIES };
 
 function assertBushaConfigured() {
   if (!bushaConfig.isConfigured()) {
@@ -76,11 +74,7 @@ export async function getBushaStatusForAdmin() {
       : null,
     stats: { customerCount, tradeCount },
     recentTrades,
-    currencies: {
-      fiat: [...BUSHA_FIAT_CURRENCIES],
-      crypto: [...BUSHA_CRYPTO_CURRENCIES],
-      networks: CRYPTO_NETWORK,
-    },
+    currencies: getBushaCurrenciesForAdmin(),
   };
 }
 
@@ -233,16 +227,11 @@ function stripBase64DataUrl(value: string): string {
   return trimmed;
 }
 
-function buildIdentifyingInformation(input: BushaCustomerKycInput) {
+function buildIdentifyingInformation(input: BushaCustomerKycInput): BushaIdentifyingDocument[] {
   const country = 'NG';
   const selfie = stripBase64DataUrl(input.selfieBase64);
   const docImage = input.documentImageBase64 ? stripBase64DataUrl(input.documentImageBase64) : undefined;
-  const docs: Array<{
-    type: string;
-    number?: string;
-    country?: string;
-    image_front?: string;
-  }> = [
+  const docs: BushaIdentifyingDocument[] = [
     {
       type: input.documentType,
       number: input.documentNumber.trim(),
@@ -306,12 +295,21 @@ export async function submitBushaCustomerKyc(customerId: string, kyc: BushaCusto
   }
 
   const providerData = (customer.providerData as Record<string, unknown>) || {};
-  const address = (providerData.address as Record<string, string>) || {
-    city: 'Lagos',
-    state: 'Lagos',
-    country_id: customer.countryId || 'NG',
-    address_line_1: '10 Allen Avenue',
-    postal_code: '100001',
+  const providerAddress = providerData.address as
+    | {
+        city?: string;
+        state?: string;
+        country_id?: string;
+        address_line_1?: string;
+        postal_code?: string;
+      }
+    | undefined;
+  const address = {
+    city: providerAddress?.city || 'Lagos',
+    state: providerAddress?.state || 'Lagos',
+    country_id: providerAddress?.country_id || customer.countryId || 'NG',
+    address_line_1: providerAddress?.address_line_1 || '10 Allen Avenue',
+    postal_code: providerAddress?.postal_code || '100001',
   };
 
   const updated = await bushaClient.updateCustomer(customer.bushaProfileId, {
@@ -384,6 +382,7 @@ export async function previewBushaQuote(params: {
   amount: string;
   amountField?: 'source' | 'target';
   fundingMethod?: 'temporary_bank_account' | 'balance' | 'address';
+  network?: string;
 }) {
   assertBushaConfigured();
   const customer = await bushaCustomerModel.findUnique({ where: { id: params.customerId } });
@@ -410,8 +409,12 @@ export async function previewBushaQuote(params: {
   } else {
     const funding = params.fundingMethod || 'balance';
     if (funding === 'address') {
-      const network = CRYPTO_NETWORK[sourceCurrency];
-      if (!network) throw ApiError.badRequest(`No default network for ${sourceCurrency}`);
+      let network: string;
+      try {
+        network = resolveBushaNetwork(sourceCurrency, params.network);
+      } catch (error: any) {
+        throw ApiError.badRequest(error?.message || `No network for ${sourceCurrency}`);
+      }
       quoteInput.pay_in = { type: 'address', network };
     } else {
       quoteInput.pay_in = { type: 'balance' };
@@ -572,6 +575,7 @@ export async function executeBushaSell(params: {
   targetCurrency: string;
   sourceAmount: string;
   fundingMethod?: 'balance' | 'address';
+  network?: string;
 }) {
   assertBushaConfigured();
   const customer = await getCustomerOrThrow(params.customerId);
@@ -588,8 +592,12 @@ export async function executeBushaSell(params: {
   };
 
   if (fundingMethod === 'address') {
-    const network = CRYPTO_NETWORK[sourceCurrency];
-    if (!network) throw ApiError.badRequest(`No default network for ${sourceCurrency}`);
+    let network: string;
+    try {
+      network = resolveBushaNetwork(sourceCurrency, params.network);
+    } catch (error: any) {
+      throw ApiError.badRequest(error?.message || `No network for ${sourceCurrency}`);
+    }
     quoteInput.pay_in = { type: 'address', network };
   } else {
     quoteInput.pay_in = { type: 'balance' };
@@ -623,7 +631,16 @@ export async function executeBushaSell(params: {
       bushaTransferId: transfer.id,
       bushaStatus: transfer.status,
       cryptoDepositAddress: isAddressFunding ? transfer.pay_in?.address || null : null,
-      cryptoDepositNetwork: isAddressFunding ? transfer.pay_in?.network || CRYPTO_NETWORK[sourceCurrency] || null : null,
+      cryptoDepositNetwork: isAddressFunding
+        ? transfer.pay_in?.network ||
+          (() => {
+            try {
+              return resolveBushaNetwork(sourceCurrency);
+            } catch {
+              return null;
+            }
+          })()
+        : null,
       payInExpiresAt: transfer.pay_in?.expires_at ? new Date(transfer.pay_in.expires_at) : null,
       status,
       initiatedById: params.adminUserId,
@@ -634,6 +651,151 @@ export async function executeBushaSell(params: {
       initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
     },
   });
+}
+
+export async function executeBushaCryptoReceive(params: {
+  adminUserId: number;
+  customerId: string;
+  currency: string;
+  amount: string;
+  network?: string; // Optional override (defaults from CRYPTO_NETWORK)
+}) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(params.customerId);
+
+  const currency = params.currency.toUpperCase();
+  const sourceAmount = String(params.amount).trim();
+
+  let network: string;
+  try {
+    network = resolveBushaNetwork(currency, params.network);
+  } catch (error: any) {
+    throw ApiError.badRequest(error?.message || `Unsupported currency/network for ${currency}`);
+  }
+  const amountNgn = parseFloat(sourceAmount);
+  if (!Number.isFinite(amountNgn) || amountNgn <= 0) {
+    throw ApiError.badRequest('amount must be greater than 0');
+  }
+
+  // Create a "deposit" style transfer: user sends crypto to a generated address,
+  // Busha credits the same crypto into customer's balance.
+  const quote = await bushaClient.createQuote(
+    {
+      source_currency: currency,
+      target_currency: currency,
+      source_amount: sourceAmount,
+      pay_in: { type: 'address', network },
+      pay_out: { type: 'balance' },
+    } as any,
+    customer.bushaProfileId
+  );
+
+  const transfer = await bushaClient.createTransfer(quote.id, customer.bushaProfileId);
+
+  const trade = await bushaTradeLogModel.create({
+    data: {
+      id: uuidv4(),
+      customerId: customer.id,
+      side: 'cryptoRecv',
+      sourceCurrency: currency,
+      targetCurrency: currency,
+      sourceAmount,
+      targetAmount: (quote as any).target_amount ?? null,
+      bushaQuoteId: quote.id,
+      bushaTransferId: transfer.id,
+      bushaStatus: transfer.status,
+      cryptoDepositAddress: transfer.pay_in?.address || null,
+      cryptoDepositNetwork: transfer.pay_in?.network || network,
+      payInExpiresAt: transfer.pay_in?.expires_at ? new Date(transfer.pay_in.expires_at) : null,
+      status: 'awaiting_crypto_deposit',
+      initiatedById: params.adminUserId,
+      providerResponse: { quote, transfer } as any,
+    },
+    include: {
+      customer: true,
+      initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
+    },
+  });
+
+  return trade;
+}
+
+export async function executeBushaCryptoSend(params: {
+  adminUserId: number;
+  customerId: string;
+  currency: string;
+  amount: string;
+  destinationAddress: string;
+  destinationNetwork?: string; // Optional override (defaults from CRYPTO_NETWORK)
+  memo?: string;
+}) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(params.customerId);
+
+  const currency = params.currency.toUpperCase();
+  const sourceAmount = String(params.amount).trim();
+  const destinationAddress = params.destinationAddress.trim();
+
+  if (!destinationAddress) throw ApiError.badRequest('destinationAddress is required');
+
+  let destinationNetwork: string;
+  try {
+    destinationNetwork = resolveBushaNetwork(currency, params.destinationNetwork);
+  } catch (error: any) {
+    throw ApiError.badRequest(error?.message || `Unsupported currency/network for ${currency}`);
+  }
+
+  const amountNgn = parseFloat(sourceAmount);
+  if (!Number.isFinite(amountNgn) || amountNgn <= 0) {
+    throw ApiError.badRequest('amount must be greater than 0');
+  }
+
+  // Create a "withdrawal/send" style transfer:
+  // - Source is customer's Busha crypto balance
+  // - Target is an external crypto address
+  const payOut: Record<string, unknown> = {
+    type: 'address',
+    address: destinationAddress,
+    network: destinationNetwork,
+  };
+  if (params.memo) payOut.memo = params.memo;
+
+  const quote = await bushaClient.createQuote(
+    {
+      source_currency: currency,
+      target_currency: currency,
+      source_amount: sourceAmount,
+      pay_in: { type: 'balance' },
+      pay_out: payOut,
+    } as any,
+    customer.bushaProfileId
+  );
+
+  const transfer = await bushaClient.createTransfer(quote.id, customer.bushaProfileId);
+
+  const trade = await bushaTradeLogModel.create({
+    data: {
+      id: uuidv4(),
+      customerId: customer.id,
+      side: 'cryptoSend',
+      sourceCurrency: currency,
+      targetCurrency: currency,
+      sourceAmount,
+      targetAmount: (quote as any).target_amount ?? null,
+      bushaQuoteId: quote.id,
+      bushaTransferId: transfer.id,
+      bushaStatus: transfer.status,
+      status: 'awaiting_busha',
+      initiatedById: params.adminUserId,
+      providerResponse: { quote, transfer, payOut } as any,
+    },
+    include: {
+      customer: true,
+      initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
+    },
+  });
+
+  return trade;
 }
 
 export async function listBushaTrades(limit = 50) {
@@ -680,6 +842,10 @@ export async function refreshBushaTrade(tradeId: string) {
     status = 'completed';
   } else if (bushaStatus === 'failed' || bushaStatus === 'cancelled') {
     status = 'busha_failed';
+  } else if (trade.side === 'cryptoSend') {
+    status = 'awaiting_busha';
+  } else if (trade.side === 'cryptoRecv' && trade.cryptoDepositAddress) {
+    status = 'awaiting_crypto_deposit';
   } else if (trade.side === 'buy' && trade.palmpayOrderId) {
     status = 'awaiting_busha';
   } else if (trade.side === 'sell' && trade.cryptoDepositAddress) {

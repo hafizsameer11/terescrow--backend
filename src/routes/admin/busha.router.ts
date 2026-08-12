@@ -14,6 +14,8 @@ import {
   previewBushaQuoteController,
   executeBushaBuyController,
   executeBushaSellController,
+  executeBushaCryptoReceiveController,
+  executeBushaCryptoSendController,
   listBushaTradesController,
   getBushaTradeController,
   refreshBushaTradeController,
@@ -37,6 +39,8 @@ router.post('/customers/:id/refresh', ...adminOnly, refreshBushaCustomerControll
 router.post('/quote/preview', ...adminOnly, previewBushaQuoteController);
 router.post('/trades/buy', ...adminOnly, executeBushaBuyController);
 router.post('/trades/sell', ...adminOnly, executeBushaSellController);
+router.post('/trades/crypto/receive', ...adminOnly, executeBushaCryptoReceiveController);
+router.post('/trades/crypto/send', ...adminOnly, executeBushaCryptoSendController);
 router.get('/trades', ...adminOnly, listBushaTradesController);
 router.get('/trades/:id', ...adminOnly, getBushaTradeController);
 router.post('/trades/:id/refresh', ...adminOnly, refreshBushaTradeController);

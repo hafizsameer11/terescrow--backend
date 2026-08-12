@@ -14,6 +14,8 @@ import {
   previewBushaQuote,
   executeBushaBuy,
   executeBushaSell,
+  executeBushaCryptoReceive,
+  executeBushaCryptoSend,
   listBushaTrades,
   getBushaTrade,
   refreshBushaTrade,
@@ -213,6 +215,56 @@ export async function executeBushaSellController(req: Request, res: Response, ne
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     return next(ApiError.internal('Failed to execute Busha sell'));
+  }
+}
+
+export async function executeBushaCryptoReceiveController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const admin = (req as any).user;
+    const { customerId, currency, amount, network } = req.body ?? {};
+
+    if (!customerId || !currency || !amount) {
+      throw ApiError.badRequest('customerId, currency, and amount are required');
+    }
+
+    const data = await executeBushaCryptoReceive({
+      adminUserId: admin.id,
+      customerId,
+      currency,
+      amount: String(amount),
+      network: network ? String(network) : undefined,
+    });
+
+    return new ApiResponse(200, data, 'Busha crypto receive transfer initiated').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to execute Busha crypto receive'));
+  }
+}
+
+export async function executeBushaCryptoSendController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const admin = (req as any).user;
+    const { customerId, currency, amount, destinationAddress, destinationNetwork, memo } = req.body ?? {};
+
+    if (!customerId || !currency || !amount || !destinationAddress) {
+      throw ApiError.badRequest('customerId, currency, amount, and destinationAddress are required');
+    }
+
+    const data = await executeBushaCryptoSend({
+      adminUserId: admin.id,
+      customerId,
+      currency,
+      amount: String(amount),
+      destinationAddress: String(destinationAddress),
+      destinationNetwork: destinationNetwork ? String(destinationNetwork) : undefined,
+      memo: memo ? String(memo) : undefined,
+    });
+
+    return new ApiResponse(200, data, 'Busha crypto send transfer initiated').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to execute Busha crypto send'));
   }
 }
 
