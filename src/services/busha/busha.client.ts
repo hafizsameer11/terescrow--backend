@@ -75,6 +75,25 @@ export type BushaRecipient = {
   country?: string;
 };
 
+export type BushaAmount = {
+  amount: string;
+  currency: string;
+};
+
+export type BushaBalance = {
+  id: string;
+  profile_id?: string;
+  user_id?: string;
+  currency: string;
+  name?: string;
+  type?: string;
+  available?: BushaAmount;
+  pending?: BushaAmount;
+  total?: BushaAmount;
+  savings?: BushaAmount;
+  investments?: BushaAmount;
+};
+
 export type BushaIdentifyingDocument = {
   type: 'national-id' | 'passport' | 'drivers-license' | 'selfie';
   number?: string;
@@ -135,13 +154,25 @@ class BushaClient {
     return headers;
   }
 
+  private buildUrl(path: string, query?: Record<string, string | undefined>): string {
+    const base = `${bushaConfig.getBaseUrl()}${path}`;
+    if (!query) return base;
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== '') params.set(key, value);
+    }
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
+  }
+
   private async request<T>(
     method: 'GET' | 'POST' | 'PUT',
     path: string,
     body?: unknown,
-    profileId?: string
+    profileId?: string,
+    query?: Record<string, string | undefined>
   ): Promise<T> {
-    const url = `${bushaConfig.getBaseUrl()}${path}`;
+    const url = this.buildUrl(path, query);
     try {
       const response = await axios.request<BushaApiEnvelope<T>>({
         method,
@@ -218,6 +249,33 @@ class BushaClient {
 
   getTransfer(transferId: string, profileId?: string): Promise<BushaTransfer> {
     return this.request<BushaTransfer>('GET', `/v1/transfers/${transferId}`, undefined, profileId);
+  }
+
+  listTransfers(
+    profileId?: string,
+    query?: {
+      limit?: string;
+      quote_id?: string;
+      source_currency?: string;
+      target_currency?: string;
+      status?: string;
+    }
+  ): Promise<BushaTransfer[]> {
+    return this.request<BushaTransfer[]>('GET', '/v1/transfers', undefined, profileId, query);
+  }
+
+  listBalances(profileId?: string, currency?: string): Promise<BushaBalance[]> {
+    return this.request<BushaBalance[]>(
+      'GET',
+      '/v1/balances',
+      undefined,
+      profileId,
+      currency ? { currency } : undefined
+    );
+  }
+
+  getBalance(idOrCode: string, profileId?: string): Promise<BushaBalance> {
+    return this.request<BushaBalance>('GET', `/v1/balances/${encodeURIComponent(idOrCode)}`, undefined, profileId);
   }
 
   createRecipient(input: CreateBushaRecipientInput, profileId?: string): Promise<BushaRecipient> {

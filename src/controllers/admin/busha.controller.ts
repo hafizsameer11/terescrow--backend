@@ -16,6 +16,12 @@ import {
   executeBushaSell,
   executeBushaCryptoReceive,
   executeBushaCryptoSend,
+  getBushaCustomerWallet,
+  getBushaCustomerBalance,
+  listBushaCustomerTransfers,
+  getBushaCustomerTransfer,
+  getBushaCustomerQuote,
+  listBushaCustomerRecipients,
   listBushaTrades,
   getBushaTrade,
   refreshBushaTrade,
@@ -153,7 +159,7 @@ export async function refreshBushaCustomerController(req: Request, res: Response
 
 export async function previewBushaQuoteController(req: Request, res: Response, next: NextFunction) {
   try {
-    const { customerId, side, sourceCurrency, targetCurrency, amount, amountField, fundingMethod } =
+    const { customerId, side, sourceCurrency, targetCurrency, amount, amountField, fundingMethod, network } =
       req.body ?? {};
     if (!customerId || !side || !sourceCurrency || !targetCurrency || !amount) {
       throw ApiError.badRequest('customerId, side, sourceCurrency, targetCurrency, and amount are required');
@@ -166,6 +172,7 @@ export async function previewBushaQuoteController(req: Request, res: Response, n
       amount: String(amount),
       amountField,
       fundingMethod,
+      network: network ? String(network) : undefined,
     });
     return new ApiResponse(200, data, 'Busha quote preview').send(res);
   } catch (error) {
@@ -199,7 +206,7 @@ export async function executeBushaBuyController(req: Request, res: Response, nex
 export async function executeBushaSellController(req: Request, res: Response, next: NextFunction) {
   try {
     const admin = (req as any).user;
-    const { customerId, sourceCurrency, targetCurrency, sourceAmount, fundingMethod } = req.body ?? {};
+    const { customerId, sourceCurrency, targetCurrency, sourceAmount, fundingMethod, network } = req.body ?? {};
     if (!customerId || !sourceCurrency || !targetCurrency || !sourceAmount) {
       throw ApiError.badRequest('customerId, sourceCurrency, targetCurrency, and sourceAmount are required');
     }
@@ -210,6 +217,7 @@ export async function executeBushaSellController(req: Request, res: Response, ne
       targetCurrency,
       sourceAmount: String(sourceAmount),
       fundingMethod,
+      network: network ? String(network) : undefined,
     });
     return new ApiResponse(200, data, 'Busha sell initiated').send(res);
   } catch (error) {
@@ -296,5 +304,75 @@ export async function refreshBushaTradeController(req: Request, res: Response, n
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     return next(ApiError.internal('Failed to refresh Busha trade'));
+  }
+}
+
+export async function getBushaCustomerWalletController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const currency = req.query.currency ? String(req.query.currency) : undefined;
+    const data = await getBushaCustomerWallet(req.params.id, currency);
+    return new ApiResponse(200, data, 'Busha customer wallet fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to fetch Busha customer wallet'));
+  }
+}
+
+export async function getBushaCustomerBalanceController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const currency = String(req.params.currency || '').trim();
+    if (!currency) throw ApiError.badRequest('currency is required');
+    const data = await getBushaCustomerBalance(req.params.id, currency);
+    return new ApiResponse(200, data, 'Busha customer balance fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to fetch Busha customer balance'));
+  }
+}
+
+export async function listBushaCustomerTransfersController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { limit, quoteId, sourceCurrency, targetCurrency, status } = req.query;
+    const data = await listBushaCustomerTransfers(req.params.id, {
+      limit: limit ? parseInt(String(limit), 10) : undefined,
+      quoteId: quoteId ? String(quoteId) : undefined,
+      sourceCurrency: sourceCurrency ? String(sourceCurrency) : undefined,
+      targetCurrency: targetCurrency ? String(targetCurrency) : undefined,
+      status: status ? String(status) : undefined,
+    });
+    return new ApiResponse(200, data, 'Busha customer transfers fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to list Busha customer transfers'));
+  }
+}
+
+export async function getBushaCustomerTransferController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await getBushaCustomerTransfer(req.params.id, req.params.transferId);
+    return new ApiResponse(200, data, 'Busha transfer fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to fetch Busha transfer'));
+  }
+}
+
+export async function getBushaCustomerQuoteController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await getBushaCustomerQuote(req.params.id, req.params.quoteId);
+    return new ApiResponse(200, data, 'Busha quote fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to fetch Busha quote'));
+  }
+}
+
+export async function listBushaCustomerRecipientsController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await listBushaCustomerRecipients(req.params.id);
+    return new ApiResponse(200, data, 'Busha recipients fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to list Busha recipients'));
   }
 }

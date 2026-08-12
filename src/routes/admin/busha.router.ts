@@ -16,6 +16,12 @@ import {
   executeBushaSellController,
   executeBushaCryptoReceiveController,
   executeBushaCryptoSendController,
+  getBushaCustomerWalletController,
+  getBushaCustomerBalanceController,
+  listBushaCustomerTransfersController,
+  getBushaCustomerTransferController,
+  getBushaCustomerQuoteController,
+  listBushaCustomerRecipientsController,
   listBushaTradesController,
   getBushaTradeController,
   refreshBushaTradeController,
@@ -35,6 +41,12 @@ router.put('/customers/:id/kyc', ...adminOnly, submitBushaCustomerKycController)
 router.post('/customers/:id/kyc', ...adminOnly, submitBushaCustomerKycController);
 router.post('/customers/:id/verify', ...adminOnly, verifyBushaCustomerController);
 router.post('/customers/:id/refresh', ...adminOnly, refreshBushaCustomerController);
+router.get('/customers/:id/wallet', ...adminOnly, getBushaCustomerWalletController);
+router.get('/customers/:id/balances/:currency', ...adminOnly, getBushaCustomerBalanceController);
+router.get('/customers/:id/transfers', ...adminOnly, listBushaCustomerTransfersController);
+router.get('/customers/:id/transfers/:transferId', ...adminOnly, getBushaCustomerTransferController);
+router.get('/customers/:id/quotes/:quoteId', ...adminOnly, getBushaCustomerQuoteController);
+router.get('/customers/:id/recipients', ...adminOnly, listBushaCustomerRecipientsController);
 
 router.post('/quote/preview', ...adminOnly, previewBushaQuoteController);
 router.post('/trades/buy', ...adminOnly, executeBushaBuyController);

@@ -798,6 +798,128 @@ export async function executeBushaCryptoSend(params: {
   return trade;
 }
 
+export async function getBushaCustomerWallet(customerId: string, currency?: string) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(customerId);
+  const balances = await bushaClient.listBalances(
+    customer.bushaProfileId,
+    currency?.trim().toUpperCase() || undefined
+  );
+  const crypto = balances.filter((b) => b.type === 'crypto');
+  const fiat = balances.filter((b) => b.type === 'fiat');
+  const nonZero = balances.filter((b) => {
+    const available = parseFloat(b.available?.amount || '0');
+    const pending = parseFloat(b.pending?.amount || '0');
+    const total = parseFloat(b.total?.amount || '0');
+    return available > 0 || pending > 0 || total > 0;
+  });
+
+  return {
+    customer: {
+      id: customer.id,
+      bushaProfileId: customer.bushaProfileId,
+      email: customer.email,
+      firstName: customer.firstName,
+      lastName: customer.lastName,
+      status: customer.status,
+    },
+    balances,
+    summary: {
+      total: balances.length,
+      cryptoCount: crypto.length,
+      fiatCount: fiat.length,
+      nonZeroCount: nonZero.length,
+    },
+  };
+}
+
+export async function getBushaCustomerBalance(customerId: string, currency: string) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(customerId);
+  const code = currency.trim().toUpperCase();
+  const balance = await bushaClient.getBalance(code, customer.bushaProfileId);
+  return {
+    customer: {
+      id: customer.id,
+      bushaProfileId: customer.bushaProfileId,
+      email: customer.email,
+    },
+    balance,
+  };
+}
+
+export async function listBushaCustomerTransfers(
+  customerId: string,
+  query?: {
+    limit?: number;
+    quoteId?: string;
+    sourceCurrency?: string;
+    targetCurrency?: string;
+    status?: string;
+  }
+) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(customerId);
+  const transfers = await bushaClient.listTransfers(customer.bushaProfileId, {
+    ...(query?.limit ? { limit: String(query.limit) } : { limit: '25' }),
+    ...(query?.quoteId ? { quote_id: query.quoteId } : {}),
+    ...(query?.sourceCurrency ? { source_currency: query.sourceCurrency.toUpperCase() } : {}),
+    ...(query?.targetCurrency ? { target_currency: query.targetCurrency.toUpperCase() } : {}),
+    ...(query?.status ? { status: query.status } : {}),
+  });
+
+  return {
+    customer: {
+      id: customer.id,
+      bushaProfileId: customer.bushaProfileId,
+      email: customer.email,
+    },
+    transfers,
+  };
+}
+
+export async function getBushaCustomerTransfer(customerId: string, transferId: string) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(customerId);
+  const transfer = await bushaClient.getTransfer(transferId, customer.bushaProfileId);
+  return {
+    customer: {
+      id: customer.id,
+      bushaProfileId: customer.bushaProfileId,
+      email: customer.email,
+    },
+    transfer,
+  };
+}
+
+export async function getBushaCustomerQuote(customerId: string, quoteId: string) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(customerId);
+  const quote = await bushaClient.getQuote(quoteId, customer.bushaProfileId);
+  return {
+    customer: {
+      id: customer.id,
+      bushaProfileId: customer.bushaProfileId,
+      email: customer.email,
+    },
+    quote,
+  };
+}
+
+export async function listBushaCustomerRecipients(customerId: string) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(customerId);
+  const recipients = await bushaClient.listRecipients(customer.bushaProfileId);
+  return {
+    customer: {
+      id: customer.id,
+      bushaProfileId: customer.bushaProfileId,
+      email: customer.email,
+    },
+    recipients,
+  };
+}
+
 export async function listBushaTrades(limit = 50) {
   return bushaTradeLogModel.findMany({
     orderBy: { createdAt: 'desc' },
