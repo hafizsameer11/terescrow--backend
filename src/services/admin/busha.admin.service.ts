@@ -70,6 +70,7 @@ export async function getBushaStatusForAdmin() {
           payoutAccountNumber: settings.payoutAccountNumber,
           payoutAccountName: settings.payoutAccountName,
           payoutRecipientId: settings.payoutRecipientId,
+          sellPayoutMode: settings.sellPayoutMode || 'palmpay_temp',
           isActive: settings.isActive,
         }
       : null,
@@ -79,16 +80,24 @@ export async function getBushaStatusForAdmin() {
   };
 }
 
+export type BushaSellPayoutMode = 'palmpay_temp' | 'dashboard_bank';
+
 export type BushaSettingsInput = {
   payoutBankCode?: string | null;
   payoutBankName?: string | null;
   payoutAccountNumber?: string | null;
   payoutAccountName?: string | null;
   payoutRecipientId?: string | null;
+  sellPayoutMode?: BushaSellPayoutMode | string | null;
   isActive?: boolean;
 };
 
 export async function upsertBushaSettings(input: BushaSettingsInput) {
+  const mode = input.sellPayoutMode?.trim();
+  if (mode && mode !== 'palmpay_temp' && mode !== 'dashboard_bank') {
+    throw ApiError.badRequest('sellPayoutMode must be palmpay_temp or dashboard_bank');
+  }
+
   return bushaConfigModel.upsert({
     where: { id: 1 },
     create: {
@@ -98,6 +107,7 @@ export async function upsertBushaSettings(input: BushaSettingsInput) {
       payoutAccountNumber: input.payoutAccountNumber?.trim() || null,
       payoutAccountName: input.payoutAccountName?.trim() || null,
       payoutRecipientId: input.payoutRecipientId?.trim() || null,
+      sellPayoutMode: (mode as BushaSellPayoutMode) || 'palmpay_temp',
       isActive: input.isActive ?? true,
     },
     update: {
@@ -112,6 +122,11 @@ export async function upsertBushaSettings(input: BushaSettingsInput) {
       ...(input.payoutRecipientId !== undefined
         ? { payoutRecipientId: input.payoutRecipientId?.trim() || null }
         : {}),
+      ...(mode !== undefined && mode !== null && mode !== ''
+        ? { sellPayoutMode: mode }
+        : input.sellPayoutMode === null
+          ? {}
+          : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
     },
   });
@@ -147,10 +162,42 @@ export async function syncBushaPayoutRecipient(profileId: string) {
     payoutBankName: settings?.payoutBankName,
     payoutAccountNumber: accountNumber,
     payoutAccountName: accountName,
+    sellPayoutMode: settings?.sellPayoutMode || 'palmpay_temp',
     isActive: settings?.isActive ?? true,
   });
 
   return { recipient, settings: saved };
+}
+
+/**
+ * Create dashboard bank as a Busha recipient on a specific profile without overwriting global recipient id.
+ * Used for per-user app sells when sellPayoutMode=dashboard_bank.
+ */
+export async function createDashboardBankRecipientOnProfile(profileId: string) {
+  assertBushaConfigured();
+  const settings = await getBushaConfigRow();
+  const bankCode = settings?.payoutBankCode?.trim();
+  const accountNumber = settings?.payoutAccountNumber?.trim();
+  const accountName = settings?.payoutAccountName?.trim();
+
+  if (!bankCode || !accountNumber || !accountName) {
+    throw ApiError.badRequest('Configure payout bank code, account number, and account name first.');
+  }
+
+  const recipient = await bushaClient.createRecipient(
+    {
+      currency: 'NGN',
+      country_code: 'NG',
+      type: 'ngn_bank',
+      bank_name: settings?.payoutBankName?.trim() || bankCode,
+      bank_code: bankCode,
+      account_number: accountNumber,
+      account_name: accountName,
+    },
+    profileId
+  );
+
+  return { recipient, settings };
 }
 
 export async function listBushaCustomers() {
@@ -217,6 +264,17 @@ export type BushaCustomerKycInput = {
   selfieBase64: string;
   documentImageBase64?: string;
   birthDate?: string;
+  /** Optional overrides when syncing full Terescrow/Prembly KYC */
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  address?: {
+    city: string;
+    state: string;
+    country_id: string;
+    address_line_1: string;
+    postal_code: string;
+  };
 };
 
 function stripBase64DataUrl(value: string): string {
@@ -305,7 +363,7 @@ export async function submitBushaCustomerKyc(customerId: string, kyc: BushaCusto
         postal_code?: string;
       }
     | undefined;
-  const address = {
+  const address = kyc.address || {
     city: providerAddress?.city || 'Lagos',
     state: providerAddress?.state || 'Lagos',
     country_id: providerAddress?.country_id || customer.countryId || 'NG',
@@ -313,11 +371,15 @@ export async function submitBushaCustomerKyc(customerId: string, kyc: BushaCusto
     postal_code: providerAddress?.postal_code || '100001',
   };
 
+  const firstName = (kyc.firstName || customer.firstName).trim();
+  const lastName = (kyc.lastName || customer.lastName).trim();
+  const phone = (kyc.phone || customer.phone).trim();
+
   const updated = await bushaClient.updateCustomer(customer.bushaProfileId, {
     email: customer.email,
-    first_name: customer.firstName,
-    last_name: customer.lastName,
-    phone: customer.phone,
+    first_name: firstName,
+    last_name: lastName,
+    phone,
     country_id: customer.countryId || 'NG',
     birth_date: kyc.birthDate || (providerData.birth_date as string) || '15-06-1990',
     address,
@@ -327,6 +389,11 @@ export async function submitBushaCustomerKyc(customerId: string, kyc: BushaCusto
   return bushaCustomerModel.update({
     where: { id: customerId },
     data: {
+      firstName,
+      lastName,
+      phone,
+      birthDate: kyc.birthDate || customer.birthDate,
+      nin: kyc.documentType === 'national-id' ? kyc.documentNumber : customer.nin,
       status: updated.status || customer.status,
       providerData: updated as any,
     },
@@ -1116,7 +1183,7 @@ export async function refreshBushaTrade(tradeId: string) {
     status = 'awaiting_crypto_deposit';
   }
 
-  return bushaTradeLogModel.update({
+  const updated = await bushaTradeLogModel.update({
     where: { id: tradeId },
     data: {
       bushaStatus,
@@ -1131,4 +1198,16 @@ export async function refreshBushaTrade(tradeId: string) {
       initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
     },
   });
+
+  if (updated.userId) {
+    try {
+      const { settleBushaTradeIfNeeded } = await import('../busha/busha.settlement.service');
+      await settleBushaTradeIfNeeded(tradeId);
+      return getBushaTrade(tradeId);
+    } catch (e) {
+      console.error('[Busha] settle after refresh failed:', (e as any)?.message || e);
+    }
+  }
+
+  return updated;
 }

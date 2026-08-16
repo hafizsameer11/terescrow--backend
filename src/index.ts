@@ -51,6 +51,7 @@ import referralRouter from './routes/cutomer/referral.router';
 // ============================================
 import tatumWebhookRouter from './routes/webhooks/tatum.webhook.router';
 import palmpayWebhookRouter from './routes/webhooks/palmpay.webhook.router';
+import bushaWebhookRouter from './routes/webhooks/busha.webhook.router';
 
 // ============================================
 // Testing Routes
@@ -84,6 +85,9 @@ import scamContractRouter from './routes/admin/scam.contract.router';
 import platformSettingsRouter from './routes/admin/platform.settings.router';
 import merchantsRouter from './routes/admin/merchants.router';
 import bushaRouter from './routes/admin/busha.router';
+import bushaCustomerRouter from './routes/cutomer/busha.router';
+import { startBushaSettlementPoller } from './jobs/busha/busha.settlement.poller';
+import { startBushaKycPoller } from './jobs/busha/busha.kyc.poller';
 
 // ============================================
 // V1 API Routes (Legacy - if any)
@@ -241,6 +245,7 @@ app.use('/api/v2/payments/palmpay', palmpayPayoutRouter);
 app.use('/api/v2/payment/merchant', palmpayMerchantOrderRouter);
 app.use('/api/v2/wallets', fiatWalletRouter);
 app.use('/api/v2/kyc', kycRouter);
+app.use('/api/v2/busha', bushaCustomerRouter);
 // Register specific provider routes first (more specific) before general bill-payments routes
 app.use('/api/v2/bill-payments/reloadly/utilities', reloadlyUtilityBillPaymentRouter);
 app.use('/api/v2/bill-payments/reloadly', reloadlyBillPaymentRouter);
@@ -254,6 +259,7 @@ app.use('/api/v2/referrals', referralRouter);
 // V2 API Routes - Webhooks
 // ============================================
 app.use('/api/v2/webhooks', palmpayWebhookRouter);
+app.use('/api/v2/webhooks', bushaWebhookRouter);
 
 // ============================================
 // Testing Routes
@@ -520,6 +526,8 @@ httpServer.listen(port, () => {
   // Start schedulers
   startReloadlyUtilityStatusScheduler();
   startChangeNowSwapStatusScheduler();
+  startBushaSettlementPoller();
+  startBushaKycPoller();
 });
 
 app.get('/.well-known/pki-validation/E9D0BCFADE508ECB66F1A9236CF3AB96.txt', (req, res) => {

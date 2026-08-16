@@ -244,10 +244,38 @@ class FiatWalletService {
       return sum + parseFloat(wallet.balance.toString());
     }, 0);
 
+    let busha: { enabled: boolean; balances?: any[]; error?: string } = { enabled: false };
+    try {
+      const { bushaConfig } = await import('../busha/busha.config');
+      const settings = await (prisma as any).bushaConfig.findUnique({ where: { id: 1 } });
+      if (bushaConfig.isConfigured() && settings?.isActive) {
+        const customer = await (prisma as any).bushaCustomer.findUnique({ where: { userId } });
+        if (customer) {
+          const { getBushaCustomerWallet } = await import('../admin/busha.admin.service');
+          const wallet = await getBushaCustomerWallet(customer.id);
+          busha = {
+            enabled: true,
+            balances: (wallet.balances || []).map((b: any) => ({
+              currency: b.currency,
+              type: b.type,
+              available: b.available?.amount,
+              pending: b.pending?.amount,
+              total: b.total?.amount,
+            })),
+          };
+        } else {
+          busha = { enabled: true, balances: [] };
+        }
+      }
+    } catch (error: any) {
+      busha = { enabled: false, error: error?.message || 'Busha wallet unavailable' };
+    }
+
     return {
       wallets,
       totalBalance,
       currency: wallets[0]?.currency || 'NGN',
+      busha,
     };
   }
 }

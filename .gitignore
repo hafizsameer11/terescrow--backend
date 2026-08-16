@@ -21,6 +21,9 @@ coverage
 # Node.js dependency directories
 node_modules/
 
+# Busha KYC selfie staging (deleted after submit)
+uploads/busha-kyc/
+
 # Build output
 dist/
 build/

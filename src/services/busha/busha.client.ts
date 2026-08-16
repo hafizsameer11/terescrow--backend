@@ -1,5 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import { bushaConfig } from './busha.config';
+import ApiError from '../../utils/ApiError';
 
 export type BushaApiEnvelope<T> = {
   status: string;
@@ -182,20 +183,38 @@ class BushaClient {
         timeout: 60_000,
       });
       if (response.data?.status !== 'success' || response.data.data === undefined) {
-        throw new Error(response.data?.message || 'Busha API returned an unexpected response');
+        throw ApiError.badRequest(response.data?.message || 'Busha API returned an unexpected response');
       }
       return response.data.data;
     } catch (error) {
-      if (error instanceof AxiosError && error.response?.data) {
+      if (error instanceof ApiError) throw error;
+
+      if (error instanceof AxiosError && error.response) {
+        const status = error.response.status || 400;
         const data = error.response.data as {
           message?: string;
           error?: string | { name?: string; message?: string };
         };
         const nested =
-          typeof data.error === 'object' && data.error?.message ? data.error.message : null;
-        throw new Error(nested || data.message || (typeof data.error === 'string' ? data.error : null) || error.message);
+          typeof data?.error === 'object' && data.error?.message ? data.error.message : null;
+        const message =
+          nested ||
+          data?.message ||
+          (typeof data?.error === 'string' ? data.error : null) ||
+          error.message ||
+          'Busha API request failed';
+
+        if (status === 401 || status === 403) throw ApiError.unauthorized(message, data);
+        if (status === 404) throw ApiError.notFound(message, data);
+        if (status === 409) throw ApiError.conflict(message, data);
+        if (status >= 400 && status < 500) throw ApiError.badRequest(message, data);
+        throw ApiError.internal(message, data);
       }
-      throw error;
+
+      if (error instanceof Error) {
+        throw ApiError.badRequest(error.message);
+      }
+      throw ApiError.internal('Busha API request failed');
     }
   }
 

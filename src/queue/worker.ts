@@ -145,12 +145,18 @@ if (require.main === module) {
           await processReloadlyUtilityStatusJob(job as Job<ReloadlyUtilityStatusJobData>);
         },
       },
-    'tatum': {
+      'tatum': {
       'create-virtual-account': async (job: Job) => {
         await processCreateVirtualAccountJob(job as Job<CreateVirtualAccountJobData>);
       },
       'retry-sell-token-transfer': async (job: Job) => {
         await processRetrySellTokenTransferJob(job as Job<RetrySellTokenTransferJobData>);
+      },
+    },
+    busha: {
+      'process-kyc': async (job: Job) => {
+        const { processBushaKycJob } = await import('./jobs/busha.kyc.job');
+        await processBushaKycJob(job as any);
       },
     },
     // Add more queues here as needed
