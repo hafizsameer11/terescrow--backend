@@ -165,7 +165,7 @@ const registerCustomerController = async (
     if (!userOTP) {
       await prisma.user.delete({
         where: {
-          username: newUser.username,
+          id: newUser.id,
         },
       });
       throw ApiError.internal('User OTP creation failed');
