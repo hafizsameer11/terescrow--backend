@@ -419,6 +419,25 @@ export async function previewAppBushaConvert(
     expiresAt: (quote as any).expires_at || null,
     canProceed: Number.isFinite(amount) && amount > 0 && available >= amount,
     hasSufficientBalance: Number.isFinite(amount) && amount > 0 && available >= amount,
+    // Legacy swap-UI aliases (mobile expects from*/to*/gas*/total*)
+    fromCurrency: params.sourceCurrency.toUpperCase(),
+    toCurrency: params.targetCurrency.toUpperCase(),
+    fromAmount: String(params.sourceAmount),
+    toAmount: String((quote as any).target_amount || '0'),
+    fromBlockchain: params.sourceCurrency.toUpperCase(),
+    toBlockchain: params.targetCurrency.toUpperCase(),
+    fromAmountUsd: null,
+    toAmountUsd: null,
+    gasFee: '0',
+    gasFeeUsd: '0',
+    totalAmount: String(params.sourceAmount),
+    totalAmountUsd: null,
+    rateDisplay:
+      typeof (quote as any).rate === 'object' && (quote as any).rate?.rate != null
+        ? String((quote as any).rate.rate)
+        : (quote as any).rate != null
+          ? String((quote as any).rate)
+          : null,
   };
 }
 
