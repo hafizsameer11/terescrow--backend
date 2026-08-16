@@ -9,6 +9,7 @@ import {
   createBillOrderController,
   queryOrderStatusController,
   getBillPaymentHistoryController,
+  regenerateElectricityTokenController,
 } from '../../controllers/customer/billpayment.controller';
 
 const billPaymentRouter = Router();
@@ -500,5 +501,10 @@ billPaymentRouter.get('/order-status', authenticateUser, queryOrderStatusControl
  *                       type: integer
  */
 billPaymentRouter.get('/history', authenticateUser, getBillPaymentHistoryController);
+billPaymentRouter.post(
+  '/regenerate-token',
+  authenticateUser,
+  regenerateElectricityTokenController
+);
 
 export default billPaymentRouter;

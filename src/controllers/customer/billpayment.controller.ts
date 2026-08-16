@@ -903,3 +903,148 @@ export const getBillPaymentHistoryController = async (
   }
 };
 
+function isElectricityPrepaid(billPayment: {
+  sceneCode: string;
+  itemId?: string | null;
+  billerId?: string | null;
+}): boolean {
+  if (String(billPayment.sceneCode || '').toLowerCase() !== 'electricity') return false;
+  const item = String(billPayment.itemId || '').toLowerCase();
+  if (item === 'prepaid') return true;
+  const biller = String(billPayment.billerId || '').toLowerCase();
+  return biller.includes(':prepaid') || biller.endsWith('prepaid');
+}
+
+/** Pull prepaid meter token from provider payload / stored reference. */
+export function extractElectricityToken(source: unknown): string | null {
+  if (source == null) return null;
+
+  const fromText = (text: string): string | null => {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    const labeled = trimmed.match(/Token\s*:?\s*([0-9][0-9\-\s]{6,})/i);
+    if (labeled?.[1]) return labeled[1].replace(/\s+/g, '').trim();
+    // Digits / digit-dash tokens (typical disco tokens)
+    if (/^\d[\d\-]{7,}$/.test(trimmed)) return trimmed;
+    return null;
+  };
+
+  if (typeof source === 'string') {
+    try {
+      return extractElectricityToken(JSON.parse(source));
+    } catch {
+      return fromText(source);
+    }
+  }
+
+  if (typeof source !== 'object') return null;
+  const root = source as Record<string, any>;
+  const response = (root.response && typeof root.response === 'object' ? root.response : root) as Record<
+    string,
+    any
+  >;
+
+  const candidates: unknown[] = [
+    response.Token,
+    response.token,
+    response.purchased_code,
+    root.Token,
+    root.token,
+    root.purchased_code,
+    root.message,
+    response.message,
+  ];
+
+  for (const c of candidates) {
+    if (c == null) continue;
+    const found = fromText(String(c));
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Regenerate / re-fetch prepaid electricity token for a past bill payment.
+ * POST /api/v2/bill-payments/regenerate-token  body: { billPaymentId }
+ */
+export const regenerateElectricityTokenController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const user = req.body._user;
+    const billPaymentId = String(req.body?.billPaymentId || req.query?.billPaymentId || '').trim();
+    if (!billPaymentId) {
+      return next(ApiError.badRequest('billPaymentId is required'));
+    }
+
+    const billPayment = await prisma.billPayment.findFirst({
+      where: { id: billPaymentId, userId: user.id },
+    });
+    if (!billPayment) {
+      return next(ApiError.notFound('Bill payment not found'));
+    }
+    if (!isElectricityPrepaid(billPayment)) {
+      return next(ApiError.badRequest('Regenerate token is only available for prepaid electricity'));
+    }
+
+    let token =
+      extractElectricityToken(billPayment.billReference) ||
+      extractElectricityToken(billPayment.providerResponse);
+
+    // VTpass: requery by request_id to recover token if missing / incomplete
+    if (
+      (!token || token === billPayment.palmpayOrderNo || token === billPayment.palmpayOrderId) &&
+      String(billPayment.provider || '').toLowerCase() === 'vtpass' &&
+      billPayment.palmpayOrderId
+    ) {
+      try {
+        const requery = await vtpassBillPaymentService.queryOrderStatus(billPayment.palmpayOrderId);
+        const fromRequery = extractElectricityToken(requery);
+        if (fromRequery) {
+          token = fromRequery;
+          await prisma.billPayment.update({
+            where: { id: billPayment.id },
+            data: {
+              billReference: fromRequery,
+              providerResponse: JSON.stringify(requery),
+            },
+          });
+        }
+      } catch (err: any) {
+        console.error('[regenerate-token] VTpass requery failed:', err?.message || err);
+      }
+    } else if (token && token !== billPayment.billReference) {
+      await prisma.billPayment.update({
+        where: { id: billPayment.id },
+        data: { billReference: token },
+      });
+    }
+
+    if (!token) {
+      return next(
+        ApiError.badRequest(
+          'Token not available yet. If payment just completed, wait a moment and try again.'
+        )
+      );
+    }
+
+    return new ApiResponse(
+      200,
+      {
+        billPaymentId: billPayment.id,
+        sceneCode: billPayment.sceneCode,
+        meterType: 'prepaid',
+        rechargeAccount: billPayment.rechargeAccount,
+        token,
+        billReference: token,
+      },
+      'Electricity token retrieved'
+    ).send(res);
+  } catch (error: any) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal(error?.message || 'Failed to regenerate electricity token'));
+  }
+};
+
