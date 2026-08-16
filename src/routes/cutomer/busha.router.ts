@@ -9,6 +9,10 @@ import {
   submitBushaKycController,
   verifyBushaKycController,
   getBushaWalletController,
+  getBushaDepositAddressController,
+  regenerateBushaDepositAddressController,
+  getBushaAssetsController,
+  getBushaAssetDetailController,
   previewBushaSellController,
   executeBushaSellController,
   previewBushaBuyController,
@@ -16,6 +20,8 @@ import {
   executeBushaReceiveController,
   previewBushaSendController,
   executeBushaSendController,
+  previewBushaConvertController,
+  executeBushaConvertController,
   listBushaTradesController,
   getBushaTradeController,
   refreshBushaTradeController,
@@ -34,6 +40,10 @@ router.post('/kyc/submit', authenticateUser, submitBushaKycController);
 router.post('/kyc/verify', authenticateUser, verifyBushaKycController);
 
 router.get('/wallet', authenticateUser, getBushaWalletController);
+router.get('/deposit-address', authenticateUser, getBushaDepositAddressController);
+router.post('/deposit-address/regenerate', authenticateUser, regenerateBushaDepositAddressController);
+router.get('/assets', authenticateUser, getBushaAssetsController);
+router.get('/assets/:currency', authenticateUser, getBushaAssetDetailController);
 
 router.post('/sell/quote', authenticateUser, previewBushaSellController);
 router.post('/sell/preview', authenticateUser, previewBushaSellController);
@@ -47,6 +57,12 @@ router.post('/receive', authenticateUser, executeBushaReceiveController);
 
 router.post('/send/preview', authenticateUser, previewBushaSendController);
 router.post('/send', authenticateUser, executeBushaSendController);
+
+router.post('/convert/preview', authenticateUser, previewBushaConvertController);
+router.post('/convert/quote', authenticateUser, previewBushaConvertController);
+router.post('/convert', authenticateUser, executeBushaConvertController);
+router.post('/swap/preview', authenticateUser, previewBushaConvertController);
+router.post('/swap', authenticateUser, executeBushaConvertController);
 
 router.get('/trades', authenticateUser, listBushaTradesController);
 router.get('/trades/:id', authenticateUser, getBushaTradeController);

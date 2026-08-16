@@ -304,6 +304,53 @@ class BushaClient {
   listRecipients(profileId?: string): Promise<BushaRecipient[]> {
     return this.request<BushaRecipient[]>('GET', '/v1/recipients', undefined, profileId);
   }
+
+  /**
+   * Reusable deposit address for a currency (no amount required).
+   * GET /v1/addresses/{currency}?network=…
+   */
+  getDepositAddress(
+    currency: string,
+    profileId?: string,
+    network?: string
+  ): Promise<BushaDepositAddress | BushaDepositAddress[]> {
+    const code = currency.trim().toUpperCase();
+    return this.request<BushaDepositAddress | BushaDepositAddress[]>(
+      'GET',
+      `/v1/addresses/${encodeURIComponent(code)}`,
+      undefined,
+      profileId,
+      network ? { network: network.toUpperCase() } : undefined
+    );
+  }
+
+  /** Regenerate a deposit address for currency+network. */
+  regenerateDepositAddress(
+    input: { currency: string; network: string },
+    profileId?: string
+  ): Promise<BushaDepositAddress> {
+    return this.request<BushaDepositAddress>(
+      'POST',
+      '/v1/addresses/regenerate',
+      {
+        currency: input.currency.trim().toUpperCase(),
+        network: input.network.trim().toUpperCase(),
+      },
+      profileId
+    );
+  }
 }
+
+export type BushaDepositAddress = {
+  id?: string;
+  address?: string;
+  currency?: string;
+  currency_id?: string;
+  network?: string;
+  chain?: string;
+  memo?: string | null;
+  label?: string | null;
+  created_at?: string;
+};
 
 export const bushaClient = new BushaClient();

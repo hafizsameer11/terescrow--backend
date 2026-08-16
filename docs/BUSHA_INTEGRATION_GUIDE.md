@@ -502,25 +502,20 @@ User App       Terescrow API        PalmPay           Busha
 
 User wants an address to deposit crypto onto their Busha balance.
 
-### Flow
+### Preferred path (no amount) — reusable address
+
+1. `GET /api/v2/busha/deposit-address?currency=USDT&network=TRX`  
+2. Backend calls Busha `GET /v1/addresses/{currency}?network=…` with `X-BU-PROFILE-ID` = customer.  
+3. Returns a **reusable** deposit address (no amount, no expiry from quote flow).  
+4. Optional: `POST /api/v2/busha/deposit-address/regenerate` → Busha `POST /v1/addresses/regenerate`.  
+5. Deposits credit the customer Busha balance via Busha webhooks; app shows balances from `GET /wallet` / `/assets`.
+
+### Alternate path (amount-locked quote) — admin/legacy
 
 1. `POST /api/v2/busha/receive` `{ currency, amount, network? }`  
-2. Quote same currency in/out:
-
-```json
-{
-  "source_currency": "USDT",
-  "target_currency": "USDT",
-  "source_amount": "10",
-  "pay_in": { "type": "address", "network": "TRX" },
-  "pay_out": { "type": "balance" }
-}
-```
-
-3. Create transfer → `pay_in.address`, `network`, `expires_at`.  
-4. Trade `side: cryptoRecv`, status `awaiting_crypto_deposit`.  
-5. **UI must show exact amount** — wrong amount can fail/delay.  
-6. Webhook/poll when `funds_received` / completed → mark `completed`. Crypto sits on Busha balance.
+2. Quote same currency in/out with `pay_in: { type: "address", network }` → transfer → one-time address + amount.  
+3. Trade `side: cryptoRecv`, status `awaiting_crypto_deposit`.  
+4. Prefer the reusable address path for the mobile app.
 
 ---
 
@@ -624,10 +619,14 @@ Base: **`/api/v2/busha`** (authenticated).
 | GET | `/kyc/status` |
 | POST | `/kyc/start` |
 | GET | `/wallet` |
+| GET | `/deposit-address?currency=&network=` (reusable, no amount) |
+| POST | `/deposit-address/regenerate` |
 | POST | `/buy/preview`, `/buy` |
 | POST | `/sell/preview`, `/sell` |
 | POST | `/receive` |
 | POST | `/send/preview`, `/send` |
+| GET | `/assets`, `/assets/:currency` |
+| POST | `/convert/preview`, `/convert` (also `/swap`) |
 | GET | `/trades`, `/trades/:id` |
 | POST | `/trades/:id/refresh` |
 
@@ -637,7 +636,8 @@ Mobile:
 
 - `utils/bushaApi.ts`  
 - `hooks/useBushaKycGate.ts`  
-- `app/bushakyc.tsx`  
+- `app/bushakyc.tsx` / `app/bushatrade.tsx`  
+- When `isActive`: BalanceCard, allassets, assetdetail, crypto-transactions, and swap use Busha APIs (convert = swap)  
 - buy/sell/receive/send/selectasset check status / gate  
 
 USDT network mapping helper: Tron→`TRX`, Ethereum→`ETH`, BSC→`BSC`, etc.

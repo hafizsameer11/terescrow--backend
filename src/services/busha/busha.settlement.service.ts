@@ -44,7 +44,9 @@ export async function settleBushaTradeIfNeeded(tradeId: string) {
   const isComplete =
     BUSHA_COMPLETED_STATUSES.has(bushaStatus) ||
     (trade.side === 'receive' && bushaStatus === 'funds_received') ||
-    (trade.side === 'buy' && bushaStatus === 'funds_received');
+    (trade.side === 'cryptoRecv' && bushaStatus === 'funds_received') ||
+    (trade.side === 'buy' && bushaStatus === 'funds_received') ||
+    (trade.side === 'convert' && (bushaStatus === 'funds_converted' || bushaStatus === 'completed'));
 
   if (isFailed) {
     if (trade.side === 'buy' && trade.userId && trade.fiatTransactionId && trade.status !== 'buy_reversed') {

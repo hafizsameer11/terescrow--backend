@@ -2,8 +2,11 @@
  * Busha customer deposit/withdrawal cryptos from
  * https://docs.busha.io/guides/reference/supported-currencies
  *
+ * Only assets with deposit/withdraw support are listed (shown in the app).
  * Network codes are the parenthetical values Busha uses in pay_in / pay_out
  * (e.g. USDT-TRC20 → TRX). USDT defaults to TRX so TRC20 can be tested first.
+ *
+ * App surfaces (assets, buy, sell, receive, swap) show the full catalog below.
  */
 
 export type BushaCryptoAsset = {
@@ -37,8 +40,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'TRX',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
   {
     code: 'BTC',
@@ -57,8 +60,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'ETH',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
   {
     code: 'USDC',
@@ -67,8 +70,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'TRX',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
   {
     code: 'BNB',
@@ -77,8 +80,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'BSC',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
   {
     code: 'SOL',
@@ -87,8 +90,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'SOL',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
   {
     code: 'TON',
@@ -107,8 +110,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'LTC',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
   {
     code: 'XRP',
@@ -117,8 +120,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'XRP',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
   {
     code: 'XLM',
@@ -127,8 +130,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'XLM',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
   {
     code: 'POL',
@@ -137,8 +140,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'MATIC',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
   {
     code: 'SHIB',
@@ -147,8 +150,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'ETH',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
   {
     code: 'MC',
@@ -157,8 +160,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'ETH',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
   {
     code: 'TRUMP',
@@ -167,8 +170,8 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
     defaultNetwork: 'SOL',
     deposit: true,
     withdraw: true,
-    rampBuy: false,
-    rampSell: false,
+    rampBuy: true,
+    rampSell: true,
   },
 ];
 

@@ -9,12 +9,18 @@ import {
   submitAppBushaKyc,
   verifyAppBushaKyc,
   getAppBushaWallet,
+  getAppBushaDepositAddress,
+  regenerateAppBushaDepositAddress,
+  getAppBushaAssets,
+  getAppBushaAssetDetail,
   previewAppBushaSell,
   executeAppBushaSell,
   executeAppBushaBuy,
   executeAppBushaReceive,
   executeAppBushaSend,
   previewAppBushaSend,
+  previewAppBushaConvert,
+  executeAppBushaConvert,
   getAppBushaTrade,
   refreshAppBushaTrade,
   listAppBushaTrades,
@@ -165,6 +171,61 @@ export async function getBushaWalletController(req: Request, res: Response, next
   }
 }
 
+export async function getBushaDepositAddressController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const currency = String(req.query.currency || req.params.currency || '').trim();
+    if (!currency) throw ApiError.badRequest('currency is required');
+    const network = req.query.network ? String(req.query.network) : undefined;
+    const data = await getAppBushaDepositAddress(userId(req), currency, network);
+    return new ApiResponse(200, data, 'Busha deposit address fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to fetch Busha deposit address'));
+  }
+}
+
+export async function regenerateBushaDepositAddressController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { currency, network } = req.body ?? {};
+    if (!currency) throw ApiError.badRequest('currency is required');
+    const data = await regenerateAppBushaDepositAddress(
+      userId(req),
+      String(currency),
+      network ? String(network) : undefined
+    );
+    return new ApiResponse(200, data, 'Busha deposit address regenerated').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to regenerate Busha deposit address'));
+  }
+}
+
+export async function getBushaAssetsController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await getAppBushaAssets(userId(req));
+    return new ApiResponse(200, data, 'Busha assets fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to fetch Busha assets'));
+  }
+}
+
+export async function getBushaAssetDetailController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const currency = String(req.params.currency || '').trim();
+    if (!currency) throw ApiError.badRequest('currency is required');
+    const data = await getAppBushaAssetDetail(userId(req), currency);
+    return new ApiResponse(200, data, 'Busha asset detail fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to fetch Busha asset detail'));
+  }
+}
+
 export async function previewBushaSellController(req: Request, res: Response, next: NextFunction) {
   try {
     const { sourceCurrency, sourceAmount, fundingMethod, network } = req.body ?? {};
@@ -293,6 +354,42 @@ export async function executeBushaSendController(req: Request, res: Response, ne
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     return next(ApiError.internal('Failed to execute Busha send'));
+  }
+}
+
+export async function previewBushaConvertController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { sourceCurrency, targetCurrency, sourceAmount } = req.body ?? {};
+    if (!sourceCurrency || !targetCurrency || !sourceAmount) {
+      throw ApiError.badRequest('sourceCurrency, targetCurrency, and sourceAmount are required');
+    }
+    const data = await previewAppBushaConvert(userId(req), {
+      sourceCurrency: String(sourceCurrency),
+      targetCurrency: String(targetCurrency),
+      sourceAmount: String(sourceAmount),
+    });
+    return new ApiResponse(200, data, 'Busha convert preview').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to preview Busha convert'));
+  }
+}
+
+export async function executeBushaConvertController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { sourceCurrency, targetCurrency, sourceAmount } = req.body ?? {};
+    if (!sourceCurrency || !targetCurrency || !sourceAmount) {
+      throw ApiError.badRequest('sourceCurrency, targetCurrency, and sourceAmount are required');
+    }
+    const data = await executeAppBushaConvert(userId(req), {
+      sourceCurrency: String(sourceCurrency),
+      targetCurrency: String(targetCurrency),
+      sourceAmount: String(sourceAmount),
+    });
+    return new ApiResponse(200, data, 'Busha convert initiated').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to execute Busha convert'));
   }
 }
 

@@ -10,7 +10,11 @@ import {
   executeBushaBuy,
   executeBushaCryptoReceive,
   executeBushaCryptoSend,
+  executeBushaConvert,
+  previewBushaConvertQuote,
   getBushaCustomerWallet,
+  getBushaCustomerDepositAddress,
+  regenerateBushaCustomerDepositAddress,
   refreshBushaCustomer,
   submitBushaCustomerKyc,
   verifyBushaCustomer,
@@ -19,7 +23,12 @@ import {
   refreshBushaTrade,
   getBushaConfigRow,
 } from './busha.trade.service';
-import { resolveBushaNetwork, getBushaCurrenciesForAdmin } from './busha.currencies';
+import {
+  resolveBushaNetwork,
+  getBushaCurrenciesForAdmin,
+  BUSHA_CRYPTO_ASSETS,
+  getBushaCryptoAsset,
+} from './busha.currencies';
 import { fiatWalletService } from '../fiat/fiat.wallet.service';
 import { settleBushaTradeIfNeeded } from './busha.settlement.service';
 import { bushaConfig } from './busha.config';
@@ -165,6 +174,273 @@ export async function getAppBushaWallet(userId: number, currency?: string) {
   await assertBushaAppActive();
   const customer = await ensureBushaCustomerForUser(userId);
   return getBushaCustomerWallet(customer.id, currency);
+}
+
+/** Reusable deposit address — preferred receive path (no amount). */
+export async function getAppBushaDepositAddress(
+  userId: number,
+  currency: string,
+  network?: string
+) {
+  await assertBushaAppActive();
+  const customer = await ensureBushaCustomerForUser(userId);
+  await assertCustomerTradeReady(customer.id, false);
+  return getBushaCustomerDepositAddress(customer.id, currency, network);
+}
+
+export async function regenerateAppBushaDepositAddress(
+  userId: number,
+  currency: string,
+  network?: string
+) {
+  await assertBushaAppActive();
+  const customer = await ensureBushaCustomerForUser(userId);
+  await assertCustomerTradeReady(customer.id, false);
+  return regenerateBushaCustomerDepositAddress(customer.id, currency, network);
+}
+
+/** Normalized crypto assets for mobile (Busha balances + supported currency catalog). */
+export async function getAppBushaAssets(userId: number) {
+  await assertBushaAppActive();
+
+  let balances: any[] = [];
+  const customer = await bushaCustomerModel.findUnique({ where: { userId } });
+  if (customer) {
+    try {
+      const wallet = await getBushaCustomerWallet(customer.id);
+      balances = wallet.balances || [];
+    } catch {
+      balances = [];
+    }
+  }
+
+  const balanceByCurrency = new Map<string, any>();
+  for (const b of balances) {
+    const code = String(b.currency || '').toUpperCase();
+    if (!code) continue;
+    if (String(b.type || '').toLowerCase() === 'fiat') continue;
+    balanceByCurrency.set(code, b);
+  }
+
+  const assets = BUSHA_CRYPTO_ASSETS.map((asset, index) => {
+    const bal = balanceByCurrency.get(asset.code);
+    const available = String(bal?.available?.amount ?? bal?.total?.amount ?? '0');
+    return {
+      id: -(index + 1),
+      currency: asset.code,
+      blockchain: asset.defaultNetwork,
+      symbol: asset.code,
+      name: asset.name,
+      balance: available,
+      availableBalance: available,
+      balanceUsd: '0',
+      balanceNaira: '0',
+      price: '0',
+      nairaPrice: '0',
+      depositAddress: '',
+      active: true,
+      frozen: false,
+      networks: asset.networks,
+      defaultNetwork: asset.defaultNetwork,
+      source: 'busha' as const,
+    };
+  });
+
+  // Include any unexpected Busha crypto balances not in catalog
+  for (const [code, bal] of balanceByCurrency.entries()) {
+    if (getBushaCryptoAsset(code)) continue;
+    const available = String(bal?.available?.amount ?? bal?.total?.amount ?? '0');
+    assets.push({
+      id: -(assets.length + 1),
+      currency: code,
+      blockchain: code,
+      symbol: code,
+      name: code,
+      balance: available,
+      availableBalance: available,
+      balanceUsd: '0',
+      balanceNaira: '0',
+      price: '0',
+      nairaPrice: '0',
+      depositAddress: '',
+      active: true,
+      frozen: false,
+      networks: [code],
+      defaultNetwork: code,
+      source: 'busha' as const,
+    });
+  }
+
+  let totalUsd = 0;
+  for (const a of assets) {
+    const amt = parseFloat(a.balance || '0');
+    // Stablecoins ≈ 1 USD; others filled by client CMC quotes
+    if (['USDT', 'USDC', 'USD'].includes(a.currency)) {
+      totalUsd += Number.isFinite(amt) ? amt : 0;
+      a.balanceUsd = String(Number.isFinite(amt) ? amt : 0);
+    }
+  }
+
+  return {
+    assets,
+    totals: {
+      totalUsd: String(totalUsd),
+      totalNaira: '0',
+    },
+    count: assets.length,
+    source: 'busha' as const,
+  };
+}
+
+export async function getAppBushaAssetDetail(userId: number, currency: string) {
+  await assertBushaAppActive();
+  const code = currency.toUpperCase();
+  const meta = getBushaCryptoAsset(code);
+  const assets = await getAppBushaAssets(userId);
+  const asset = assets.assets.find((a) => a.currency === code);
+  if (!asset && !meta) {
+    throw ApiError.notFound(`Asset ${code} not found`);
+  }
+
+  const row = asset || {
+    id: -1,
+    currency: code,
+    blockchain: meta?.defaultNetwork || code,
+    symbol: code,
+    name: meta?.name || code,
+    balance: '0',
+    availableBalance: '0',
+    balanceUsd: '0',
+    balanceNaira: '0',
+    price: '0',
+    nairaPrice: '0',
+    depositAddress: '',
+    active: true,
+    frozen: false,
+    networks: meta?.networks || [code],
+    defaultNetwork: meta?.defaultNetwork || code,
+    source: 'busha' as const,
+  };
+
+  const trades = await bushaTradeLogModel.findMany({
+    where: {
+      userId,
+      OR: [{ sourceCurrency: code }, { targetCurrency: code }],
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 30,
+  });
+
+  return {
+    ...row,
+    accountCode: code,
+    accountId: code,
+    availableBalance: row.balance,
+    transactions: trades.map((t: any) => ({
+      id: t.id,
+      transactionId: t.id,
+      transactionType: mapBushaSideToTxType(t.side),
+      type: mapBushaSideToTxType(t.side),
+      cryptocurrencyType: t.side === 'convert' ? `${t.sourceCurrency}→${t.targetCurrency}` : t.sourceCurrency,
+      currency: t.sourceCurrency,
+      amount: t.sourceAmount,
+      amountUsd: t.targetAmount || '0',
+      status: t.status,
+      createdAt: t.createdAt,
+      symbol: t.sourceCurrency,
+    })),
+    source: 'busha' as const,
+  };
+}
+
+function mapBushaSideToTxType(side: string): string {
+  const s = String(side || '').toLowerCase();
+  if (s === 'buy') return 'BUY';
+  if (s === 'sell') return 'SELL';
+  if (s === 'cryptorecv' || s === 'receive') return 'RECEIVE';
+  if (s === 'cryptosend' || s === 'send') return 'SEND';
+  if (s === 'convert' || s === 'swap') return 'SWAP';
+  return s.toUpperCase();
+}
+
+export async function previewAppBushaConvert(
+  userId: number,
+  params: {
+    sourceCurrency: string;
+    targetCurrency: string;
+    sourceAmount: string;
+  }
+) {
+  await assertBushaAppActive();
+  const customer = await ensureBushaCustomerForUser(userId);
+  await assertCustomerTradeReady(customer.id, false);
+
+  const wallet = await getBushaCustomerWallet(customer.id, params.sourceCurrency.toUpperCase());
+  const bal = wallet.balances.find(
+    (b: any) => String(b.currency || '').toUpperCase() === params.sourceCurrency.toUpperCase()
+  );
+  const available = parseFloat(bal?.available?.amount || '0');
+  const amount = parseFloat(params.sourceAmount);
+
+  const { quote } = await previewBushaConvertQuote({
+    customerId: customer.id,
+    sourceCurrency: params.sourceCurrency,
+    targetCurrency: params.targetCurrency,
+    amount: params.sourceAmount,
+  });
+
+  return {
+    quote,
+    available: String(available),
+    sufficient: Number.isFinite(amount) && amount > 0 && available >= amount,
+    sourceCurrency: params.sourceCurrency.toUpperCase(),
+    targetCurrency: params.targetCurrency.toUpperCase(),
+    sourceAmount: params.sourceAmount,
+    targetAmount: (quote as any).target_amount || null,
+    rate: (quote as any).rate || null,
+    fees: (quote as any).fees || [],
+    expiresAt: (quote as any).expires_at || null,
+    canProceed: Number.isFinite(amount) && amount > 0 && available >= amount,
+    hasSufficientBalance: Number.isFinite(amount) && amount > 0 && available >= amount,
+  };
+}
+
+export async function executeAppBushaConvert(
+  userId: number,
+  params: {
+    sourceCurrency: string;
+    targetCurrency: string;
+    sourceAmount: string;
+  }
+) {
+  await assertBushaAppActive();
+  const customer = await ensureBushaCustomerForUser(userId);
+  await assertCustomerTradeReady(customer.id, false);
+
+  const preview = await previewAppBushaConvert(userId, params);
+  if (!preview.hasSufficientBalance) {
+    throw ApiError.badRequest('Insufficient Busha balance for this convert');
+  }
+
+  const trade = await executeBushaConvert({
+    adminUserId: userId,
+    customerId: customer.id,
+    sourceCurrency: params.sourceCurrency,
+    targetCurrency: params.targetCurrency,
+    sourceAmount: params.sourceAmount,
+  });
+
+  const updated = await bushaTradeLogModel.update({
+    where: { id: trade.id },
+    data: { userId },
+    include: {
+      customer: true,
+      initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
+    },
+  });
+
+  await settleBushaTradeIfNeeded(updated.id);
+  return getBushaTrade(updated.id);
 }
 
 export async function previewAppBushaSell(

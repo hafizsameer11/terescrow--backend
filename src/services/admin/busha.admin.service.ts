@@ -1007,6 +1007,108 @@ export async function executeBushaCryptoSend(params: {
   return trade;
 }
 
+/** Crypto → crypto balance convert (Busha swap). */
+export async function executeBushaConvert(params: {
+  adminUserId: number;
+  customerId: string;
+  sourceCurrency: string;
+  targetCurrency: string;
+  sourceAmount: string;
+}) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(params.customerId);
+
+  const sourceCurrency = params.sourceCurrency.toUpperCase();
+  const targetCurrency = params.targetCurrency.toUpperCase();
+  const sourceAmount = String(params.sourceAmount).trim();
+
+  if (sourceCurrency === targetCurrency) {
+    throw ApiError.badRequest('sourceCurrency and targetCurrency must differ for convert');
+  }
+  if (!BUSHA_CRYPTO_CURRENCIES.includes(sourceCurrency)) {
+    throw ApiError.badRequest(`Unsupported source currency: ${sourceCurrency}`);
+  }
+  if (!BUSHA_CRYPTO_CURRENCIES.includes(targetCurrency)) {
+    throw ApiError.badRequest(`Unsupported target currency: ${targetCurrency}`);
+  }
+  const amountNum = parseFloat(sourceAmount);
+  if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    throw ApiError.badRequest('sourceAmount must be greater than 0');
+  }
+
+  const quote = await bushaClient.createQuote(
+    {
+      source_currency: sourceCurrency,
+      target_currency: targetCurrency,
+      source_amount: sourceAmount,
+      pay_in: { type: 'balance' },
+      pay_out: { type: 'balance' },
+    } as any,
+    customer.bushaProfileId
+  );
+
+  const transfer = await bushaClient.createTransfer(quote.id, customer.bushaProfileId);
+  const statusLower = String(transfer.status || '').toLowerCase();
+  const alreadyDone = ['completed', 'funds_converted', 'funds_delivered'].includes(statusLower);
+
+  return bushaTradeLogModel.create({
+    data: {
+      id: uuidv4(),
+      customerId: customer.id,
+      side: 'convert',
+      sourceCurrency,
+      targetCurrency,
+      sourceAmount,
+      targetAmount: (quote as any).target_amount ?? null,
+      bushaQuoteId: quote.id,
+      bushaTransferId: transfer.id,
+      bushaStatus: transfer.status,
+      status: alreadyDone ? 'completed' : 'awaiting_busha',
+      initiatedById: params.adminUserId,
+      completedAt: alreadyDone ? new Date() : null,
+      providerResponse: { quote, transfer } as any,
+    },
+    include: {
+      customer: true,
+      initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
+    },
+  });
+}
+
+export async function previewBushaConvertQuote(params: {
+  customerId: string;
+  sourceCurrency: string;
+  targetCurrency: string;
+  amount: string;
+  amountField?: 'source' | 'target';
+}) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(params.customerId);
+
+  const sourceCurrency = params.sourceCurrency.toUpperCase();
+  const targetCurrency = params.targetCurrency.toUpperCase();
+  const amount = String(params.amount).trim();
+
+  if (sourceCurrency === targetCurrency) {
+    throw ApiError.badRequest('sourceCurrency and targetCurrency must differ for convert');
+  }
+
+  const quoteInput: Record<string, unknown> = {
+    source_currency: sourceCurrency,
+    target_currency: targetCurrency,
+    pay_in: { type: 'balance' },
+    pay_out: { type: 'balance' },
+  };
+  if (params.amountField === 'target') {
+    quoteInput.target_amount = amount;
+  } else {
+    quoteInput.source_amount = amount;
+  }
+
+  const quote = await bushaClient.createQuote(quoteInput as any, customer.bushaProfileId);
+  return { quote, customer };
+}
+
 export async function getBushaCustomerWallet(customerId: string, currency?: string) {
   assertBushaConfigured();
   const customer = await getCustomerOrThrow(customerId);
@@ -1126,6 +1228,94 @@ export async function listBushaCustomerRecipients(customerId: string) {
       email: customer.email,
     },
     recipients,
+  };
+}
+
+export async function getBushaCustomerDepositAddress(
+  customerId: string,
+  currency: string,
+  network?: string
+) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(customerId);
+  const code = currency.trim().toUpperCase();
+  let resolvedNetwork: string | undefined;
+  try {
+    resolvedNetwork = resolveBushaNetwork(code, network);
+  } catch (error: any) {
+    throw ApiError.badRequest(error?.message || `Unsupported currency/network for ${code}`);
+  }
+
+  const raw = await bushaClient.getDepositAddress(code, customer.bushaProfileId, resolvedNetwork);
+  const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
+  // Prefer exact network match when Busha returns multiple
+  const match =
+    list.find((a) => {
+      const n = String(a.network || a.chain || '').toUpperCase();
+      return n === resolvedNetwork;
+    }) || list[0];
+
+  if (!match?.address) {
+    throw ApiError.notFound(
+      `No Busha deposit address for ${code} on ${resolvedNetwork}. Try regenerating.`
+    );
+  }
+
+  return {
+    customer: {
+      id: customer.id,
+      bushaProfileId: customer.bushaProfileId,
+      email: customer.email,
+    },
+    currency: code,
+    network: String(match.network || match.chain || resolvedNetwork).toUpperCase(),
+    address: String(match.address),
+    memo: match.memo || null,
+    reusable: true,
+    expiresAt: null as string | null,
+    provider: match,
+  };
+}
+
+export async function regenerateBushaCustomerDepositAddress(
+  customerId: string,
+  currency: string,
+  network?: string
+) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(customerId);
+  const code = currency.trim().toUpperCase();
+  let resolvedNetwork: string;
+  try {
+    resolvedNetwork = resolveBushaNetwork(code, network);
+  } catch (error: any) {
+    throw ApiError.badRequest(error?.message || `Unsupported currency/network for ${code}`);
+  }
+
+  const raw = await bushaClient.regenerateDepositAddress(
+    { currency: code, network: resolvedNetwork },
+    customer.bushaProfileId
+  );
+  const address = (raw as any)?.address;
+  if (!address) {
+    // Some responses may only confirm regeneration — re-fetch
+    return getBushaCustomerDepositAddress(customerId, code, resolvedNetwork);
+  }
+
+  return {
+    customer: {
+      id: customer.id,
+      bushaProfileId: customer.bushaProfileId,
+      email: customer.email,
+    },
+    currency: code,
+    network: String((raw as any).network || (raw as any).chain || resolvedNetwork).toUpperCase(),
+    address: String(address),
+    memo: (raw as any).memo || null,
+    reusable: true,
+    expiresAt: null as string | null,
+    provider: raw,
   };
 }
 
