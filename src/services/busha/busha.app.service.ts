@@ -222,9 +222,21 @@ export async function getAppBushaAssets(userId: number) {
     balanceByCurrency.set(code, b);
   }
 
+  const readAmount = (bal: any): string => {
+    if (!bal) return '0';
+    const raw =
+      bal?.available?.amount ??
+      bal?.available ??
+      bal?.total?.amount ??
+      bal?.total ??
+      '0';
+    const n = parseFloat(String(raw).replace(/,/g, ''));
+    return Number.isFinite(n) ? String(n) : '0';
+  };
+
   const assets = BUSHA_CRYPTO_ASSETS.map((asset, index) => {
     const bal = balanceByCurrency.get(asset.code);
-    const available = String(bal?.available?.amount ?? bal?.total?.amount ?? '0');
+    const available = readAmount(bal);
     return {
       id: -(index + 1),
       currency: asset.code,
@@ -249,7 +261,7 @@ export async function getAppBushaAssets(userId: number) {
   // Include any unexpected Busha crypto balances not in catalog
   for (const [code, bal] of balanceByCurrency.entries()) {
     if (getBushaCryptoAsset(code)) continue;
-    const available = String(bal?.available?.amount ?? bal?.total?.amount ?? '0');
+    const available = readAmount(bal);
     assets.push({
       id: -(assets.length + 1),
       currency: code,
@@ -335,7 +347,12 @@ export async function getAppBushaAssetDetail(userId: number, currency: string) {
     ...row,
     accountCode: code,
     accountId: code,
-    availableBalance: row.balance,
+    availableBalance: row.availableBalance || row.balance,
+    accountBalance: row.availableBalance || row.balance,
+    availableBalanceUsd: row.balanceUsd,
+    accountBalanceUsd: row.balanceUsd,
+    availableBalanceNaira: row.balanceNaira,
+    accountBalanceNaira: row.balanceNaira,
     transactions: trades.map((t: any) => ({
       id: t.id,
       transactionId: t.id,
