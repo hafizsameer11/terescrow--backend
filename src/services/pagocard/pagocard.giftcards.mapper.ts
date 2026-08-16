@@ -51,6 +51,21 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string | unde
   return undefined;
 }
 
+/** Read code/name from nested objects or first item of arrays (e.g. regions[0], categories[0]). */
+function firstNestedString(value: unknown, keys: string[]): string | undefined {
+  if (Array.isArray(value) && value.length > 0) {
+    const first = value[0];
+    if (first && typeof first === 'object' && !Array.isArray(first)) {
+      return pickString(first as Record<string, unknown>, keys);
+    }
+    if (first != null && String(first).trim()) return String(first).trim();
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return pickString(value as Record<string, unknown>, keys);
+  }
+  return undefined;
+}
+
 export function normalizeGiftcard(raw: Record<string, unknown>): PagocardGiftcard | null {
   const sku = pickString(raw, ['sku', 'SKU', 'id', 'product_id', 'productId']);
   if (!sku) return null;
@@ -60,21 +75,36 @@ export function normalizeGiftcard(raw: Record<string, unknown>): PagocardGiftcar
     ? fixedAmountsRaw.map((v) => asNumber(v)).filter((v): v is number => v != null)
     : undefined;
 
+  const regionCode =
+    firstNestedString(raw.regions, ['code', 'iso', 'isoName', 'iso_name', 'country_code', 'countryCode']) ||
+    pickString(raw, ['region', 'country', 'country_code', 'countryCode']);
+  const countryName =
+    firstNestedString(raw.regions, ['name', 'country_name', 'countryName', 'title']) ||
+    pickString(raw, ['country', 'region', 'country_name', 'countryName']);
+  const categoryName =
+    firstNestedString(raw.categories, ['name', 'title', 'category']) ||
+    firstNestedString(raw.category, ['name', 'title', 'category']) ||
+    pickString(raw, ['category', 'type']);
+
   return {
     sku,
     title: pickString(raw, ['title', 'name', 'product_name', 'productName']),
     name: pickString(raw, ['name', 'title']),
     currency: pickString(raw, ['currency', 'currency_code', 'currencyCode']) || 'USD',
-    region: pickString(raw, ['region', 'country', 'country_code', 'countryCode']),
-    country: pickString(raw, ['country', 'region', 'country_name', 'countryName']),
-    minAmount: asNumber(raw.min_amount ?? raw.minAmount ?? raw.min_value ?? raw.minValue),
-    maxAmount: asNumber(raw.max_amount ?? raw.maxAmount ?? raw.max_value ?? raw.maxValue),
+    region: regionCode || countryName,
+    country: countryName || regionCode,
+    minAmount: asNumber(
+      raw.min_amount ?? raw.minAmount ?? raw.min_price ?? raw.minPrice ?? raw.min_value ?? raw.minValue
+    ),
+    maxAmount: asNumber(
+      raw.max_amount ?? raw.maxAmount ?? raw.max_price ?? raw.maxPrice ?? raw.max_value ?? raw.maxValue
+    ),
     fixedAmounts,
     image: pickString(raw, ['image', 'image_url', 'imageUrl', 'logo', 'logo_url', 'logoUrl']),
     imageUrl: pickString(raw, ['image_url', 'imageUrl', 'image', 'logo', 'logo_url', 'logoUrl']),
     logo: pickString(raw, ['logo', 'logo_url', 'logoUrl', 'image', 'image_url', 'imageUrl']),
     description: pickString(raw, ['description', 'details']),
-    category: pickString(raw, ['category', 'type']),
+    category: categoryName,
     instructions: pickString(raw, ['instructions', 'redemption_instructions', 'redeem_instruction']),
     raw,
   };
@@ -131,24 +161,45 @@ export function mapPagocardGiftcardToApiProduct(card: PagocardGiftcard) {
 
 export function extractPagocardGiftcards(payload: unknown): PagocardGiftcardListResult {
   const root = (payload || {}) as Record<string, unknown>;
-  const data = (root.data && typeof root.data === 'object' ? root.data : root) as Record<string, unknown>;
+  // PagoCards: { success, data: [...], meta: { current_page, per_page, total, last_page } }
+  // Note: Array.isArray(x) ⇒ typeof x === 'object', so do not treat arrays as nested data objects.
+  const dataObj =
+    root.data && typeof root.data === 'object' && !Array.isArray(root.data)
+      ? (root.data as Record<string, unknown>)
+      : null;
+  const meta =
+    root.meta && typeof root.meta === 'object' && !Array.isArray(root.meta)
+      ? (root.meta as Record<string, unknown>)
+      : {};
 
-  const list =
-    (Array.isArray(data.giftcards) && data.giftcards) ||
-    (Array.isArray(data.items) && data.items) ||
-    (Array.isArray(data.data) && data.data) ||
-    (Array.isArray(root.giftcards) && root.giftcards) ||
-    (Array.isArray(payload) && payload) ||
-    [];
+  const list: unknown[] = Array.isArray(root.data)
+    ? root.data
+    : (Array.isArray(dataObj?.giftcards) && (dataObj!.giftcards as unknown[])) ||
+      (Array.isArray(dataObj?.items) && (dataObj!.items as unknown[])) ||
+      (Array.isArray(dataObj?.data) && (dataObj!.data as unknown[])) ||
+      (Array.isArray(root.giftcards) && (root.giftcards as unknown[])) ||
+      (Array.isArray(root.items) && (root.items as unknown[])) ||
+      (Array.isArray(payload) && (payload as unknown[])) ||
+      [];
 
-  const items = (list as Record<string, unknown>[])
+  const items = list
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
     .map((item) => normalizeGiftcard(item))
     .filter((item): item is PagocardGiftcard => !!item);
 
-  const page = asNumber(data.page ?? data.current_page ?? root.page) || 1;
-  const limit = asNumber(data.limit ?? data.per_page ?? root.limit) || items.length || 20;
-  const total = asNumber(data.total ?? data.total_count ?? root.total) || items.length;
-  const totalPages = asNumber(data.total_pages ?? data.totalPages ?? root.total_pages) || Math.max(1, Math.ceil(total / limit));
+  const page =
+    asNumber(meta.current_page ?? meta.page ?? dataObj?.page ?? dataObj?.current_page ?? root.page) || 1;
+  const limit =
+    asNumber(meta.per_page ?? meta.limit ?? dataObj?.limit ?? dataObj?.per_page ?? root.limit) ||
+    items.length ||
+    20;
+  const total =
+    asNumber(meta.total ?? meta.total_count ?? dataObj?.total ?? dataObj?.total_count ?? root.total) ||
+    items.length;
+  const totalPages =
+    asNumber(
+      meta.last_page ?? meta.total_pages ?? meta.totalPages ?? dataObj?.total_pages ?? dataObj?.totalPages ?? root.total_pages
+    ) || Math.max(1, Math.ceil(total / Math.max(limit, 1)));
 
   return { items, page, limit, total, totalPages };
 }
