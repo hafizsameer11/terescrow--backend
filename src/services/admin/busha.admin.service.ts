@@ -1298,25 +1298,30 @@ export async function regenerateBushaCustomerDepositAddress(
     customer.bushaProfileId
   );
   const address = (raw as any)?.address;
+  // Busha often returns success with no `data` on regenerate — always re-fetch the live address.
   if (!address) {
-    // Some responses may only confirm regeneration — re-fetch
     return getBushaCustomerDepositAddress(customerId, code, resolvedNetwork);
   }
 
-  return {
-    customer: {
-      id: customer.id,
-      bushaProfileId: customer.bushaProfileId,
-      email: customer.email,
-    },
-    currency: code,
-    network: String((raw as any).network || (raw as any).chain || resolvedNetwork).toUpperCase(),
-    address: String(address),
-    memo: (raw as any).memo || null,
-    reusable: true,
-    expiresAt: null as string | null,
-    provider: raw,
-  };
+  // Prefer re-fetch so we return the post-regeneration address (not a stale payload).
+  try {
+    return await getBushaCustomerDepositAddress(customerId, code, resolvedNetwork);
+  } catch {
+    return {
+      customer: {
+        id: customer.id,
+        bushaProfileId: customer.bushaProfileId,
+        email: customer.email,
+      },
+      currency: code,
+      network: String((raw as any).network || (raw as any).chain || resolvedNetwork).toUpperCase(),
+      address: String(address),
+      memo: (raw as any).memo || null,
+      reusable: true,
+      expiresAt: null as string | null,
+      provider: raw,
+    };
+  }
 }
 
 export async function listBushaTrades(limit = 50) {

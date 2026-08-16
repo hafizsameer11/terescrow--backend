@@ -171,7 +171,8 @@ class BushaClient {
     path: string,
     body?: unknown,
     profileId?: string,
-    query?: Record<string, string | undefined>
+    query?: Record<string, string | undefined>,
+    options?: { allowEmptyData?: boolean }
   ): Promise<T> {
     const url = this.buildUrl(path, query);
     try {
@@ -182,7 +183,15 @@ class BushaClient {
         data: body,
         timeout: 60_000,
       });
-      if (response.data?.status !== 'success' || response.data.data === undefined) {
+      const status = String(response.data?.status || '').toLowerCase();
+      if (status !== 'success') {
+        throw ApiError.badRequest(response.data?.message || 'Busha API returned an unexpected response');
+      }
+      // Some endpoints (e.g. POST /v1/addresses/regenerate) return success with no `data`.
+      if (response.data.data === undefined || response.data.data === null) {
+        if (options?.allowEmptyData) {
+          return undefined as T;
+        }
         throw ApiError.badRequest(response.data?.message || 'Busha API returned an unexpected response');
       }
       return response.data.data;
@@ -328,15 +337,17 @@ class BushaClient {
   regenerateDepositAddress(
     input: { currency: string; network: string },
     profileId?: string
-  ): Promise<BushaDepositAddress> {
-    return this.request<BushaDepositAddress>(
+  ): Promise<BushaDepositAddress | undefined> {
+    return this.request<BushaDepositAddress | undefined>(
       'POST',
       '/v1/addresses/regenerate',
       {
         currency: input.currency.trim().toUpperCase(),
         network: input.network.trim().toUpperCase(),
       },
-      profileId
+      profileId,
+      undefined,
+      { allowEmptyData: true }
     );
   }
 }
