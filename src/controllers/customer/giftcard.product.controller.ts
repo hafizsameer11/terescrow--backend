@@ -238,9 +238,17 @@ export const getProductByIdController = async (
     const giftProvider = resolveGiftCardProvider(typeof provider === 'string' ? provider : undefined);
 
     if (giftProvider === 'pagocard') {
-      const card = await pagocardGiftcardsService.getGiftcardBySku(String(productId));
-      const formattedProduct = mapPagocardGiftcardToApiProduct(card);
-      return new ApiResponse(200, formattedProduct, 'Product retrieved successfully').send(res);
+      try {
+        const card = await pagocardGiftcardsService.getGiftcardBySku(String(productId));
+        const formattedProduct = mapPagocardGiftcardToApiProduct(card);
+        return new ApiResponse(200, formattedProduct, 'Product retrieved successfully').send(res);
+      } catch (error: any) {
+        const message = error?.message || `Gift card SKU ${productId} not found`;
+        if (/not found/i.test(message)) {
+          throw ApiError.notFound(message);
+        }
+        throw error;
+      }
     }
 
     // Always fetch from Reloadly to get complete and up-to-date product data
@@ -451,23 +459,17 @@ export const getCountriesController = async (
     const giftProvider = resolveGiftCardProvider(typeof provider === 'string' ? provider : undefined);
 
     if (giftProvider === 'pagocard') {
-      const pagocardResult = await pagocardGiftcardsService.getGiftcards({ page: 1, limit: 200 });
-      const countries = new Map<string, { isoName: string; name: string; currencyCode: string; currencyName: string; flag: string | null }>();
-      for (const item of pagocardResult.items) {
-        const code = item.region || item.country || 'US';
-        if (!countries.has(code)) {
-          countries.set(code, {
-            isoName: code,
-            name: item.country || code,
-            currencyCode: item.currency || 'USD',
-            currencyName: item.currency || 'USD',
-            flag: null,
-          });
-        }
-      }
+      const countries = await pagocardGiftcardsService.getGiftcardCountries();
+      const formattedCountries = countries.map((country) => ({
+        isoName: country.code,
+        name: country.name,
+        currencyCode: 'USD',
+        currencyName: 'USD',
+        flag: null,
+      }));
       return new ApiResponse(200, {
-        countries: Array.from(countries.values()),
-        total: countries.size,
+        countries: formattedCountries,
+        total: formattedCountries.length,
       }, 'Countries retrieved successfully').send(res);
     }
 
@@ -539,15 +541,12 @@ export const getCategoriesController = async (
     const giftProvider = resolveGiftCardProvider(typeof provider === 'string' ? provider : undefined);
 
     if (giftProvider === 'pagocard') {
-      const pagocardResult = await pagocardGiftcardsService.getGiftcards({ page: 1, limit: 200 });
-      const categories = new Map<string, { id: string; name: string; value: string }>();
-      for (const item of pagocardResult.items) {
-        const name = item.category || 'Gift Card';
-        if (!categories.has(name)) {
-          categories.set(name, { id: name, name, value: name });
-        }
-      }
-      const formattedCategories = Array.from(categories.values());
+      const categories = await pagocardGiftcardsService.getGiftcardCategories();
+      const formattedCategories = categories.map((category) => ({
+        id: category.name,
+        name: category.name,
+        value: category.name,
+      }));
       return new ApiResponse(200, {
         categories: formattedCategories,
         total: formattedCategories.length,

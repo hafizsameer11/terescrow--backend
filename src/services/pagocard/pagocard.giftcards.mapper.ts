@@ -204,9 +204,113 @@ export function extractPagocardGiftcards(payload: unknown): PagocardGiftcardList
   return { items, page, limit, total, totalPages };
 }
 
+/** GET /api/getgiftcard/{sku} returns `{ success, giftcard: {...} }` (not wrapped in data). */
+export function extractPagocardGiftcardBySku(payload: unknown): PagocardGiftcard | null {
+  const root = (payload || {}) as Record<string, unknown>;
+  const giftcard =
+    root.giftcard && typeof root.giftcard === 'object' && !Array.isArray(root.giftcard)
+      ? (root.giftcard as Record<string, unknown>)
+      : root.data && typeof root.data === 'object' && !Array.isArray(root.data)
+        ? (root.data as Record<string, unknown>)
+        : null;
+  if (!giftcard) return null;
+  return normalizeGiftcard(giftcard);
+}
+
+export type PagocardAvailabilityResult = {
+  available: boolean;
+  message: string | null;
+  deliveryType?: number;
+  deliveryTypeText?: string;
+  raw: Record<string, unknown>;
+};
+
+/** GET /api/checkskuavailability/{sku} → `{ success, availability: { availability, detail, ... } }` */
+export function extractPagocardAvailability(payload: unknown): PagocardAvailabilityResult {
+  const root = (payload || {}) as Record<string, unknown>;
+  const availabilityObj =
+    root.availability && typeof root.availability === 'object' && !Array.isArray(root.availability)
+      ? (root.availability as Record<string, unknown>)
+      : null;
+
+  const available =
+    availabilityObj?.availability === true ||
+    availabilityObj?.available === true ||
+    root.available === true ||
+    root.is_available === true;
+
+  const message =
+    (availabilityObj && pickString(availabilityObj, ['detail', 'message', 'delivery_type_text'])) ||
+    pickString(root, ['message', 'detail', 'error']) ||
+    null;
+
+  return {
+    available,
+    message,
+    deliveryType: asNumber(availabilityObj?.delivery_type ?? availabilityObj?.deliveryType),
+    deliveryTypeText: availabilityObj
+      ? pickString(availabilityObj, ['delivery_type_text', 'deliveryTypeText'])
+      : undefined,
+    raw: root,
+  };
+}
+
+export type PagocardCountry = { code: string; name: string };
+export type PagocardCategory = { name: string };
+
+export function extractPagocardCountries(payload: unknown): PagocardCountry[] {
+  const root = (payload || {}) as Record<string, unknown>;
+  const list = Array.isArray(root.data) ? root.data : Array.isArray(payload) ? (payload as unknown[]) : [];
+  const countries: PagocardCountry[] = [];
+  for (const item of list) {
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const row = item as Record<string, unknown>;
+      const code = pickString(row, ['code', 'iso', 'isoName', 'iso_name']) || '';
+      const name = pickString(row, ['name', 'country', 'title']) || code;
+      if (code || name) countries.push({ code: code || name, name: name || code });
+    }
+  }
+  return countries;
+}
+
+/** Categories endpoint returns `data: string[]` (brand-ish names). */
+export function extractPagocardCategories(payload: unknown): PagocardCategory[] {
+  const root = (payload || {}) as Record<string, unknown>;
+  const list = Array.isArray(root.data) ? root.data : Array.isArray(payload) ? (payload as unknown[]) : [];
+  const categories: PagocardCategory[] = [];
+  for (const item of list) {
+    if (typeof item === 'string' && item.trim()) {
+      categories.push({ name: item.trim() });
+      continue;
+    }
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const name = pickString(item as Record<string, unknown>, ['name', 'title', 'category']);
+      if (name) categories.push({ name });
+    }
+  }
+  return categories;
+}
+
+/** True when Pagocard returns an HTML error page instead of JSON (bad SKU / unknown route). */
+export function isPagocardHtmlResponse(data: unknown, contentType?: string | null): boolean {
+  if (contentType && /text\/html/i.test(contentType)) return true;
+  if (typeof data === 'string') {
+    const trimmed = data.trim().toLowerCase();
+    return trimmed.startsWith('<!doctype') || trimmed.startsWith('<html');
+  }
+  return false;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
 export function extractPagocardPurchase(payload: unknown, fallback: { sku: string; quantity: number; amount: number }): PagocardPurchaseResult {
   const root = (payload || {}) as Record<string, unknown>;
-  const data = (root.data && typeof root.data === 'object' ? root.data : root) as Record<string, unknown>;
+  const data = asRecord(root.data) || asRecord(root.order) || asRecord(root.giftcard) || root;
 
   const referenceCode =
     pickString(data, ['referencecode', 'referenceCode', 'reference', 'order_id', 'orderId', 'id']) ||
@@ -236,8 +340,12 @@ export function extractPagocardPurchase(payload: unknown, fallback: { sku: strin
 
 export function extractPagocardOrder(payload: unknown): PagocardPurchaseResult | null {
   const root = (payload || {}) as Record<string, unknown>;
-  const data = (root.data && typeof root.data === 'object' ? root.data : root) as Record<string, unknown>;
+  const data = asRecord(root.data) || asRecord(root.order) || asRecord(root.giftcard) || root;
   const sku = pickString(data, ['sku', 'SKU']);
   if (!sku && !pickString(data, ['referencecode', 'referenceCode', 'reference', 'id'])) return null;
-  return extractPagocardPurchase(payload, { sku: sku || '', quantity: asNumber(data.quantity) || 1, amount: asNumber(data.amount) || 0 });
+  return extractPagocardPurchase(payload, {
+    sku: sku || '',
+    quantity: asNumber(data.quantity) || 1,
+    amount: asNumber(data.amount) || 0,
+  });
 }
