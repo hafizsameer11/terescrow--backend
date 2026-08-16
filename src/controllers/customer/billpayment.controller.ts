@@ -964,10 +964,11 @@ export function extractElectricityToken(source: unknown): string | null {
 }
 
 /**
- * Regenerate / re-fetch prepaid electricity token for a past bill payment.
- * POST /api/v2/bill-payments/regenerate-token  body: { billPaymentId }
+ * Recharge / re-fetch prepaid electricity token for a past bill payment.
+ * POST /api/v2/bill-payments/recharge-token  body: { billPaymentId }
+ * (alias: /regenerate-token)
  */
-export const regenerateElectricityTokenController = async (
+export const rechargeElectricityTokenController = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -986,7 +987,7 @@ export const regenerateElectricityTokenController = async (
       return next(ApiError.notFound('Bill payment not found'));
     }
     if (!isElectricityPrepaid(billPayment)) {
-      return next(ApiError.badRequest('Regenerate token is only available for prepaid electricity'));
+      return next(ApiError.badRequest('Recharge token is only available for prepaid electricity'));
     }
 
     let token =
@@ -1013,7 +1014,7 @@ export const regenerateElectricityTokenController = async (
           });
         }
       } catch (err: any) {
-        console.error('[regenerate-token] VTpass requery failed:', err?.message || err);
+        console.error('[recharge-token] VTpass requery failed:', err?.message || err);
       }
     } else if (token && token !== billPayment.billReference) {
       await prisma.billPayment.update({
@@ -1044,7 +1045,10 @@ export const regenerateElectricityTokenController = async (
     ).send(res);
   } catch (error: any) {
     if (error instanceof ApiError) return next(error);
-    return next(ApiError.internal(error?.message || 'Failed to regenerate electricity token'));
+    return next(ApiError.internal(error?.message || 'Failed to recharge electricity token'));
   }
 };
+
+/** @deprecated Use rechargeElectricityTokenController */
+export const regenerateElectricityTokenController = rechargeElectricityTokenController;
 
