@@ -75,7 +75,7 @@ function isApiSuccess(envelope: PremblyEnvelope): boolean {
   if (envelope.status === false) return false;
   const code = String(envelope.response_code || '');
   if (code && code !== '00' && code !== '0') return false;
-  return envelope.status !== false;
+  return true;
 }
 
 function facePassed(envelope: PremblyEnvelope, minConfidence: number): { ok: boolean; confidence: number | null; message?: string } {
@@ -186,7 +186,11 @@ export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<
   }
 
   let bvnFace: PremblyEnvelope | undefined;
-  let bvnFaceResult = { ok: false, confidence: null as number | null, message: 'BVN face not run' };
+  let bvnFaceResult: { ok: boolean; confidence: number | null; message?: string } = {
+    ok: false,
+    confidence: null,
+    message: 'BVN face not run',
+  };
   try {
     bvnFace = await premblyClient.verifyBvnWithFace(bvn, selfieBase64);
     bvnFaceResult = facePassed(bvnFace, minConfidence);
