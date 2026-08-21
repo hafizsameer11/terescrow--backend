@@ -1,3 +1,5 @@
+import { getStroWalletBillerIcon } from './strowallet.billpayment.logos';
+
 export type StroWalletSceneCode = 'airtime' | 'data' | 'electricity' | 'cable' | 'education';
 
 export type StroWalletBiller = {
@@ -70,6 +72,7 @@ export function getStroWalletAirtimeBillers(): StroWalletBiller[] {
   return AIRTIME_NETWORKS.map((n) => ({
     billerId: n.billerId,
     billerName: n.billerName,
+    billerIcon: getStroWalletBillerIcon('airtime', n.billerId, n.serviceName),
     minAmount: n.minAmount,
     maxAmount: n.maxAmount,
     status: 1,
@@ -81,6 +84,7 @@ export function getStroWalletDataBillers(): StroWalletBiller[] {
   return DATA_NETWORKS.map((n) => ({
     billerId: n.billerId,
     billerName: n.billerName,
+    billerIcon: getStroWalletBillerIcon('data', n.billerId, n.serviceId),
     minAmount: null,
     maxAmount: null,
     status: 1,
@@ -92,9 +96,11 @@ export function getStroWalletElectricityBillers(): StroWalletBiller[] {
   const billers: StroWalletBiller[] = [];
   for (const disco of ELECTRICITY_DISCOS) {
     for (const meterType of ['prepaid', 'postpaid'] as const) {
+      const billerId = `${disco.serviceName}:${meterType}`;
       billers.push({
-        billerId: `${disco.serviceName}:${meterType}`,
+        billerId,
         billerName: `${disco.billerName} (${meterType === 'prepaid' ? 'Prepaid' : 'Postpaid'})`,
+        billerIcon: getStroWalletBillerIcon('electricity', billerId, disco.serviceName),
         minAmount: 50000,
         maxAmount: 50000000,
         status: 1,
@@ -110,6 +116,7 @@ export function getStroWalletCableBillers(): StroWalletBiller[] {
   return CABLE_PROVIDERS.map((n) => ({
     billerId: n.billerId,
     billerName: n.billerName,
+    billerIcon: getStroWalletBillerIcon('cable', n.billerId, n.billerId),
     minAmount: null,
     maxAmount: null,
     status: 1,
@@ -121,6 +128,7 @@ export function getStroWalletEducationBillers(): StroWalletBiller[] {
   return EDUCATION_PRODUCTS.map((n) => ({
     billerId: n.billerId,
     billerName: n.billerName,
+    billerIcon: getStroWalletBillerIcon('education', n.billerId, n.serviceName),
     minAmount: Math.round(n.amountNgn * 100),
     maxAmount: Math.round(n.amountNgn * 100),
     status: 1,
