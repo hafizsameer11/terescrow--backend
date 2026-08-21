@@ -32,9 +32,40 @@ import {
 import { fiatWalletService } from '../fiat/fiat.wallet.service';
 import { settleBushaTradeIfNeeded } from './busha.settlement.service';
 import { bushaConfig } from './busha.config';
+import {
+  assertBushaBuyNgnWithinLimits,
+  assertBushaSellCryptoWithinLimits,
+  getBushaNgnPairLimitsByCurrency,
+} from './busha.pairs.service';
 
 const bushaCustomerModel = (prisma as any).bushaCustomer;
 const bushaTradeLogModel = (prisma as any).bushaTradeLog;
+
+async function getCurrenciesWithPairLimits() {
+  const base = getBushaCurrenciesForAdmin();
+  try {
+    const limitsByCode = await getBushaNgnPairLimitsByCurrency();
+    return {
+      ...base,
+      assets: base.assets.map((asset) => {
+        const limits = limitsByCode[asset.code];
+        if (!limits) return asset;
+        return {
+          ...asset,
+          minBuyNgn: limits.minBuyNgn,
+          maxBuyNgn: limits.maxBuyNgn,
+          minSellCrypto: limits.minSellCrypto,
+          maxSellCrypto: limits.maxSellCrypto,
+          minSellNgn: limits.minSellNgn,
+          maxSellNgn: limits.maxSellNgn,
+        };
+      }),
+      pairLimits: limitsByCode,
+    };
+  } catch {
+    return base;
+  }
+}
 
 export async function getBushaAppPublicStatus() {
   const configured = bushaConfig.isConfigured();
@@ -43,7 +74,7 @@ export async function getBushaAppPublicStatus() {
     configured,
     isActive: !!(configured && settings?.isActive),
     sellPayoutMode: (settings?.sellPayoutMode || 'palmpay_temp') as string,
-    currencies: getBushaCurrenciesForAdmin(),
+    currencies: await getCurrenciesWithPairLimits(),
   };
 }
 
@@ -491,6 +522,10 @@ export async function previewAppBushaSell(
   await assertBushaAppActive();
   const customer = await ensureBushaCustomerForUser(userId);
   await assertCustomerTradeReady(customer.id, true);
+
+  const cryptoAmount = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
+  await assertBushaSellCryptoWithinLimits(params.sourceCurrency, cryptoAmount);
+
   const sellPayoutMode = await getSellPayoutMode();
 
   const quote = await previewBushaQuote({
@@ -527,6 +562,10 @@ export async function executeAppBushaSell(
   await assertBushaAppActive();
   const customer = await ensureBushaCustomerForUser(userId);
   await assertCustomerTradeReady(customer.id, true);
+
+  const cryptoAmount = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
+  await assertBushaSellCryptoWithinLimits(params.sourceCurrency, cryptoAmount);
+
   const sellPayoutMode = await getSellPayoutMode();
   const settings = await getBushaConfigRow();
 
@@ -630,6 +669,7 @@ export async function executeAppBushaBuy(
   if (!Number.isFinite(amountNgn) || amountNgn <= 0) {
     throw ApiError.badRequest('sourceAmount must be greater than 0');
   }
+  await assertBushaBuyNgnWithinLimits(params.targetCurrency, amountNgn);
 
   const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
   const balance = parseFloat(String(fiatWallet.balance));

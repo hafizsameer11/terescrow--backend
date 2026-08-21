@@ -81,6 +81,30 @@ export type BushaAmount = {
   currency: string;
 };
 
+export type BushaPairAmount = {
+  amount: string;
+  currency: string;
+  counter?: {
+    amount: string;
+    currency: string;
+  };
+};
+
+export type BushaPair = {
+  id: string;
+  base: string;
+  counter: string;
+  type?: string;
+  is_buy_supported?: boolean;
+  is_sell_supported?: boolean;
+  min_buy_amount?: BushaPairAmount;
+  min_sell_amount?: BushaPairAmount;
+  max_buy_amount?: BushaPairAmount;
+  max_sell_amount?: BushaPairAmount;
+  buy_price?: BushaAmount;
+  sell_price?: BushaAmount;
+};
+
 export type BushaBalance = {
   id: string;
   profile_id?: string;
@@ -261,6 +285,18 @@ class BushaClient {
 
   verifyCustomer(customerId: string): Promise<{ message?: string }> {
     return this.request('POST', `/v1/customers/${customerId}/verify`);
+  }
+
+  /**
+   * Trading pair limits and prices.
+   * Public on Busha; works with or without profile.
+   * GET /v1/pairs?currency=NGN&type=fiat
+   */
+  listPairs(query?: {
+    currency?: string;
+    type?: string;
+  }): Promise<BushaPair[]> {
+    return this.request<BushaPair[]>('GET', '/v1/pairs', undefined, undefined, query);
   }
 
   createQuote(input: CreateBushaQuoteInput, profileId?: string): Promise<BushaQuote> {

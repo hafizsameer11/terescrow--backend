@@ -272,6 +272,9 @@ export async function previewBushaBuyController(req: Request, res: Response, nex
       throw ApiError.badRequest('sourceAmount and targetCurrency are required');
     }
     const { ensureBushaCustomerForUser } = await import('../../services/busha/busha.app.service');
+    const { assertBushaBuyNgnWithinLimits } = await import('../../services/busha/busha.pairs.service');
+    const amountNgn = parseFloat(String(sourceAmount).replace(/,/g, ''));
+    await assertBushaBuyNgnWithinLimits(String(targetCurrency), amountNgn);
     const customer = await ensureBushaCustomerForUser(uid);
     const data = await previewBushaQuote({
       customerId: customer.id,
