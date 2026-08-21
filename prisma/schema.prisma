@@ -810,6 +810,10 @@ model BushaConfig {
   payoutRecipientId     String?  @map("payout_recipient_id") @db.VarChar(64)
   /// palmpay_temp | dashboard_bank — where Busha sends NGN on app/admin sells
   sellPayoutMode        String   @default("palmpay_temp") @map("sell_payout_mode") @db.VarChar(30)
+  /// Platform markup on Busha live buy rate (%). User pays more NGN / gets less crypto.
+  buyMarkupPercent      Decimal  @default(0) @map("buy_markup_percent") @db.Decimal(8, 4)
+  /// Platform markup on Busha live sell rate (%). User receives less NGN.
+  sellMarkupPercent     Decimal  @default(0) @map("sell_markup_percent") @db.Decimal(8, 4)
   isActive              Boolean  @default(true) @map("is_active")
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")

@@ -102,7 +102,23 @@ export async function settleBushaTradeIfNeeded(tradeId: string) {
 async function creditSellToUserWallet(trade: any, remote: any) {
   if (trade.status === 'wallet_credited') return trade;
 
-  const amountNgn = parseFloat(String(remote.target_amount || trade.targetAmount || '0'));
+  const bushaNgn = parseFloat(String(remote.target_amount || trade.targetAmount || '0'));
+  const markup = (trade.providerResponse as any)?.markup;
+  const storedUserCredit = parseFloat(String(markup?.userCreditNgn || ''));
+  const sellMarkupPercent = parseFloat(String(markup?.sellMarkupPercent ?? '0')) || 0;
+
+  let amountNgn = Number.isFinite(storedUserCredit) && storedUserCredit > 0
+    ? storedUserCredit
+    : bushaNgn;
+  if (
+    (!Number.isFinite(storedUserCredit) || storedUserCredit <= 0) &&
+    sellMarkupPercent > 0 &&
+    Number.isFinite(bushaNgn) &&
+    bushaNgn > 0
+  ) {
+    amountNgn = Math.round(bushaNgn * (1 - sellMarkupPercent / 100) * 100) / 100;
+  }
+
   if (!Number.isFinite(amountNgn) || amountNgn <= 0) {
     return bushaTradeLogModel.update({
       where: { id: trade.id },
@@ -135,6 +151,7 @@ async function creditSellToUserWallet(trade: any, remote: any) {
       data: {
         amount: amountNgn,
         totalAmount: amountNgn,
+        fees: Number.isFinite(bushaNgn) ? Math.max(0, Math.round((bushaNgn - amountNgn) * 100) / 100) : fiatTxn.fees,
         status: 'pending',
       },
     });
@@ -150,10 +167,15 @@ async function creditSellToUserWallet(trade: any, remote: any) {
     where: { id: trade.id },
     data: {
       bushaStatus: remote.status,
-      targetAmount: String(remote.target_amount || amountNgn),
+      targetAmount: String(remote.target_amount || bushaNgn),
       status: 'wallet_credited',
       completedAt: new Date(),
-      providerResponse: { ...(trade.providerResponse as object), transfer: remote, walletCredited: true },
+      providerResponse: {
+        ...(trade.providerResponse as object),
+        transfer: remote,
+        walletCredited: true,
+        userCreditNgn: amountNgn,
+      },
     },
   });
 }

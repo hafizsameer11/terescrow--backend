@@ -266,23 +266,14 @@ export async function executeBushaSellController(req: Request, res: Response, ne
 
 export async function previewBushaBuyController(req: Request, res: Response, next: NextFunction) {
   try {
-    const uid = userId(req);
     const { sourceAmount, targetCurrency } = req.body ?? {};
     if (!sourceAmount || !targetCurrency) {
       throw ApiError.badRequest('sourceAmount and targetCurrency are required');
     }
-    const { ensureBushaCustomerForUser } = await import('../../services/busha/busha.app.service');
-    const { assertBushaBuyNgnWithinLimits } = await import('../../services/busha/busha.pairs.service');
-    const amountNgn = parseFloat(String(sourceAmount).replace(/,/g, ''));
-    await assertBushaBuyNgnWithinLimits(String(targetCurrency), amountNgn);
-    const customer = await ensureBushaCustomerForUser(uid);
-    const data = await previewBushaQuote({
-      customerId: customer.id,
-      side: 'buy',
-      sourceCurrency: 'NGN',
-      targetCurrency,
-      amount: String(sourceAmount),
-      fundingMethod: 'temporary_bank_account',
+    const { previewAppBushaBuy } = await import('../../services/busha/busha.app.service');
+    const data = await previewAppBushaBuy(userId(req), {
+      sourceAmount: String(sourceAmount),
+      targetCurrency: String(targetCurrency),
     });
     return new ApiResponse(200, data, 'Busha buy preview').send(res);
   } catch (error) {

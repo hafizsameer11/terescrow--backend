@@ -37,6 +37,13 @@ import {
   assertBushaSellCryptoWithinLimits,
   getBushaNgnPairLimitsByCurrency,
 } from './busha.pairs.service';
+import {
+  bushaBuySourceNgn,
+  formatAmountStr,
+  getBushaMarkupPercents,
+  roundNgn,
+  userSellCreditNgn,
+} from './busha.markup';
 
 const bushaCustomerModel = (prisma as any).bushaCustomer;
 const bushaTradeLogModel = (prisma as any).bushaTradeLog;
@@ -74,6 +81,8 @@ export async function getBushaAppPublicStatus() {
     configured,
     isActive: !!(configured && settings?.isActive),
     sellPayoutMode: (settings?.sellPayoutMode || 'palmpay_temp') as string,
+    buyMarkupPercent: Number((settings as any)?.buyMarkupPercent ?? 0),
+    sellMarkupPercent: Number((settings as any)?.sellMarkupPercent ?? 0),
     currencies: await getCurrenciesWithPairLimits(),
   };
 }
@@ -527,6 +536,7 @@ export async function previewAppBushaSell(
   await assertBushaSellCryptoWithinLimits(params.sourceCurrency, cryptoAmount);
 
   const sellPayoutMode = await getSellPayoutMode();
+  const { sellMarkupPercent } = await getBushaMarkupPercents();
 
   const quote = await previewBushaQuote({
     customerId: customer.id,
@@ -539,10 +549,24 @@ export async function previewAppBushaSell(
     payoutToBalance: true,
   });
 
+  const bushaNgn = parseFloat(String(quote.quote?.target_amount || '0').replace(/,/g, '')) || 0;
+  const userNgn = roundNgn(userSellCreditNgn(bushaNgn, sellMarkupPercent));
+  const userFacingQuote = {
+    ...quote.quote,
+    target_amount: formatAmountStr(userNgn, 2),
+  };
+
   return {
-    quote: quote.quote,
+    quote: userFacingQuote,
+    bushaQuote: quote.quote,
     customer: quote.customer,
     sellPayoutMode,
+    markup: {
+      sellMarkupPercent,
+      bushaTargetAmount: formatAmountStr(bushaNgn, 2),
+      userTargetAmount: formatAmountStr(userNgn, 2),
+      platformSpreadNgn: formatAmountStr(roundNgn(bushaNgn - userNgn), 2),
+    },
     note:
       sellPayoutMode === 'palmpay_temp'
         ? 'NGN settles to PalmPay temp account; your Terescrow NGN wallet is credited when Busha completes.'
@@ -610,8 +634,11 @@ export async function executeAppBushaSell(
     palmpayPayoutOrderNo,
   });
 
+  const { sellMarkupPercent } = await getBushaMarkupPercents();
+  const bushaNgn = parseFloat(String(trade.targetAmount || '0')) || 0;
+  const userNgn = roundNgn(userSellCreditNgn(bushaNgn, sellMarkupPercent));
+
   const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
-  const estimatedNgn = parseFloat(String(trade.targetAmount || '0')) || 0;
   const fiatTxn = await prisma.fiatTransaction.create({
     data: {
       id: uuidv4(),
@@ -620,9 +647,9 @@ export async function executeAppBushaSell(
       type: 'CRYPTO_SELL',
       status: 'pending',
       currency: 'NGN',
-      amount: estimatedNgn,
-      fees: 0,
-      totalAmount: estimatedNgn,
+      amount: userNgn,
+      fees: roundNgn(bushaNgn - userNgn),
+      totalAmount: userNgn,
       description: `Busha sell ${params.sourceAmount} ${params.sourceCurrency.toUpperCase()}`,
       palmpayOrderId: palmpayPayoutOrderId || null,
       palmpayOrderNo: palmpayPayoutOrderNo || null,
@@ -640,6 +667,12 @@ export async function executeAppBushaSell(
         ...(trade.providerResponse as object),
         prepare: prepareMeta,
         sellPayoutMode,
+        markup: {
+          sellMarkupPercent,
+          bushaTargetAmount: formatAmountStr(bushaNgn, 2),
+          userCreditNgn: formatAmountStr(userNgn, 2),
+          platformSpreadNgn: formatAmountStr(roundNgn(bushaNgn - userNgn), 2),
+        },
       } as any,
     },
     include: {
@@ -671,6 +704,13 @@ export async function executeAppBushaBuy(
   }
   await assertBushaBuyNgnWithinLimits(params.targetCurrency, amountNgn);
 
+  const { buyMarkupPercent } = await getBushaMarkupPercents();
+  const bushaNgn = roundNgn(bushaBuySourceNgn(amountNgn, buyMarkupPercent));
+  if (bushaNgn <= 0) {
+    throw ApiError.badRequest('Buy amount too small after markup');
+  }
+  const platformSpreadNgn = roundNgn(amountNgn - bushaNgn);
+
   const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
   const balance = parseFloat(String(fiatWallet.balance));
   if (balance < amountNgn) {
@@ -686,7 +726,7 @@ export async function executeAppBushaBuy(
       status: 'pending',
       currency: 'NGN',
       amount: amountNgn,
-      fees: 0,
+      fees: platformSpreadNgn,
       totalAmount: amountNgn,
       description: `Busha buy ${params.targetCurrency.toUpperCase()}`,
     },
@@ -708,7 +748,7 @@ export async function executeAppBushaBuy(
       customerId: customer.id,
       sourceCurrency: 'NGN',
       targetCurrency: params.targetCurrency,
-      sourceAmount: params.sourceAmount,
+      sourceAmount: formatAmountStr(bushaNgn, 2),
       autoPalmpayPayout: true,
     });
 
@@ -721,6 +761,12 @@ export async function executeAppBushaBuy(
         providerResponse: {
           ...(trade.providerResponse as object),
           fiatDebitTransactionId: fiatTxn.id,
+          markup: {
+            buyMarkupPercent,
+            userSourceAmount: formatAmountStr(amountNgn, 2),
+            bushaSourceAmount: formatAmountStr(bushaNgn, 2),
+            platformSpreadNgn: formatAmountStr(platformSpreadNgn, 2),
+          },
         } as any,
       },
       include: {
@@ -740,6 +786,54 @@ export async function executeAppBushaBuy(
     await reverseBuyDebit(userId, fiatTxn.id, amountNgn, error?.message || 'Busha buy failed');
     throw error;
   }
+}
+
+/** App buy preview — applies buy markup % on Busha's live rate. */
+export async function previewAppBushaBuy(
+  userId: number,
+  params: { sourceAmount: string; targetCurrency: string }
+) {
+  await assertBushaAppActive();
+  const customer = await ensureBushaCustomerForUser(userId);
+  await assertCustomerTradeReady(customer.id, false);
+
+  const userNgn = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
+  if (!Number.isFinite(userNgn) || userNgn <= 0) {
+    throw ApiError.badRequest('sourceAmount must be greater than 0');
+  }
+  await assertBushaBuyNgnWithinLimits(params.targetCurrency, userNgn);
+
+  const { buyMarkupPercent } = await getBushaMarkupPercents();
+  const bushaNgn = roundNgn(bushaBuySourceNgn(userNgn, buyMarkupPercent));
+  if (bushaNgn <= 0) {
+    throw ApiError.badRequest('Buy amount too small after markup');
+  }
+
+  const data = await previewBushaQuote({
+    customerId: customer.id,
+    side: 'buy',
+    sourceCurrency: 'NGN',
+    targetCurrency: params.targetCurrency,
+    amount: formatAmountStr(bushaNgn, 2),
+    fundingMethod: 'temporary_bank_account',
+  });
+
+  const userFacingQuote = {
+    ...data.quote,
+    source_amount: formatAmountStr(userNgn, 2),
+  };
+
+  return {
+    ...data,
+    quote: userFacingQuote,
+    bushaQuote: data.quote,
+    markup: {
+      buyMarkupPercent,
+      userSourceAmount: formatAmountStr(userNgn, 2),
+      bushaSourceAmount: formatAmountStr(bushaNgn, 2),
+      platformSpreadNgn: formatAmountStr(roundNgn(userNgn - bushaNgn), 2),
+    },
+  };
 }
 
 async function reverseBuyDebit(userId: number, originalTxnId: string, amountNgn: number, reason: string) {

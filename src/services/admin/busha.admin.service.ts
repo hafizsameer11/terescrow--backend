@@ -71,6 +71,8 @@ export async function getBushaStatusForAdmin() {
           payoutAccountName: settings.payoutAccountName,
           payoutRecipientId: settings.payoutRecipientId,
           sellPayoutMode: settings.sellPayoutMode || 'palmpay_temp',
+          buyMarkupPercent: Number(settings.buyMarkupPercent ?? 0),
+          sellMarkupPercent: Number(settings.sellMarkupPercent ?? 0),
           isActive: settings.isActive,
         }
       : null,
@@ -89,14 +91,32 @@ export type BushaSettingsInput = {
   payoutAccountName?: string | null;
   payoutRecipientId?: string | null;
   sellPayoutMode?: BushaSellPayoutMode | string | null;
+  buyMarkupPercent?: number | string | null;
+  sellMarkupPercent?: number | string | null;
   isActive?: boolean;
 };
+
+function normalizeMarkupPercent(value: unknown): number {
+  const n = parseFloat(String(value ?? '0'));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  if (n > 100) return 100;
+  return Math.round(n * 10000) / 10000;
+}
 
 export async function upsertBushaSettings(input: BushaSettingsInput) {
   const mode = input.sellPayoutMode?.trim();
   if (mode && mode !== 'palmpay_temp' && mode !== 'dashboard_bank') {
     throw ApiError.badRequest('sellPayoutMode must be palmpay_temp or dashboard_bank');
   }
+
+  const buyMarkup =
+    input.buyMarkupPercent !== undefined && input.buyMarkupPercent !== null
+      ? normalizeMarkupPercent(input.buyMarkupPercent)
+      : undefined;
+  const sellMarkup =
+    input.sellMarkupPercent !== undefined && input.sellMarkupPercent !== null
+      ? normalizeMarkupPercent(input.sellMarkupPercent)
+      : undefined;
 
   return bushaConfigModel.upsert({
     where: { id: 1 },
@@ -108,6 +128,8 @@ export async function upsertBushaSettings(input: BushaSettingsInput) {
       payoutAccountName: input.payoutAccountName?.trim() || null,
       payoutRecipientId: input.payoutRecipientId?.trim() || null,
       sellPayoutMode: (mode as BushaSellPayoutMode) || 'palmpay_temp',
+      buyMarkupPercent: buyMarkup ?? 0,
+      sellMarkupPercent: sellMarkup ?? 0,
       isActive: input.isActive ?? true,
     },
     update: {
@@ -127,6 +149,8 @@ export async function upsertBushaSettings(input: BushaSettingsInput) {
         : input.sellPayoutMode === null
           ? {}
           : {}),
+      ...(buyMarkup !== undefined ? { buyMarkupPercent: buyMarkup } : {}),
+      ...(sellMarkup !== undefined ? { sellMarkupPercent: sellMarkup } : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
     },
   });
