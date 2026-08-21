@@ -192,23 +192,38 @@ class TransactionOverviewService {
   }
 
   /**
-   * Get crypto transactions summary
+   * Get crypto transactions summary (legacy CryptoTransaction + BushaTradeLog)
    */
   private async getCryptoTransactions(userId: number, ngnToUsdRate: Decimal) {
-    const transactions = await prisma.cryptoTransaction.findMany({
-      where: {
-        userId,
-        status: 'successful',
-      },
-      include: {
-        cryptoBuy: true,
-        cryptoSell: true,
-        cryptoSend: true,
-        cryptoReceive: true,
-        cryptoSwap: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const bushaTradeLogModel = (prisma as any).bushaTradeLog;
+
+    const [transactions, bushaTrades] = await Promise.all([
+      prisma.cryptoTransaction.findMany({
+        where: {
+          userId,
+          status: 'successful',
+        },
+        include: {
+          cryptoBuy: true,
+          cryptoSell: true,
+          cryptoSend: true,
+          cryptoReceive: true,
+          cryptoSwap: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      bushaTradeLogModel
+        ? bushaTradeLogModel.findMany({
+            where: {
+              userId,
+              status: {
+                notIn: ['failed', 'busha_failed', 'buy_reversed', 'palmpay_failed'],
+              },
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve([]),
+    ]);
 
     let totalUsd = new Decimal('0');
     let latestDate: Date | null = null;
@@ -235,12 +250,43 @@ class TransactionOverviewService {
       }
     });
 
-    const totalNgn = totalUsd.div(ngnToUsdRate);
+    let totalNgn = totalUsd.div(ngnToUsdRate);
+
+    (bushaTrades as any[]).forEach((t) => {
+      const side = String(t.side || '').toLowerCase();
+      const source = String(t.sourceCurrency || '').toUpperCase();
+      const target = String(t.targetCurrency || '').toUpperCase();
+      const sourceAmt = new Decimal(String(t.sourceAmount || '0').replace(/,/g, '') || '0');
+      const targetAmt = new Decimal(String(t.targetAmount || '0').replace(/,/g, '') || '0');
+
+      if (side === 'buy' && source === 'NGN') {
+        totalNgn = totalNgn.plus(sourceAmt);
+        totalUsd = totalUsd.plus(sourceAmt.mul(ngnToUsdRate));
+      } else if (side === 'sell' && target === 'NGN') {
+        totalNgn = totalNgn.plus(targetAmt);
+        totalUsd = totalUsd.plus(targetAmt.mul(ngnToUsdRate));
+      } else {
+        const approxUsd =
+          source === 'USDT' || source === 'USDC'
+            ? sourceAmt
+            : target === 'USDT' || target === 'USDC'
+              ? targetAmt
+              : new Decimal('0');
+        totalUsd = totalUsd.plus(approxUsd);
+        if (approxUsd.gt(0)) {
+          totalNgn = totalNgn.plus(approxUsd.div(ngnToUsdRate));
+        }
+      }
+
+      if (!latestDate || t.createdAt > latestDate) {
+        latestDate = t.createdAt;
+      }
+    });
 
     return {
       totalUsd: totalUsd.toString(),
       totalNgn: totalNgn.toString(),
-      count: transactions.length,
+      count: transactions.length + (bushaTrades as any[]).length,
       latestDate,
     };
   }

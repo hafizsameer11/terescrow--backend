@@ -1,12 +1,11 @@
 /**
  * Recent Transactions Service
- * 
+ *
  * Fetches recent transactions from all types (Crypto, Bill Payment, Gift Card, Fiat)
  * and combines them into a unified list with type identification
  */
 
 import { prisma } from '../../utils/prisma';
-import { Decimal } from '@prisma/client/runtime/library';
 
 export interface RecentTransaction {
   id: string;
@@ -23,42 +22,51 @@ export interface RecentTransaction {
   metadata?: any; // Additional transaction-specific data
 }
 
+const bushaTradeLogModel = (prisma as any).bushaTradeLog;
+
+function mapBushaSideToTxType(side: string): string {
+  const s = String(side || '').toLowerCase();
+  if (s === 'buy') return 'BUY';
+  if (s === 'sell') return 'SELL';
+  if (s === 'cryptorecv' || s === 'receive') return 'RECEIVE';
+  if (s === 'cryptosend' || s === 'send') return 'SEND';
+  if (s === 'convert' || s === 'swap') return 'SWAP';
+  return s.toUpperCase();
+}
+
+function isCryptoLinkedFiatType(type: string): boolean {
+  return String(type || '').toUpperCase().startsWith('CRYPTO_');
+}
+
 class RecentTransactionsService {
   /**
    * Get recent transactions from all types
-   * 
-   * @param userId - User ID
-   * @param limit - Number of transactions to return (default: 50)
-   * @param offset - Pagination offset (default: 0)
    */
   async getRecentTransactions(
     userId: number,
     limit: number = 50,
     offset: number = 0
   ): Promise<{ transactions: RecentTransaction[]; total: number; limit: number; offset: number }> {
-    // Fetch transactions from all types in parallel
-    const [cryptoTransactions, billPayments, giftCardOrders, fiatTransactions] = await Promise.all([
-      this.getCryptoTransactions(userId),
-      this.getBillPayments(userId),
-      this.getGiftCardOrders(userId),
-      this.getFiatTransactions(userId),
-    ]);
+    const [cryptoTransactions, bushaTrades, billPayments, giftCardOrders, fiatTransactions] =
+      await Promise.all([
+        this.getCryptoTransactions(userId),
+        this.getBushaTrades(userId),
+        this.getBillPayments(userId),
+        this.getGiftCardOrders(userId),
+        this.getFiatTransactions(userId),
+      ]);
 
-    // Combine all transactions
     const allTransactions: RecentTransaction[] = [
       ...cryptoTransactions,
+      ...bushaTrades,
       ...billPayments,
       ...giftCardOrders,
       ...fiatTransactions,
     ];
 
-    // Sort by createdAt (most recent first)
     allTransactions.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-    // Get total count
     const total = allTransactions.length;
-
-    // Apply pagination
     const paginatedTransactions = allTransactions.slice(offset, offset + limit);
 
     return {
@@ -69,9 +77,6 @@ class RecentTransactionsService {
     };
   }
 
-  /**
-   * Get crypto transactions
-   */
   private async getCryptoTransactions(userId: number): Promise<RecentTransaction[]> {
     const transactions = await prisma.cryptoTransaction.findMany({
       where: { userId },
@@ -88,7 +93,7 @@ class RecentTransactionsService {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 100, // Get more to ensure we have enough after combining
+      take: 100,
     });
 
     return transactions.map((tx) => {
@@ -144,8 +149,79 @@ class RecentTransactionsService {
   }
 
   /**
-   * Get bill payment transactions
+   * Busha trades — primary crypto history when Busha is active.
    */
+  private async getBushaTrades(userId: number): Promise<RecentTransaction[]> {
+    if (!bushaTradeLogModel) return [];
+
+    const trades = await bushaTradeLogModel.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    return trades.map((t: any) => {
+      const side = String(t.side || '').toLowerCase();
+      const txType = mapBushaSideToTxType(t.side);
+      const source = String(t.sourceCurrency || '').toUpperCase();
+      const target = String(t.targetCurrency || '').toUpperCase();
+      const sourceAmount = String(t.sourceAmount || '0');
+      const targetAmount = t.targetAmount != null ? String(t.targetAmount) : undefined;
+
+      let currency = source;
+      let amount = sourceAmount;
+      let amountUsd: string | undefined;
+      let amountNaira: string | undefined;
+      let description = `${txType} ${sourceAmount} ${source}`;
+
+      if (side === 'buy') {
+        currency = target || source;
+        amount = targetAmount || sourceAmount;
+        amountNaira = source === 'NGN' ? sourceAmount : undefined;
+        amountUsd = targetAmount;
+        description = `Bought ${targetAmount || '?'} ${target} for ₦${sourceAmount}`;
+      } else if (side === 'sell') {
+        currency = source;
+        amount = sourceAmount;
+        amountNaira = target === 'NGN' ? targetAmount : undefined;
+        amountUsd = sourceAmount;
+        description = `Sold ${sourceAmount} ${source} for ₦${targetAmount || '?'}`;
+      } else if (side === 'convert' || side === 'swap') {
+        currency = source;
+        amount = sourceAmount;
+        description = `Swapped ${sourceAmount} ${source} to ${targetAmount || '?'} ${target}`;
+      } else if (side === 'cryptosend' || side === 'send') {
+        description = `Sent ${sourceAmount} ${source}`;
+      } else if (side === 'cryptorecv' || side === 'receive') {
+        description = `Received ${sourceAmount} ${source}`;
+      }
+
+      return {
+        id: t.id,
+        type: 'CRYPTO' as const,
+        transactionType: txType,
+        status: t.status,
+        amount,
+        currency,
+        amountUsd,
+        amountNaira,
+        description,
+        createdAt: t.createdAt,
+        updatedAt: t.updatedAt,
+        metadata: {
+          source: 'busha',
+          side: t.side,
+          sourceCurrency: source,
+          targetCurrency: target,
+          sourceAmount,
+          targetAmount,
+          fiatTransactionId: t.fiatTransactionId || null,
+          bushaTransferId: t.bushaTransferId || null,
+        },
+      };
+    });
+  }
+
   private async getBillPayments(userId: number): Promise<RecentTransaction[]> {
     const payments = await prisma.billPayment.findMany({
       where: { userId },
@@ -157,32 +233,23 @@ class RecentTransactionsService {
       id: payment.transactionId,
       type: 'BILL_PAYMENT' as const,
       status: payment.status,
-      amount: payment.amount.toString(), // Always NGN
-      currency: payment.currency,       // e.g. NGN
+      amount: payment.amount.toString(),
+      currency: payment.currency,
       description: `${payment.sceneCode} - ${payment.billerName || payment.billerId} (${payment.rechargeAccount})`,
       createdAt: payment.createdAt,
       updatedAt: payment.updatedAt,
       metadata: {
-        // High-level identifiers
         billPaymentId: payment.id,
         walletId: payment.walletId,
         transactionId: payment.transactionId,
-
-        // Provider / routing
         provider: payment.provider,
         sceneCode: payment.sceneCode,
         billType: payment.billType,
-
-        // Biller info
         billerId: payment.billerId,
         billerName: payment.billerName,
         itemId: payment.itemId,
         itemName: payment.itemName,
-
-        // Target account / number
         rechargeAccount: payment.rechargeAccount,
-
-        // Status + references
         palmpayOrderId: payment.palmpayOrderId,
         palmpayOrderNo: payment.palmpayOrderNo,
         palmpayStatus: payment.palmpayStatus,
@@ -191,25 +258,15 @@ class RecentTransactionsService {
         refunded: payment.refunded,
         refundedAt: payment.refundedAt,
         refundReason: payment.refundReason,
-
-        // Raw provider response (if frontend wants to inspect)
         providerResponse: payment.providerResponse,
-
-        // Completion timestamp
         completedAt: payment.completedAt,
       },
     }));
   }
 
-  /**
-   * Get gift card orders
-   */
   private async getGiftCardOrders(userId: number): Promise<RecentTransaction[]> {
     const orders = await prisma.giftCardOrder.findMany({
       where: { userId },
-      include: {
-        // Include product info if needed
-      },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -234,7 +291,8 @@ class RecentTransactionsService {
   }
 
   /**
-   * Get fiat transactions
+   * Wallet fiat only. CRYPTO_* rows are NGN legs of crypto trades — excluded so they
+   * appear under CRYPTO via BushaTradeLog / CryptoTransaction instead of Naira.
    */
   private async getFiatTransactions(userId: number): Promise<RecentTransaction[]> {
     const transactions = await prisma.fiatTransaction.findMany({
@@ -243,46 +301,47 @@ class RecentTransactionsService {
       take: 100,
     });
 
-    return transactions.map((tx) => {
-      let description = tx.description || '';
-      if (!description) {
-        switch (tx.type.toUpperCase()) {
-          case 'DEPOSIT':
-            description = `Deposit - ${tx.billProvider || 'Wallet'}`;
-            break;
-          case 'WITHDRAWAL':
-            description = `Withdrawal - ${tx.billProvider || 'Wallet'}`;
-            break;
-          case 'BILL_PAYMENT':
-            description = 'Bill Payment';
-            break;
-          case 'TRANSFER':
-            description = 'Transfer';
-            break;
-          default:
-            description = tx.type;
+    return transactions
+      .filter((tx) => !isCryptoLinkedFiatType(tx.type))
+      .map((tx) => {
+        let description = tx.description || '';
+        if (!description) {
+          switch (tx.type.toUpperCase()) {
+            case 'DEPOSIT':
+              description = `Deposit - ${tx.billProvider || 'Wallet'}`;
+              break;
+            case 'WITHDRAWAL':
+              description = `Withdrawal - ${tx.billProvider || 'Wallet'}`;
+              break;
+            case 'BILL_PAYMENT':
+              description = 'Bill Payment';
+              break;
+            case 'TRANSFER':
+              description = 'Transfer';
+              break;
+            default:
+              description = tx.type;
+          }
         }
-      }
 
-      return {
-        id: tx.id,
-        type: 'FIAT' as const,
-        transactionType: tx.type,
-        status: tx.status,
-        amount: tx.amount.toString(),
-        currency: tx.currency,
-        description,
-        createdAt: tx.createdAt,
-        updatedAt: tx.updatedAt,
-        metadata: {
-          provider: tx.billProvider || null,
-          reference: tx.billReference || tx.palmpayOrderNo || null,
-          fees: tx.fees?.toString(),
-        },
-      };
-    });
+        return {
+          id: tx.id,
+          type: 'FIAT' as const,
+          transactionType: tx.type,
+          status: tx.status,
+          amount: tx.amount.toString(),
+          currency: tx.currency,
+          description,
+          createdAt: tx.createdAt,
+          updatedAt: tx.updatedAt,
+          metadata: {
+            provider: tx.billProvider || null,
+            reference: tx.billReference || tx.palmpayOrderNo || null,
+            fees: tx.fees?.toString(),
+          },
+        };
+      });
   }
 }
 
 export default new RecentTransactionsService();
-
