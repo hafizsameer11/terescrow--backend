@@ -417,81 +417,67 @@ const resendOtpController = async (
   next: NextFunction
 ) => {
   try {
-    const { token, email } = req.body as { email: string; token: string };
+    const { token, email, type } = req.body as {
+      email?: string;
+      token?: string;
+      type?: 'email_verification' | 'password_verification';
+    };
 
-    if (!token || !email) {
-      return next(ApiError.badRequest('Invalid request credentials'));
+    if (!token && !email) {
+      return next(ApiError.badRequest('Token or email is required'));
     }
 
-    let user: User;
-    const newOtp = generateOTP();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // OTP expires in 10 minutes
-    let decodedToken: any;
+    const newOtp = generateOTP(4);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    let user: User | null = null;
     if (token) {
       const decoded = await verifyToken(token);
-      const isUser = await prisma.user.findUnique({
-        where: {
-          id: decoded.id,
-        },
-      });
-
-      if (!isUser) {
-        return next(ApiError.badRequest('User not found'));
-      }
-      decodedToken = decoded;
-      await prisma.userOTP.upsert({
-        where: { userId: isUser.id },
-        update: {
-          otp: newOtp,
-          expiresAt,
-          attempts: 0, // Reset the attempt count on OTP resend
-        },
-        create: {
-          userId: isUser.id,
-          otp: newOtp,
-          type: OtpType.email_verification,
-          expiresAt,
-          attempts: 0,
-        },
-      });
-    }
-    if (email) {
-      const isUser = await prisma.user.findUnique({
-        where: {
-          email,
-        },
-      });
-      if (!isUser) {
-        return next(ApiError.badRequest('User not found'));
-      }
-      await prisma.userOTP.upsert({
-        where: { userId: isUser.id },
-        update: {
-          otp: newOtp,
-          expiresAt,
-          attempts: 0, // Reset the attempt count on OTP resend
-        },
-        create: {
-          userId: isUser.id,
-          otp: newOtp,
-          type: OtpType.password_verification,
-          expiresAt,
-          attempts: 0,
-        },
-      });
+      user = await prisma.user.findUnique({ where: { id: decoded.id } });
+    } else if (email) {
+      user = await prisma.user.findUnique({ where: { email } });
     }
 
-    // Generate new OTP
-    // const newOtp = generateOTP();
+    if (!user) {
+      return next(ApiError.badRequest('User not found'));
+    }
 
-    // Update or create OTP in UserOTP table
+    // Default: email verification for incomplete signup; password reset when already verified + email-only.
+    let otpType: OtpType =
+      type === 'password_verification'
+        ? OtpType.password_verification
+        : type === 'email_verification'
+          ? OtpType.email_verification
+          : user.isVerified
+            ? OtpType.password_verification
+            : OtpType.email_verification;
 
-    // Send the OTP to user's email
-    await sendVerificationEmail(decodedToken.email, newOtp);
+    if (otpType === OtpType.email_verification && user.isVerified) {
+      return next(ApiError.badRequest('Email is already verified'));
+    }
+
+    await prisma.userOTP.upsert({
+      where: { userId: user.id },
+      update: {
+        otp: newOtp,
+        expiresAt,
+        attempts: 0,
+        type: otpType,
+      },
+      create: {
+        userId: user.id,
+        otp: newOtp,
+        type: otpType,
+        expiresAt,
+        attempts: 0,
+      },
+    });
+
+    await sendVerificationEmail(user.email, newOtp);
 
     return new ApiResponse(
       200,
-      null,
+      { email: user.email, type: otpType },
       'OTP has been resent to your email.'
     ).send(res);
   } catch (error) {

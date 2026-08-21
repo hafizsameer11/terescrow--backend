@@ -4,11 +4,12 @@ import {
   User,
   UserOTP,
   DepartmentStatus,
+  OtpType,
 } from '@prisma/client';
 import { Request, Response, NextFunction } from 'express';
 import ApiError from '../utils/ApiError';
 import ApiResponse from '../utils/ApiResponse';
-import { comparePassword, generateToken } from '../utils/authUtils';
+import { comparePassword, generateToken, generateOTP, sendVerificationEmail } from '../utils/authUtils';
 import { v1Compat } from '../config/v1.compat.config';
 import { BANNED_CUSTOMER_MESSAGE, isUserBanned } from '../utils/customer.restrictions';
 import { triggerV2UserSetupIfNeeded } from '../services/user/ensure.v2.user.setup.service';
@@ -54,10 +55,6 @@ export const loginController = async (
     if (!isUser) {
       return next(ApiError.badRequest('This email is not registerd'));
     }
-    
-    if (v1Compat.blockUnverifiedLogin && isUser.isVerified === false) {
-      return next(ApiError.badRequest('Your account is not verified. Please verify your email with the OTP sent to your email address'));
-    }
 
     if (v1Compat.enableBannedCustomerChecks && isUser.role === UserRoles.customer && isUserBanned(isUser.status)) {
       return next(ApiError.forbidden(BANNED_CUSTOMER_MESSAGE));
@@ -66,6 +63,34 @@ export const loginController = async (
     const isMatch = await comparePassword(password, isUser.password);
     if (!isMatch) {
       return next(ApiError.badRequest('Your password is not correct'));
+    }
+
+    // Abandoned signup: allow login, issue a fresh OTP, and let the app open the OTP screen.
+    // (Do not hard-block unverified users — they need to complete OTP, not a verification link.)
+    if (isUser.isVerified === false) {
+      const otp = generateOTP(4);
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      await prisma.userOTP.upsert({
+        where: { userId: isUser.id },
+        update: {
+          otp,
+          expiresAt,
+          attempts: 0,
+          type: OtpType.email_verification,
+        },
+        create: {
+          userId: isUser.id,
+          otp,
+          type: OtpType.email_verification,
+          expiresAt,
+          attempts: 0,
+        },
+      });
+      try {
+        await sendVerificationEmail(isUser.email, otp);
+      } catch (mailErr) {
+        console.error('[Login] Failed to send verification OTP:', mailErr);
+      }
     }
 
     if (isUser.role === UserRoles.customer && isUser.isVerified) {
@@ -99,7 +124,8 @@ export const loginController = async (
       isVerified: isUser.isVerified,
       pinSet: !!isUser.pin,
       KycStateTwo: isUser.KycStateTwo[0],
-      unReadNotification: getNotificationCount.length
+      unReadNotification: getNotificationCount.length,
+      needsEmailVerification: isUser.isVerified === false,
     };
     const notification = await sendPushNotification({
       userId: isUser.id,
