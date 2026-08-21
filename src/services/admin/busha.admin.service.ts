@@ -1282,9 +1282,21 @@ export async function getBushaCustomerDepositAddress(
 
   if (!match?.address) {
     throw ApiError.notFound(
-      `No Busha deposit address for ${code} on ${resolvedNetwork}. Try regenerating.`
+      `No Busha deposit address for ${code} on ${resolvedNetwork}.`
     );
   }
+
+  const minimumRaw =
+    (match as any).minimum_deposit ??
+    (match as any).minimumDeposit ??
+    (match as any).min_deposit ??
+    null;
+  const minimumDeposit =
+    minimumRaw != null && String(minimumRaw).trim() !== ''
+      ? String(minimumRaw).trim()
+      : null;
+
+  const warnings = (match as any).warnings || null;
 
   return {
     customer: {
@@ -1296,6 +1308,13 @@ export async function getBushaCustomerDepositAddress(
     network: String(match.network || match.chain || resolvedNetwork).toUpperCase(),
     address: String(match.address),
     memo: match.memo || null,
+    minimumDeposit,
+    warnings: warnings
+      ? {
+          riskMessage: warnings.risk_message || warnings.riskMessage || null,
+          processingTime: warnings.processing_time || warnings.processingTime || null,
+        }
+      : null,
     reusable: true,
     expiresAt: null as string | null,
     provider: match,

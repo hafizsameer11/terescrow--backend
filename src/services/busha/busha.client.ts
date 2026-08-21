@@ -398,6 +398,13 @@ export type BushaDepositAddress = {
   memo?: string | null;
   label?: string | null;
   created_at?: string;
+  /** Busha minimum deposit for this currency+network (string amount). */
+  minimum_deposit?: string | number | null;
+  warnings?: {
+    risk_message?: string;
+    processing_time?: string;
+    [key: string]: unknown;
+  } | null;
 };
 
 export const bushaClient = new BushaClient();
