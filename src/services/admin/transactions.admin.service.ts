@@ -298,7 +298,9 @@ async function queryCrypto(f: TransactionFilters, take: number, skip: number) {
   const [rows, count] = await Promise.all([
     prisma.bushaTradeLog.findMany({
       where, skip, take, orderBy: { createdAt: 'desc' },
-      include: { user: { select: USER_SELECT } },
+      include: {
+        user: { select: USER_SELECT },
+      },
     }),
     prisma.bushaTradeLog.count({ where }),
   ]);

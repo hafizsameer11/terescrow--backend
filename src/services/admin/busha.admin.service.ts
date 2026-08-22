@@ -1370,8 +1370,18 @@ export async function regenerateBushaCustomerDepositAddress(
 export async function listBushaTrades(limit = 50) {
   return bushaTradeLogModel.findMany({
     orderBy: { createdAt: 'desc' },
-    take: limit,
+    take: Math.min(200, Math.max(1, limit)),
     include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          firstname: true,
+          lastname: true,
+          profilePicture: true,
+          country: true,
+        },
+      },
       customer: { select: { email: true, firstName: true, lastName: true, bushaProfileId: true } },
       initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
     },
