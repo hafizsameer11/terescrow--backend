@@ -4,6 +4,7 @@ import ApiResponse from '../../utils/ApiResponse';
 import { io } from '../../socketConfig';
 import { Chat, ChatStatus, ChatType, PrismaClient, TransactionStatus, User, UserRoles } from '@prisma/client';
 import { resolveStatsTimeWindow } from '../../utils/statsTimeWindow';
+import { getAdminTransactionStats } from '../../services/admin/transactions.admin.service';
 const prisma = new PrismaClient();
 export const getChatStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -163,181 +164,94 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
 
 export const getDashBoardStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        // Get the current and previous month dates
         const currentMonthStart = new Date();
         currentMonthStart.setDate(1);
         const previousMonthStart = new Date(currentMonthStart);
         previousMonthStart.setMonth(previousMonthStart.getMonth() - 1);
 
-        // Fetch current month data
         const totalUsers = await prisma.user.count();
-        const totalInflow = await prisma.transaction.aggregate({
-            _sum: {
-                profit: true,
-                amountNaira: true
-            }
-        });
-        const totalOutflow = await prisma.transaction.aggregate({
-            where: {
-                department: {
-                    Type: 'sell'
-                }
-            },
-            _sum: {
-                amount: true,
-                amountNaira: true
-            }
-        });
-        const totalRevenue = await prisma.transaction.aggregate({
-            _sum: {
-                amount: true,
-                amountNaira: true
-            }
-        });
-        const totalTransactions = await prisma.transaction.count();
-        const totalAgents = await prisma.user.count({
-            where: {
-                role: 'agent'
-            }
-        });
+        const totalAgents = await prisma.user.count({ where: { role: 'agent' } });
         const verifiedCustomers = await prisma.user.count({
-            where: {
-                KycStateTwo: {
-                    some: {}
-                }
-            }
+            where: { KycStateTwo: { some: {} } },
         });
         const totalDepartments = await prisma.department.count();
 
-        // Fetch previous month data for comparison
         const prevTotalUsers = await prisma.user.count({
-            where: {
-                createdAt: {
-                    lt: currentMonthStart,
-                    gte: previousMonthStart
-                }
-            }
-        });
-        const prevTotalInflow = await prisma.transaction.aggregate({
-            where: {
-                createdAt: {
-                    lt: currentMonthStart,
-                    gte: previousMonthStart
-                }
-            },
-            _sum: {
-                profit: true,
-                amountNaira: true
-            }
-        });
-        const prevTotalOutflow = await prisma.transaction.aggregate({
-            where: {
-                createdAt: {
-                    lt: currentMonthStart,
-                    gte: previousMonthStart
-                },
-                department: {
-                    Type: 'sell'
-                }
-            },
-            _sum: {
-                amount: true,
-                amountNaira: true
-            }
-        });
-        const prevTotalRevenue = await prisma.transaction.aggregate({
-            where: {
-                createdAt: {
-                    lt: currentMonthStart,
-                    gte: previousMonthStart
-                }
-            },
-            _sum: {
-                amount: true,
-                amountNaira: true
-            }
-        });
-        const prevTotalTransactions = await prisma.transaction.count({
-            where: {
-                createdAt: {
-                    lt: currentMonthStart,
-                    gte: previousMonthStart
-                }
-            }
+            where: { createdAt: { lt: currentMonthStart, gte: previousMonthStart } },
         });
         const prevTotalAgents = await prisma.user.count({
-            where: {
-                role: 'agent',
-                createdAt: {
-                    lt: currentMonthStart,
-                    gte: previousMonthStart
-                }
-            }
+            where: { role: 'agent', createdAt: { lt: currentMonthStart, gte: previousMonthStart } },
         });
         const prevVerifiedCustomers = await prisma.user.count({
             where: {
-                KycStateTwo: {
-                    some: {}
-                },
-                createdAt: {
-                    lt: currentMonthStart,
-                    gte: previousMonthStart
-                }
-            }
+                KycStateTwo: { some: {} },
+                createdAt: { lt: currentMonthStart, gte: previousMonthStart },
+            },
         });
 
-        // Function to calculate percentage change
+        // Money metrics from live providers (Busha / Pagocard / StroWallet / PalmPay)
+        const providerStats = await getAdminTransactionStats({});
+        const nairaIn = Number(providerStats.nairaTransactions?._sum?.amountNaira || 0);
+        const billOut = Number(providerStats.billPaymentTransactions?._sum?.amountNaira || 0);
+        const cryptoNaira = Number(providerStats.cryptoTransactions?._sum?.amountNaira || 0);
+        const giftUsd = Number(providerStats.giftCardTransactions?._sum?.amount || 0);
+        const totalTxCount = Number(providerStats.totalTransactions?.count || 0);
+        const revenueNaira = nairaIn + cryptoNaira + billOut;
+
         const calculateChange = (current: number, previous: number) => {
-            if (previous === 0) return { change: 'positive', percentage: 100 };
+            if (previous === 0) return { change: 'positive', percentage: current > 0 ? 100 : 0 };
             const difference = current - previous;
             const percentage = (difference / previous) * 100;
             return {
                 change: difference >= 0 ? 'positive' : 'negative',
-                percentage: parseFloat(Math.abs(percentage).toFixed(2)) // Convert to a number
+                percentage: parseFloat(Math.abs(percentage).toFixed(2)),
             };
         };
 
-        // Prepare the response data
         const data = {
             totalUsers: {
                 count: totalUsers,
-                ...calculateChange(totalUsers, prevTotalUsers)
+                ...calculateChange(totalUsers, prevTotalUsers),
             },
             totalInflow: {
-                current: totalInflow._sum.profit || 0,
-                ...calculateChange(totalInflow._sum.profit || 0, prevTotalInflow._sum.profit || 0)
+                current: nairaIn,
+                change: providerStats.nairaTransactions?.change,
+                percentage: providerStats.nairaTransactions?.percentage,
             },
             totalOutflow: {
-                current: totalOutflow._sum.amountNaira || 0,
-                ...calculateChange(totalOutflow._sum.amountNaira || 0, prevTotalOutflow._sum.amountNaira || 0)
+                current: billOut,
+                change: providerStats.billPaymentTransactions?.change,
+                percentage: providerStats.billPaymentTransactions?.percentage,
             },
             totalRevenue: {
-                current: totalRevenue._sum.amountNaira || 0,
-                ...calculateChange(totalRevenue._sum.amountNaira || 0, prevTotalRevenue._sum.amountNaira || 0)
+                current: revenueNaira,
+                change: providerStats.totalTransactionAmountSum?.change,
+                percentage: providerStats.totalTransactionAmountSum?.percentage,
             },
             totalTransactions: {
-                count: totalTransactions,
-                ...calculateChange(totalTransactions, prevTotalTransactions)
+                ...providerStats.totalTransactions,
+                count: totalTxCount,
             },
             totalAgents: {
                 count: totalAgents,
-                ...calculateChange(totalAgents, prevTotalAgents)
+                ...calculateChange(totalAgents, prevTotalAgents),
             },
             totalVerifiedUsers: {
                 count: verifiedCustomers,
-                ...calculateChange(verifiedCustomers, prevVerifiedCustomers)
+                ...calculateChange(verifiedCustomers, prevVerifiedCustomers),
             },
             totalDepartments: {
-                count: totalDepartments
-            }
+                count: totalDepartments,
+            },
+            providerBreakdown: {
+                bushaCrypto: providerStats.cryptoTransactions,
+                pagocardGiftCards: { ...providerStats.giftCardTransactions, amountUsd: giftUsd },
+                billPayments: providerStats.billPaymentTransactions,
+                palmpayNaira: providerStats.nairaTransactions,
+            },
         };
 
-        return new ApiResponse(
-            200,
-            data,
-            'Dashboard stats fetched successfully'
-        ).send(res);
-
+        return new ApiResponse(200, data, 'Dashboard stats fetched successfully').send(res);
     } catch (error) {
         console.error(error);
         if (error instanceof ApiError) {
@@ -478,108 +392,7 @@ export const customerStats = async (req: Request, res: Response, next: NextFunct
 
 export const transactionStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const user = req.body._user;
-
-        // Apply filter if the user is not an admin
-        const userFilter = user.role == UserRoles.customer ? {
-            department: {
-                assignedDepartments: {
-                    some: {
-                        agent: {
-                            userId: user.id
-                        }
-                    }
-                }
-            }
-        } : {};
-
-        // Date calculations for the current and previous month
-        const currentMonthStart = new Date();
-        currentMonthStart.setDate(1);
-        const previousMonthStart = new Date(currentMonthStart);
-        previousMonthStart.setMonth(previousMonthStart.getMonth() - 1);
-
-        // Fetch current month data
-        const totalTransactions = await prisma.transaction.count({ where: userFilter });
-
-        const totalTransactionAmountSum = await prisma.transaction.aggregate({
-            where: userFilter,
-            _sum: { amount: true, amountNaira: true },
-        });
-
-        const cryptoTransactions = await prisma.transaction.aggregate({
-            where: {
-                ...userFilter,
-                department: { niche: 'crypto' },
-            },
-            _count: true,
-            _sum: { amount: true, amountNaira: true },
-        });
-
-        const giftCardTransactions = await prisma.transaction.aggregate({
-            where: {
-                ...userFilter,
-                department: { niche: 'giftCard' },
-            },
-            _count: true,
-            _sum: { amount: true, amountNaira: true },
-        });
-
-        // Fetch previous month data for comparison
-        const prevTotalTransactions = await prisma.transaction.count({
-            where: { ...userFilter, createdAt: { lt: currentMonthStart, gte: previousMonthStart } },
-        });
-
-        const prevTotalTransactionAmountSum = await prisma.transaction.aggregate({
-            where: { ...userFilter, createdAt: { lt: currentMonthStart, gte: previousMonthStart } },
-            _sum: { amount: true, amountNaira: true },
-        });
-
-        const prevCryptoTransactions = await prisma.transaction.aggregate({
-            where: { ...userFilter, department: { niche: 'crypto' }, createdAt: { lt: currentMonthStart, gte: previousMonthStart } },
-            _count: true,
-            _sum: { amount: true, amountNaira: true },
-        });
-
-        const prevGiftCardTransactions = await prisma.transaction.aggregate({
-            where: { ...userFilter, department: { niche: 'giftCard' }, createdAt: { lt: currentMonthStart, gte: previousMonthStart } },
-            _count: true,
-            _sum: { amount: true, amountNaira: true },
-        });
-
-        // Function to calculate percentage change
-        const calculateChange = (current: number, previous: number) => {
-            if (previous === 0) return { change: 'positive', percentage: 100 };
-            const difference = current - previous;
-            const percentage = (difference / previous) * 100;
-            return {
-                change: difference >= 0 ? 'positive' : 'negative',
-                percentage: parseFloat(Math.abs(percentage).toFixed(2))
-            };
-        };
-
-        // Combine data into a response object with comparisons
-        const data = {
-            totalTransactions: {
-                count: totalTransactions,
-                ...calculateChange(totalTransactions, prevTotalTransactions),
-            },
-            totalTransactionAmountSum: {
-                _sum: totalTransactionAmountSum._sum,
-                ...calculateChange(totalTransactionAmountSum._sum.amount || 0, prevTotalTransactionAmountSum._sum.amount || 0),
-            },
-            cryptoTransactions: {
-                _count: cryptoTransactions._count,
-                _sum: cryptoTransactions._sum,
-                ...calculateChange(cryptoTransactions._count, prevCryptoTransactions._count),
-            },
-            giftCardTransactions: {
-                _count: giftCardTransactions._count,
-                _sum: giftCardTransactions._sum,
-                ...calculateChange(giftCardTransactions._count, prevGiftCardTransactions._count),
-            },
-        };
-
+        const data = await getAdminTransactionStats({});
         return new ApiResponse(200, data, 'Stats found successfully').send(res);
     } catch (error) {
         console.error(error);

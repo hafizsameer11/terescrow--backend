@@ -1,5 +1,4 @@
 import { prisma } from '../../utils/prisma';
-import { CryptoTxStatus, CryptoTxType } from '@prisma/client';
 
 export type NicheType = 'crypto' | 'giftcard' | 'billpayment' | 'naira';
 
@@ -40,6 +39,7 @@ export interface UnifiedTransaction {
   cardType: string | null;
   cardNumber: string | null;
   giftCardSubType: string | null;
+  giftCardProvider: string | null;
   billType: string | null;
   billReference: string | null;
   billProvider: string | null;
@@ -47,6 +47,12 @@ export interface UnifiedTransaction {
   nairaChannel: string | null;
   nairaReference: string | null;
   exchangeRate?: number | null;
+  /** Provider source of truth: busha | strowallet | palmpay | pagocard | reloadly */
+  provider?: string | null;
+  side?: string | null;
+  sourceCurrency?: string | null;
+  targetCurrency?: string | null;
+  sceneCode?: string | null;
 }
 
 export interface TransactionsResult {
@@ -62,18 +68,28 @@ const USER_SELECT = {
   profilePicture: true, country: true,
 } as const;
 
+const ACTIVE_BILL_PROVIDERS = ['strowallet', 'palmpay'] as const;
+
+const NAIRA_TYPES = ['DEPOSIT', 'WITHDRAW', 'WITHDRAWAL', 'TRANSFER', 'credit', 'debit', 'deposit', 'withdrawal'] as const;
+
 const NULL_TYPE_FIELDS = {
   fromAddress: null as string | null,
   toAddress: null as string | null,
   cardType: null as string | null,
   cardNumber: null as string | null,
   giftCardSubType: null as string | null,
+  giftCardProvider: null as string | null,
   billType: null as string | null,
   billReference: null as string | null,
   billProvider: null as string | null,
   nairaType: null as string | null,
   nairaChannel: null as string | null,
   nairaReference: null as string | null,
+  provider: null as string | null,
+  side: null as string | null,
+  sourceCurrency: null as string | null,
+  targetCurrency: null as string | null,
+  sceneCode: null as string | null,
 };
 
 function toDate(s?: string, endOfDay = false): Date | undefined {
@@ -85,28 +101,31 @@ function toDate(s?: string, endOfDay = false): Date | undefined {
 }
 
 function normalizeStatus(dbStatus: string): string {
-  if (dbStatus === 'completed') return 'successful';
-  if (dbStatus === 'cancelled' || dbStatus === 'refunded') return 'declined';
-  return dbStatus;
+  const s = String(dbStatus || '').toLowerCase();
+  if (s === 'completed' || s === 'wallet_credited' || s === 'funds_received' || s === 'funds_converted') {
+    return 'successful';
+  }
+  if (s === 'cancelled' || s === 'canceled' || s === 'refunded' || s === 'failed' || s === 'buy_reversed') {
+    return 'declined';
+  }
+  if (s === 'processing' || s === 'pending' || s === 'awaiting_payment' || s === 'awaiting_deposit') {
+    return 'pending';
+  }
+  if (s === 'successful' || s === 'declined' || s === 'pending') return s;
+  return s || 'pending';
 }
 
-/** String status values for gift cards, bill payments, naira (not CryptoTxStatus enum). */
 function statusToDbValues(s: string): string[] {
-  if (s === 'successful') return ['successful', 'completed'];
-  if (s === 'declined') return ['declined', 'failed', 'cancelled', 'refunded'];
-  if (s === 'pending') return ['pending', 'processing'];
+  if (s === 'successful') {
+    return ['successful', 'completed', 'wallet_credited', 'funds_received', 'funds_converted'];
+  }
+  if (s === 'declined') {
+    return ['declined', 'failed', 'cancelled', 'canceled', 'refunded', 'buy_reversed'];
+  }
+  if (s === 'pending') {
+    return ['pending', 'processing', 'awaiting_payment', 'awaiting_deposit'];
+  }
   return [s];
-}
-
-/** CryptoTransaction.status is Prisma enum CryptoTxStatus — no "completed" / "declined". */
-function statusToCryptoDbValues(s: string): CryptoTxStatus[] {
-  if (s === 'successful') return [CryptoTxStatus.successful];
-  if (s === 'declined') return [CryptoTxStatus.failed, CryptoTxStatus.cancelled];
-  if (s === 'pending') return [CryptoTxStatus.pending, CryptoTxStatus.processing];
-  if (s === 'revoked') return [CryptoTxStatus.revoked, CryptoTxStatus.fake];
-  const values = Object.values(CryptoTxStatus) as string[];
-  if (values.includes(s)) return [s as CryptoTxStatus];
-  return [];
 }
 
 function buildDateFilter(startDate?: string, endDate?: string) {
@@ -125,21 +144,49 @@ function mapUser(u: any) {
   };
 }
 
-function cryptoDeptType(t: CryptoTxType): string {
-  if (t === 'BUY' || t === 'RECEIVE') return 'buy';
-  if (t === 'SELL' || t === 'SEND') return 'sell';
-  return 'buy';
+function parseGiftCardMetadata(raw: unknown): Record<string, any> {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw as Record<string, any>;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return {};
+  }
 }
 
-function cryptoDeptTitle(t: CryptoTxType): string {
-  const m: Record<string, string> = {
-    BUY: 'Buy Crypto', SELL: 'Sell Crypto', SEND: 'Send Crypto',
-    RECEIVE: 'Receive Crypto', SWAP: 'Swap Crypto',
-  };
-  return m[t] || 'Crypto';
+function giftCardProviderFromOrder(o: any): string {
+  const meta = parseGiftCardMetadata(o.metadata);
+  const fromMeta = String(meta.provider || '').toLowerCase();
+  if (fromMeta) return fromMeta;
+  if (o.reloadlyOrderId || o.reloadlyTransactionId) return 'reloadly';
+  return 'pagocard';
 }
 
-// ── Gift Card queries & mapper ──
+function isCryptoLinkedFiatType(type: string): boolean {
+  return String(type || '').toUpperCase().startsWith('CRYPTO_');
+}
+
+function isBillLinkedFiatType(type: string): boolean {
+  const t = String(type || '').toUpperCase();
+  return t === 'BILL_PAYMENT' || t === 'BILLPAYMENT' || t === 'BILL';
+}
+
+function mapBushaSideToDept(side: string): { title: string; Type: 'buy' | 'sell' } {
+  const s = String(side || '').toLowerCase();
+  if (s === 'buy') return { title: 'Buy Crypto', Type: 'buy' };
+  if (s === 'sell') return { title: 'Sell Crypto', Type: 'sell' };
+  if (s === 'receive' || s === 'cryptorecv') return { title: 'Receive Crypto', Type: 'buy' };
+  if (s === 'send' || s === 'cryptosend') return { title: 'Send Crypto', Type: 'sell' };
+  if (s === 'convert' || s === 'swap') return { title: 'Swap Crypto', Type: 'buy' };
+  return { title: 'Crypto', Type: 'buy' };
+}
+
+function parseAmount(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// ── Gift Card (Pagocard / Reloadly) ──
 
 async function queryGiftCards(f: TransactionFilters, take: number, skip: number) {
   if (f.type === 'sell') return { rows: [] as any[], count: 0 };
@@ -174,6 +221,7 @@ async function queryGiftCards(f: TransactionFilters, take: number, skip: number)
 function mapGiftCard(o: any): UnifiedTransaction {
   const amt = Number(o.totalAmount || 0);
   const rate = Number(o.exchangeRate || 0);
+  const provider = giftCardProviderFromOrder(o);
   return {
     id: o.id,
     transactionId: o.id,
@@ -187,7 +235,7 @@ function mapGiftCard(o: any): UnifiedTransaction {
     category: {
       id: o.productId ?? 0,
       title: o.product?.productName ?? 'Gift Card',
-      subTitle: o.currencyCode ?? null,
+      subTitle: provider,
       image: o.product?.reloadlyImageUrl ?? null,
     },
     subCategory: null,
@@ -196,118 +244,127 @@ function mapGiftCard(o: any): UnifiedTransaction {
     ...NULL_TYPE_FIELDS,
     cardType: o.cardType ?? null,
     cardNumber: o.cardNumber ?? null,
+    giftCardProvider: provider,
+    provider,
+    exchangeRate: rate || null,
   };
 }
 
-// ── Crypto queries & mapper ──
+// ── Crypto (BushaTradeLog) ──
 
 async function queryCrypto(f: TransactionFilters, take: number, skip: number) {
   const where: any = {};
   const df = buildDateFilter(f.startDate, f.endDate);
   if (df) where.createdAt = df;
   if (f.status) {
-    const statuses = statusToCryptoDbValues(f.status);
-    if (statuses.length) where.status = { in: statuses };
+    const statuses = statusToDbValues(f.status);
+    if (statuses.length) {
+      where.OR = [
+        { status: { in: statuses } },
+        { bushaStatus: { in: statuses } },
+      ];
+    }
   }
   if (f.customerId) where.userId = f.customerId;
-  if (f.type === 'buy') where.transactionType = { in: ['BUY', 'RECEIVE'] };
-  else if (f.type === 'sell') where.transactionType = { in: ['SELL', 'SEND'] };
+  if (f.type === 'buy') {
+    where.side = { in: ['buy', 'receive', 'cryptorecv', 'convert', 'swap'] };
+  } else if (f.type === 'sell') {
+    where.side = { in: ['sell', 'send', 'cryptosend'] };
+  }
   if (f.search?.trim()) {
     const q = f.search.trim();
-    where.OR = [
+    const searchOr: any[] = [
       { user: { firstname: { contains: q } } },
       { user: { lastname: { contains: q } } },
       { user: { username: { contains: q } } },
-      { transactionId: { contains: q } },
-      { currency: { contains: q } },
+      { id: { contains: q } },
+      { bushaTransferId: { contains: q } },
+      { bushaQuoteId: { contains: q } },
+      { sourceCurrency: { contains: q } },
+      { targetCurrency: { contains: q } },
     ];
+    if (where.OR) {
+      where.AND = [{ OR: where.OR }, { OR: searchOr }];
+      delete where.OR;
+    } else {
+      where.OR = searchOr;
+    }
   }
+
   const [rows, count] = await Promise.all([
-    prisma.cryptoTransaction.findMany({
+    prisma.bushaTradeLog.findMany({
       where, skip, take, orderBy: { createdAt: 'desc' },
-      include: {
-        user: { select: USER_SELECT },
-        cryptoBuy: true, cryptoSell: true,
-        cryptoSend: true, cryptoReceive: true, cryptoSwap: true,
-      },
+      include: { user: { select: USER_SELECT } },
     }),
-    prisma.cryptoTransaction.count({ where }),
+    prisma.bushaTradeLog.count({ where }),
   ]);
   return { rows, count };
 }
 
-function mapCrypto(tx: any): UnifiedTransaction {
-  let amount = 0, amountNaira = 0;
-  let fromAddr: string | null = null, toAddr: string | null = null;
-  const child = tx.cryptoBuy || tx.cryptoSell || tx.cryptoSend || tx.cryptoReceive || tx.cryptoSwap;
-  if (tx.cryptoBuy) {
-    amount = Number(tx.cryptoBuy.amountUsd || 0);
-    amountNaira = Number(tx.cryptoBuy.amountNaira || 0);
-    fromAddr = tx.cryptoBuy.fromAddress ?? null;
-    toAddr = tx.cryptoBuy.toAddress ?? null;
-  } else if (tx.cryptoSell) {
-    amount = Number(tx.cryptoSell.amountUsd || 0);
-    amountNaira = Number(tx.cryptoSell.amountNaira || 0);
-    fromAddr = tx.cryptoSell.fromAddress ?? null;
-    toAddr = tx.cryptoSell.toAddress ?? null;
-  } else if (tx.cryptoSend) {
-    amount = Number(tx.cryptoSend.amountUsd || 0);
-    amountNaira = Number(tx.cryptoSend.amountNaira || 0);
-    fromAddr = tx.cryptoSend.fromAddress;
-    toAddr = tx.cryptoSend.toAddress;
-  } else if (tx.cryptoReceive) {
-    amount = Number(tx.cryptoReceive.amountUsd || 0);
-    amountNaira = Number(tx.cryptoReceive.amountNaira || 0);
-    fromAddr = tx.cryptoReceive.fromAddress;
-    toAddr = tx.cryptoReceive.toAddress;
-  } else if (tx.cryptoSwap) {
-    amount = Number(tx.cryptoSwap.fromAmountUsd || 0);
-    fromAddr = tx.cryptoSwap.fromAddress ?? null;
-    toAddr = tx.cryptoSwap.toAddress ?? null;
+function mapCrypto(t: any): UnifiedTransaction {
+  const side = String(t.side || '').toLowerCase();
+  const source = String(t.sourceCurrency || '').toUpperCase();
+  const target = String(t.targetCurrency || '').toUpperCase();
+  const sourceAmount = parseAmount(t.sourceAmount);
+  const targetAmount = t.targetAmount != null ? parseAmount(t.targetAmount) : 0;
+  const dept = mapBushaSideToDept(side);
+
+  let amount = sourceAmount;
+  let amountNaira = 0;
+
+  if (side === 'buy') {
+    amount = targetAmount || sourceAmount;
+    amountNaira = source === 'NGN' ? sourceAmount : 0;
+  } else if (side === 'sell') {
+    amount = sourceAmount;
+    amountNaira = target === 'NGN' ? targetAmount : 0;
+  } else {
+    amount = sourceAmount;
   }
 
-  let exchangeRate: number | null = null;
-  if (tx.cryptoBuy) {
-    exchangeRate = tx.cryptoBuy.rateNgnToUsd != null
-      ? Number(tx.cryptoBuy.rateNgnToUsd)
-      : tx.cryptoBuy.rate != null ? Number(tx.cryptoBuy.rate) : null;
-  } else if (tx.cryptoSell) {
-    exchangeRate = tx.cryptoSell.rateUsdToNgn != null
-      ? Number(tx.cryptoSell.rateUsdToNgn)
-      : tx.cryptoSell.rate != null ? Number(tx.cryptoSell.rate) : null;
-  } else if (child?.rate != null) {
-    exchangeRate = Number(child.rate);
-  }
+  const pairTitle =
+    side === 'convert' || side === 'swap'
+      ? `${source}→${target}`
+      : side === 'buy'
+        ? target || source
+        : source || target;
 
   return {
-    id: tx.id,
-    transactionId: tx.transactionId,
-    status: normalizeStatus(tx.status),
-    amount: Math.round(amount * 100) / 100,
+    id: t.id,
+    transactionId: t.bushaTransferId || t.id,
+    status: normalizeStatus(t.status || t.bushaStatus || 'pending'),
+    amount: Math.round(amount * 1e8) / 1e8,
     amountNaira: Math.round(amountNaira * 100) / 100,
-    exchangeRate,
-    createdAt: tx.createdAt.toISOString(),
-    updatedAt: tx.updatedAt.toISOString(),
+    createdAt: t.createdAt.toISOString(),
+    updatedAt: t.updatedAt.toISOString(),
     profit: 0,
-    department: {
-      id: 0, title: cryptoDeptTitle(tx.transactionType),
-      niche: 'crypto', Type: cryptoDeptType(tx.transactionType),
+    department: { id: 0, title: dept.title, niche: 'crypto', Type: dept.Type },
+    category: {
+      id: 0,
+      title: pairTitle,
+      subTitle: `${source} → ${target}`,
+      image: null,
     },
-    category: { id: 0, title: tx.currency, subTitle: tx.currency, image: null },
     subCategory: null,
-    customer: mapUser(tx.user),
+    customer: mapUser(t.user),
     agent: null,
     ...NULL_TYPE_FIELDS,
-    fromAddress: fromAddr,
-    toAddress: toAddr,
+    fromAddress: t.cryptoDepositAddress ?? null,
+    toAddress: null,
+    provider: 'busha',
+    side,
+    sourceCurrency: source,
+    targetCurrency: target,
   };
 }
 
-// ── Bill Payment queries & mapper ──
+// ── Bill Payment (StroWallet + PalmPay betting) ──
 
 async function queryBillPayments(f: TransactionFilters, take: number, skip: number) {
   if (f.type === 'sell') return { rows: [] as any[], count: 0 };
-  const where: any = {};
+  const where: any = {
+    provider: { in: [...ACTIVE_BILL_PROVIDERS] },
+  };
   const df = buildDateFilter(f.startDate, f.endDate);
   if (df) where.createdAt = df;
   if (f.status) where.status = { in: statusToDbValues(f.status) };
@@ -321,6 +378,10 @@ async function queryBillPayments(f: TransactionFilters, take: number, skip: numb
       { transactionId: { contains: q } },
       { billType: { contains: q } },
       { billerName: { contains: q } },
+      { sceneCode: { contains: q } },
+      { palmpayOrderId: { contains: q } },
+      { palmpayOrderNo: { contains: q } },
+      { billReference: { contains: q } },
     ];
   }
   const [rows, count] = await Promise.all([
@@ -335,6 +396,8 @@ async function queryBillPayments(f: TransactionFilters, take: number, skip: numb
 
 function mapBillPayment(b: any): UnifiedTransaction {
   const amt = Number(b.amount || 0);
+  const provider = String(b.provider || '').toLowerCase() || null;
+  const ref = b.billReference || b.palmpayOrderNo || b.palmpayOrderId || null;
   return {
     id: b.id,
     transactionId: b.transactionId,
@@ -345,28 +408,49 @@ function mapBillPayment(b: any): UnifiedTransaction {
     updatedAt: b.updatedAt.toISOString(),
     profit: 0,
     department: { id: 0, title: 'Bill Payments', niche: 'billpayment', Type: 'buy' },
-    category: { id: 0, title: b.billType ?? 'Bill Payment', subTitle: b.billerName ?? null, image: null },
-    subCategory: null,
+    category: {
+      id: 0,
+      title: b.billType ?? b.sceneCode ?? 'Bill Payment',
+      subTitle: b.billerName ?? b.itemName ?? null,
+      image: null,
+    },
+    subCategory: b.itemName ? { id: 0, title: b.itemName } : null,
     customer: mapUser(b.user),
     agent: null,
     ...NULL_TYPE_FIELDS,
-    billType: b.billType ?? null,
-    billReference: b.billReference ?? null,
-    billProvider: b.provider ?? b.billerName ?? null,
+    billType: b.billType ?? b.sceneCode ?? null,
+    billReference: ref,
+    billProvider: provider,
+    provider,
+    sceneCode: b.sceneCode ?? null,
   };
 }
 
-// ── Naira (FiatTransaction) queries & mapper ──
+// ── Naira (PalmPay deposits/withdrawals — not crypto/bill legs) ──
+
+function nairaWhereBase(): any {
+  return {
+    billType: null,
+    NOT: [
+      { type: { startsWith: 'CRYPTO_' } },
+      { type: { in: ['BILL_PAYMENT', 'BILLPAYMENT', 'BILL'] } },
+    ],
+  };
+}
 
 async function queryNaira(f: TransactionFilters, take: number, skip: number) {
-  const where: any = { billType: null };
+  const where: any = { ...nairaWhereBase() };
   const df = buildDateFilter(f.startDate, f.endDate);
   if (df) where.createdAt = df;
   if (f.status) where.status = { in: statusToDbValues(f.status) };
   if (f.customerId) where.userId = f.customerId;
-  if (f.type === 'buy') where.type = { in: ['deposit', 'credit'] };
-  else if (f.type === 'sell') where.type = { in: ['withdrawal', 'debit'] };
-  else where.type = { in: ['deposit', 'withdrawal', 'transfer', 'credit', 'debit'] };
+  if (f.type === 'buy') {
+    where.type = { in: ['DEPOSIT', 'deposit', 'credit'] };
+  } else if (f.type === 'sell') {
+    where.type = { in: ['WITHDRAW', 'WITHDRAWAL', 'withdrawal', 'debit'] };
+  } else {
+    where.type = { in: [...NAIRA_TYPES] };
+  }
   if (f.search?.trim()) {
     const q = f.search.trim();
     where.OR = [
@@ -375,8 +459,10 @@ async function queryNaira(f: TransactionFilters, take: number, skip: number) {
       { user: { username: { contains: q } } },
       { id: { contains: q } },
       { palmpayOrderNo: { contains: q } },
+      { palmpayOrderId: { contains: q } },
     ];
   }
+
   const [rows, count] = await Promise.all([
     prisma.fiatTransaction.findMany({
       where, skip, take, orderBy: { createdAt: 'desc' },
@@ -384,7 +470,12 @@ async function queryNaira(f: TransactionFilters, take: number, skip: number) {
     }),
     prisma.fiatTransaction.count({ where }),
   ]);
-  return { rows, count };
+
+  // Extra safety filter for CRYPTO_/BILL if DB dialect quirks
+  const filtered = rows.filter(
+    (r) => !isCryptoLinkedFiatType(r.type) && !isBillLinkedFiatType(r.type)
+  );
+  return { rows: filtered, count };
 }
 
 function mapNaira(f: any): UnifiedTransaction {
@@ -392,7 +483,8 @@ function mapNaira(f: any): UnifiedTransaction {
   const totalAmt = Number(f.totalAmount || f.amount || 0);
   const currency = String(f.currency || 'NGN').toUpperCase();
   const isUsd = currency === 'USD';
-  const deptType = ['deposit', 'credit'].includes(f.type) ? 'buy' : 'sell';
+  const t = String(f.type || '').toUpperCase();
+  const deptType = ['DEPOSIT', 'CREDIT'].includes(t) ? 'buy' : 'sell';
   return {
     id: f.id,
     transactionId: f.id,
@@ -403,14 +495,15 @@ function mapNaira(f: any): UnifiedTransaction {
     updatedAt: f.updatedAt.toISOString(),
     profit: 0,
     department: { id: 0, title: 'Naira', niche: 'naira', Type: deptType },
-    category: { id: 0, title: f.type ?? 'Naira', subTitle: null, image: null },
+    category: { id: 0, title: f.type ?? 'Naira', subTitle: 'palmpay', image: null },
     subCategory: null,
     customer: mapUser(f.user),
     agent: null,
     ...NULL_TYPE_FIELDS,
     nairaType: f.type ?? null,
     nairaChannel: f.description ?? null,
-    nairaReference: f.palmpayOrderNo ?? null,
+    nairaReference: f.palmpayOrderNo ?? f.palmpayOrderId ?? null,
+    provider: 'palmpay',
   };
 }
 
@@ -439,7 +532,6 @@ export async function getAdminTransactions(filters: TransactionFilters): Promise
     };
   }
 
-  // All niches combined — fetch enough from each source to fill the requested page
   const fetchLimit = page * limit;
   const [gc, crypto, bill, naira] = await Promise.all([
     queryGiftCards(filters, fetchLimit, 0),
@@ -493,7 +585,11 @@ export async function getAdminTransactionStats(filters: {
     return { change: (pct >= 0 ? 'positive' : 'negative') as 'positive' | 'negative', percentage: Math.round(Math.abs(pct) * 100) / 100 };
   };
 
-  // Gift card
+  const billCurWhere = { ...curWhere, provider: { in: [...ACTIVE_BILL_PROVIDERS] } };
+  const billPrevWhere = { ...prevWhere, provider: { in: [...ACTIVE_BILL_PROVIDERS] } };
+  const nairaCurWhere = { ...curWhere, ...nairaWhereBase(), type: { in: [...NAIRA_TYPES] } };
+  const nairaPrevWhere = { ...prevWhere, ...nairaWhereBase(), type: { in: [...NAIRA_TYPES] } };
+
   const [gcCnt, gcPrev] = await Promise.all([
     prisma.giftCardOrder.count({ where: curWhere }),
     prisma.giftCardOrder.count({ where: prevWhere }),
@@ -503,37 +599,50 @@ export async function getAdminTransactionStats(filters: {
     prisma.giftCardOrder.aggregate({ where: prevWhere, _sum: { totalAmount: true } }),
   ]);
 
-  // Crypto
   const [crCnt, crPrev] = await Promise.all([
-    prisma.cryptoTransaction.count({ where: curWhere }),
-    prisma.cryptoTransaction.count({ where: prevWhere }),
+    prisma.bushaTradeLog.count({ where: curWhere }),
+    prisma.bushaTradeLog.count({ where: prevWhere }),
   ]);
-  const [crBuySum, crSellSum] = await Promise.all([
-    prisma.cryptoBuy.aggregate({ where: { cryptoTransaction: curWhere }, _sum: { amountUsd: true, amountNaira: true } }),
-    prisma.cryptoSell.aggregate({ where: { cryptoTransaction: curWhere }, _sum: { amountUsd: true, amountNaira: true } }),
-  ]);
-  const crSumUsd = Number(crBuySum._sum.amountUsd || 0) + Number(crSellSum._sum.amountUsd || 0);
-  const crSumNaira = Number(crBuySum._sum.amountNaira || 0) + Number(crSellSum._sum.amountNaira || 0);
+  const crRows = await prisma.bushaTradeLog.findMany({
+    where: curWhere,
+    select: { side: true, sourceCurrency: true, targetCurrency: true, sourceAmount: true, targetAmount: true },
+    take: 5000,
+  });
+  let crSumUsd = 0;
+  let crSumNaira = 0;
+  for (const t of crRows) {
+    const side = String(t.side || '').toLowerCase();
+    const source = String(t.sourceCurrency || '').toUpperCase();
+    const target = String(t.targetCurrency || '').toUpperCase();
+    const sourceAmount = parseAmount(t.sourceAmount);
+    const targetAmount = t.targetAmount != null ? parseAmount(t.targetAmount) : 0;
+    if (side === 'buy') {
+      crSumUsd += targetAmount || sourceAmount;
+      if (source === 'NGN') crSumNaira += sourceAmount;
+    } else if (side === 'sell') {
+      crSumUsd += sourceAmount;
+      if (target === 'NGN') crSumNaira += targetAmount;
+    } else {
+      crSumUsd += sourceAmount;
+    }
+  }
 
-  // Bill payments
   const [bpCnt, bpPrev] = await Promise.all([
-    prisma.billPayment.count({ where: curWhere }),
-    prisma.billPayment.count({ where: prevWhere }),
+    prisma.billPayment.count({ where: billCurWhere }),
+    prisma.billPayment.count({ where: billPrevWhere }),
   ]);
   const [bpSum, bpPrevSum] = await Promise.all([
-    prisma.billPayment.aggregate({ where: curWhere, _sum: { amount: true } }),
-    prisma.billPayment.aggregate({ where: prevWhere, _sum: { amount: true } }),
+    prisma.billPayment.aggregate({ where: billCurWhere, _sum: { amount: true } }),
+    prisma.billPayment.aggregate({ where: billPrevWhere, _sum: { amount: true } }),
   ]);
 
-  // Naira
-  const nairaBase = { billType: null as any, type: { in: ['deposit', 'withdrawal', 'transfer', 'credit', 'debit'] } };
   const [naCnt, naPrev] = await Promise.all([
-    prisma.fiatTransaction.count({ where: { ...curWhere, ...nairaBase } }),
-    prisma.fiatTransaction.count({ where: { ...prevWhere, ...nairaBase } }),
+    prisma.fiatTransaction.count({ where: nairaCurWhere }),
+    prisma.fiatTransaction.count({ where: nairaPrevWhere }),
   ]);
   const [naSum, naPrevSum] = await Promise.all([
-    prisma.fiatTransaction.aggregate({ where: { ...curWhere, ...nairaBase }, _sum: { totalAmount: true } }),
-    prisma.fiatTransaction.aggregate({ where: { ...prevWhere, ...nairaBase }, _sum: { totalAmount: true } }),
+    prisma.fiatTransaction.aggregate({ where: nairaCurWhere, _sum: { totalAmount: true } }),
+    prisma.fiatTransaction.aggregate({ where: nairaPrevWhere, _sum: { totalAmount: true } }),
   ]);
 
   const totalCnt = gcCnt + crCnt + bpCnt + naCnt;

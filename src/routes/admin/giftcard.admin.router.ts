@@ -1,11 +1,9 @@
 /**
  * Gift Card Admin Routes
- * 
- * Admin endpoints for gift card management:
- * - Sync products
- * - Upload images
- * - View sync logs
- * - Token management
+ *
+ * Customer purchases use Pagocard by default.
+ * Reloadly sync/token endpoints below are legacy catalog tools — do not use them
+ * to overwrite the live Pagocard catalog unless intentionally switching providers.
  */
 
 import express from 'express';
