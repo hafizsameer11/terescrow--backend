@@ -1053,6 +1053,10 @@ model PlatformOperationSettings {
   id                        Int      @id @default(autoincrement())
   palmpayWithdrawDisabled   Boolean  @default(false) @map("palmpay_withdraw_disabled")
   cryptoOutsideSendDisabled Boolean  @default(false) @map("crypto_outside_send_disabled")
+  /// Extra % charged on bill payments on top of provider amount (merchant fee / platform profit).
+  billPaymentFeePercent     Decimal  @default(0) @map("bill_payment_fee_percent") @db.Decimal(8, 4)
+  /// How the fee is labeled in admin UI: merchant_fee | profit
+  billPaymentFeeLabel       String   @default("merchant_fee") @map("bill_payment_fee_label") @db.VarChar(30)
   updatedAt                 DateTime @updatedAt @map("updated_at")
 
   @@map("platform_operation_settings")

@@ -12,6 +12,7 @@ import { palmpayConfig } from '../../services/palmpay/palmpay.config';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PalmPaySceneCode, PalmPayOrderStatus } from '../../types/palmpay.types';
 import { creditReferralCommission, ReferralService } from '../../services/referral/referral.commission.service';
+import { computeBillPaymentCharge } from '../../services/admin/platform.operation.settings.service';
 
 function mapStroWalletStatus(status: 'completed' | 'pending' | 'failed'): number {
   if (status === 'completed') return 2;
@@ -326,13 +327,17 @@ export const createBillOrderController = async (
       return next(ApiError.unauthorized('Invalid PIN'));
     }
 
-    // Validate amount
+    // Validate amount (provider / face amount)
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
       return next(ApiError.badRequest('Amount must be greater than 0'));
     }
 
-    // Convert amount to cents (for PalmPay only)
+    const charge = await computeBillPaymentCharge(amountNum);
+    const feeNgn = charge.feeNgn;
+    const totalDebitNgn = charge.totalDebitNgn;
+
+    // Convert amount to cents (for PalmPay only) — provider still gets face amount
     const amountInCents = Math.round(amountNum * 100);
     if (actualProvider === 'palmpay' && amountInCents < 100) {
       return next(ApiError.badRequest('Minimum amount is 1.00 NGN'));
@@ -341,9 +346,9 @@ export const createBillOrderController = async (
     // Get user's NGN wallet
     const wallet = await fiatWalletService.getOrCreateWallet(user.id, 'NGN');
 
-    // Check balance
+    // Check balance against total debit (provider amount + merchant fee)
     const balance = parseFloat(wallet.balance.toString());
-    if (balance < amountNum) {
+    if (balance < totalDebitNgn) {
       return next(ApiError.badRequest('Insufficient balance'));
     }
 
@@ -352,6 +357,16 @@ export const createBillOrderController = async (
       ? undefined
       : `bill_${uuidv4().replace(/-/g, '')}`.substring(0, 64);
     const transactionId = uuidv4();
+
+    const feeMeta = {
+      merchantFee: {
+        feePercent: charge.feePercent,
+        feeLabel: charge.feeLabel,
+        feeNgn,
+        providerAmountNgn: amountNum,
+        totalDebitNgn,
+      },
+    };
 
     // Create transaction record (status: pending)
     const transaction = await prisma.fiatTransaction.create({
@@ -363,9 +378,11 @@ export const createBillOrderController = async (
         status: 'pending',
         currency: 'NGN',
         amount: amountNum,
-        fees: 0,
-        totalAmount: amountNum,
-        description: `${sceneCode} payment - ${billerId} - ${rechargeAccount} (${actualProvider})`,
+        fees: feeNgn,
+        totalAmount: totalDebitNgn,
+        description: `${sceneCode} payment - ${billerId} - ${rechargeAccount} (${actualProvider})${
+          feeNgn > 0 ? ` + ${charge.feeLabel} ₦${feeNgn}` : ''
+        }`,
         palmpayOrderId: outOrderNo || undefined,
       },
     });
@@ -405,6 +422,7 @@ export const createBillOrderController = async (
         currency: 'NGN',
         status: 'pending',
         palmpayOrderId: outOrderNo || undefined,
+        providerResponse: JSON.stringify(feeMeta),
       },
     });
 
@@ -414,10 +432,10 @@ export const createBillOrderController = async (
     let requestId: string | null = null;
 
     try {
-      // DEBIT USER WALLET FIRST
+      // DEBIT USER WALLET FIRST (provider amount + merchant fee)
       await fiatWalletService.debitWallet(
         wallet.id,
-        amountNum,
+        totalDebitNgn,
         transaction.id,
         `Bill payment: ${sceneCode} - ${billerId} (${actualProvider})`
       );
@@ -481,7 +499,10 @@ export const createBillOrderController = async (
           orderNo,
           requestId,
           providerStatus: stroResult.status,
-          providerResponse: stroResult.raw,
+          providerResponse: {
+            ...(typeof stroResult.raw === 'object' && stroResult.raw ? stroResult.raw : { raw: stroResult.raw }),
+            ...feeMeta,
+          },
           billReference: (stroResult as { token?: string | null; pin?: string | null }).token
             || (stroResult as { pin?: string | null }).pin
             || stroResult.transactionId,
@@ -632,8 +653,8 @@ export const createBillOrderController = async (
         });
 
         if (currentWallet) {
-          // Refund the amount
-          const refundAmount = new Decimal(currentWallet.balance).plus(amountNum);
+          // Refund the full debit (provider amount + merchant fee)
+          const refundAmount = new Decimal(currentWallet.balance).plus(totalDebitNgn);
           await prisma.fiatWallet.update({
             where: { id: wallet.id },
             data: { balance: refundAmount },
@@ -648,14 +669,16 @@ export const createBillOrderController = async (
               type: 'BILL_PAYMENT',
               status: 'completed',
               currency: 'NGN',
-              amount: amountNum,
+              amount: totalDebitNgn,
               fees: 0,
-              totalAmount: amountNum,
+              totalAmount: totalDebitNgn,
               description: `Refund for failed bill payment: ${transaction.id}`,
               metadata: JSON.stringify({
                 refundFor: transaction.id,
                 reason: error.message,
                 provider: actualProvider,
+                refundedFeeNgn: feeNgn,
+                refundedProviderAmountNgn: amountNum,
               }),
             },
           });

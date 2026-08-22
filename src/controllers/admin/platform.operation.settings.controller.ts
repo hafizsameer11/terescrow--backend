@@ -42,6 +42,8 @@ export async function putPlatformOperationSettingsController(
     const settings = await updatePlatformOperationSettings({
       palmpayWithdrawDisabled,
       cryptoOutsideSendDisabled,
+      billPaymentFeePercent: req.body?.billPaymentFeePercent,
+      billPaymentFeeLabel: req.body?.billPaymentFeeLabel,
     });
     return new ApiResponse(200, settings, 'Platform operation settings updated').send(res);
   } catch (error) {

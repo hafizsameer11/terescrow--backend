@@ -55,6 +55,16 @@ export interface UnifiedTransaction {
   sourceAmount?: number | null;
   targetAmount?: number | null;
   sceneCode?: string | null;
+  markup?: {
+    markupPercent: number;
+    actualAmountNgn: number;
+    userAmountNgn: number;
+    adminMarkupNgn: number;
+  } | null;
+  billFeeNgn?: number | null;
+  billFeePercent?: number | null;
+  billFeeLabel?: string | null;
+  providerAmountNgn?: number | null;
 }
 
 export interface TransactionsResult {
@@ -335,6 +345,20 @@ function mapCrypto(t: any): UnifiedTransaction {
         ? target || source
         : source || target;
 
+  const markup = (t.providerResponse as any)?.markup || null;
+  const adminMarkupNgn = markup
+    ? parseAmount(markup.platformSpreadNgn)
+    : 0;
+  const actualAmountNgn = markup
+    ? parseAmount(markup.bushaSourceAmount || markup.bushaTargetAmount)
+    : 0;
+  const userAmountNgn = markup
+    ? parseAmount(markup.userSourceAmount || markup.userCreditNgn || markup.userTargetAmount)
+    : 0;
+  const markupPercent = markup
+    ? parseAmount(markup.buyMarkupPercent ?? markup.sellMarkupPercent)
+    : 0;
+
   return {
     id: t.id,
     transactionId: t.bushaTransferId || t.id,
@@ -343,7 +367,7 @@ function mapCrypto(t: any): UnifiedTransaction {
     amountNaira: Math.round(amountNaira * 100) / 100,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
-    profit: 0,
+    profit: Math.round(adminMarkupNgn * 100) / 100,
     department: { id: 0, title: dept.title, niche: 'crypto', Type: dept.Type },
     category: {
       id: 0,
@@ -363,6 +387,14 @@ function mapCrypto(t: any): UnifiedTransaction {
     targetCurrency: target,
     sourceAmount,
     targetAmount: targetAmount || null,
+    markup: markup
+      ? {
+          markupPercent,
+          actualAmountNgn: Math.round(actualAmountNgn * 100) / 100,
+          userAmountNgn: Math.round(userAmountNgn * 100) / 100,
+          adminMarkupNgn: Math.round(adminMarkupNgn * 100) / 100,
+        }
+      : null,
   };
 }
 
@@ -395,7 +427,10 @@ async function queryBillPayments(f: TransactionFilters, take: number, skip: numb
   const [rows, count] = await Promise.all([
     prisma.billPayment.findMany({
       where, skip, take, orderBy: { createdAt: 'desc' },
-      include: { user: { select: USER_SELECT } },
+      include: {
+        user: { select: USER_SELECT },
+        transaction: { select: { fees: true, totalAmount: true, amount: true } },
+      },
     }),
     prisma.billPayment.count({ where }),
   ]);
@@ -406,15 +441,33 @@ function mapBillPayment(b: any): UnifiedTransaction {
   const amt = Number(b.amount || 0);
   const provider = String(b.provider || '').toLowerCase() || null;
   const ref = b.billReference || b.palmpayOrderNo || b.palmpayOrderId || null;
+  const feeNgn = Number(b.transaction?.fees || 0);
+  let feeMeta: any = null;
+  try {
+    feeMeta = b.providerResponse ? JSON.parse(b.providerResponse) : null;
+  } catch {
+    feeMeta = null;
+  }
+  const feeFromMeta = feeMeta?.merchantFee || feeMeta?.fee || null;
+  const billFeeNgn = feeFromMeta?.feeNgn != null ? Number(feeFromMeta.feeNgn) : feeNgn;
+  const billFeePercent = feeFromMeta?.feePercent != null ? Number(feeFromMeta.feePercent) : null;
+  const billFeeLabel = feeFromMeta?.feeLabel || null;
+  const providerAmountNgn =
+    feeFromMeta?.providerAmountNgn != null ? Number(feeFromMeta.providerAmountNgn) : amt;
+  const totalCharged =
+    feeFromMeta?.totalDebitNgn != null
+      ? Number(feeFromMeta.totalDebitNgn)
+      : Number(b.transaction?.totalAmount || amt + billFeeNgn);
+
   return {
     id: b.id,
     transactionId: b.transactionId,
     status: normalizeStatus(b.status),
-    amount: amt,
-    amountNaira: amt,
+    amount: totalCharged,
+    amountNaira: totalCharged,
     createdAt: b.createdAt.toISOString(),
     updatedAt: b.updatedAt.toISOString(),
-    profit: 0,
+    profit: Math.round(billFeeNgn * 100) / 100,
     department: { id: 0, title: 'Bill Payments', niche: 'billpayment', Type: 'buy' },
     category: {
       id: 0,
@@ -431,6 +484,10 @@ function mapBillPayment(b: any): UnifiedTransaction {
     billProvider: provider,
     provider,
     sceneCode: b.sceneCode ?? null,
+    billFeeNgn: Math.round(billFeeNgn * 100) / 100,
+    billFeePercent,
+    billFeeLabel,
+    providerAmountNgn: Math.round(providerAmountNgn * 100) / 100,
   };
 }
 

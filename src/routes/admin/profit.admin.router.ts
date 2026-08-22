@@ -14,9 +14,16 @@ import {
   updateDiscountTierController,
   updateProfitConfigController,
   updateRateConfigController,
+  getMarkupProfitOverviewController,
+  getProfitFeeSettingsController,
+  putProfitFeeSettingsController,
 } from '../../controllers/admin/profit.admin.controller';
 
 const profitAdminRouter = Router();
+
+profitAdminRouter.get('/markup-overview', authenticateUser, getMarkupProfitOverviewController);
+profitAdminRouter.get('/fee-settings', authenticateUser, getProfitFeeSettingsController);
+profitAdminRouter.put('/fee-settings', authenticateUser, putProfitFeeSettingsController);
 
 profitAdminRouter.get('/configs', authenticateUser, getProfitConfigsController);
 profitAdminRouter.post('/configs/profit', authenticateUser, createProfitConfigController);

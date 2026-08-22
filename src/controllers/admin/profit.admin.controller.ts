@@ -175,3 +175,40 @@ export async function recomputeProfitLedgerController(req: Request, res: Respons
     return next(ApiError.internal(error.message || 'Failed to recompute profit ledger'));
   }
 }
+
+export async function getMarkupProfitOverviewController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { getMarkupProfitOverview } = await import('../../services/profit/profit.markup.service');
+    const data = await getMarkupProfitOverview({
+      startDate: typeof req.query.startDate === 'string' ? req.query.startDate : undefined,
+      endDate: typeof req.query.endDate === 'string' ? req.query.endDate : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+    return res.status(200).json(new ApiResponse(200, data, 'Markup profit overview retrieved'));
+  } catch (error: any) {
+    return next(ApiError.internal(error.message || 'Failed to get markup profit overview'));
+  }
+}
+
+export async function getProfitFeeSettingsController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { getProfitFeeSettings } = await import('../../services/profit/profit.markup.service');
+    const data = await getProfitFeeSettings();
+    return res.status(200).json(new ApiResponse(200, data, 'Profit fee settings retrieved'));
+  } catch (error: any) {
+    return next(ApiError.internal(error.message || 'Failed to get profit fee settings'));
+  }
+}
+
+export async function putProfitFeeSettingsController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { updateProfitFeeSettings } = await import('../../services/profit/profit.markup.service');
+    const data = await updateProfitFeeSettings({
+      billPaymentFeePercent: req.body?.billPaymentFeePercent,
+      billPaymentFeeLabel: req.body?.billPaymentFeeLabel,
+    });
+    return res.status(200).json(new ApiResponse(200, data, 'Bill payment fee settings updated'));
+  } catch (error: any) {
+    return next(error instanceof ApiError ? error : ApiError.internal(error.message || 'Failed to update fee settings'));
+  }
+}
