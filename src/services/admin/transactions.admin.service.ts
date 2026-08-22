@@ -52,6 +52,8 @@ export interface UnifiedTransaction {
   side?: string | null;
   sourceCurrency?: string | null;
   targetCurrency?: string | null;
+  sourceAmount?: number | null;
+  targetAmount?: number | null;
   sceneCode?: string | null;
 }
 
@@ -89,6 +91,8 @@ const NULL_TYPE_FIELDS = {
   side: null as string | null,
   sourceCurrency: null as string | null,
   targetCurrency: null as string | null,
+  sourceAmount: null as number | null,
+  targetAmount: null as number | null,
   sceneCode: null as string | null,
 };
 
@@ -355,6 +359,8 @@ function mapCrypto(t: any): UnifiedTransaction {
     side,
     sourceCurrency: source,
     targetCurrency: target,
+    sourceAmount,
+    targetAmount: targetAmount || null,
   };
 }
 
