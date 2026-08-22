@@ -1459,3 +1459,424 @@ export async function refreshBushaTrade(tradeId: string) {
 
   return updated;
 }
+
+const BUSHA_WALLET_SUCCESS = new Set([
+  'successful',
+  'completed',
+  'wallet_credited',
+  'funds_delivered',
+  'funds_converted',
+  'funds_received',
+]);
+
+function normalizeBushaTradeSide(side: string): 'buy' | 'sell' | 'receive' | 'send' | 'convert' | 'other' {
+  const s = String(side || '').toLowerCase();
+  if (s === 'buy') return 'buy';
+  if (s === 'sell') return 'sell';
+  if (s === 'receive' || s === 'cryptorecv') return 'receive';
+  if (s === 'send' || s === 'cryptosend') return 'send';
+  if (s === 'convert' || s === 'swap') return 'convert';
+  return 'other';
+}
+
+function parseAmt(v: unknown): number {
+  const n = parseFloat(String(v ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+export type BushaCustomerWalletListParams = {
+  search?: string;
+  status?: string;
+  sort?: 'trades-desc' | 'trades-asc' | 'name-az' | 'name-za' | 'newest' | 'oldest';
+  page?: number;
+  limit?: number;
+};
+
+/** Admin User Wallets: Busha customers + trade stats (no live balance fan-out). */
+export async function listBushaCustomerWallets(params: BushaCustomerWalletListParams = {}) {
+  const page = Math.max(1, Number(params.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
+  const skip = (page - 1) * limit;
+  const search = String(params.search || '').trim();
+  const status = String(params.status || '').trim().toLowerCase();
+  const sort = params.sort || 'newest';
+
+  const where: Record<string, unknown> = {};
+  if (status && status !== 'all') {
+    where.status = status;
+  }
+  if (search) {
+    where.OR = [
+      { email: { contains: search, mode: 'insensitive' } },
+      { firstName: { contains: search, mode: 'insensitive' } },
+      { lastName: { contains: search, mode: 'insensitive' } },
+      { phone: { contains: search, mode: 'insensitive' } },
+      { bushaProfileId: { contains: search, mode: 'insensitive' } },
+      {
+        user: {
+          OR: [
+            { email: { contains: search, mode: 'insensitive' } },
+            { username: { contains: search, mode: 'insensitive' } },
+            { firstname: { contains: search, mode: 'insensitive' } },
+            { lastname: { contains: search, mode: 'insensitive' } },
+          ],
+        },
+      },
+    ];
+  }
+
+  let orderBy: Record<string, string> | Record<string, string>[] = { createdAt: 'desc' };
+  if (sort === 'oldest') orderBy = { createdAt: 'asc' };
+  else if (sort === 'name-az') orderBy = [{ firstName: 'asc' }, { lastName: 'asc' }];
+  else if (sort === 'name-za') orderBy = [{ firstName: 'desc' }, { lastName: 'desc' }];
+  // trades-desc / trades-asc sorted in memory after counts
+
+  const [total, customers, statusGroups, tradeSideGroups, allTradeCount] = await Promise.all([
+    bushaCustomerModel.count({ where }),
+    bushaCustomerModel.findMany({
+      where,
+      orderBy: sort.startsWith('trades') ? { createdAt: 'desc' } : orderBy,
+      ...(sort.startsWith('trades') ? {} : { skip, take: limit }),
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            firstname: true,
+            lastname: true,
+            email: true,
+            profilePicture: true,
+          },
+        },
+        _count: { select: { trades: true } },
+      },
+    }),
+    bushaCustomerModel.groupBy({
+      by: ['status'],
+      _count: { _all: true },
+    }),
+    bushaTradeLogModel.groupBy({
+      by: ['side'],
+      _count: { _all: true },
+    }),
+    bushaTradeLogModel.count(),
+  ]);
+
+  const customerIds = customers.map((c: { id: string }) => c.id);
+  const [sideByCustomer, lastTrades, recentCompleted] = await Promise.all([
+    customerIds.length
+      ? bushaTradeLogModel.groupBy({
+          by: ['customerId', 'side'],
+          where: { customerId: { in: customerIds } },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+    customerIds.length
+      ? bushaTradeLogModel.findMany({
+          where: { customerId: { in: customerIds } },
+          orderBy: { createdAt: 'desc' },
+          distinct: ['customerId'],
+          select: {
+            customerId: true,
+            id: true,
+            side: true,
+            status: true,
+            sourceCurrency: true,
+            targetCurrency: true,
+            sourceAmount: true,
+            targetAmount: true,
+            createdAt: true,
+          },
+        })
+      : Promise.resolve([]),
+    customerIds.length
+      ? bushaTradeLogModel.findMany({
+          where: {
+            customerId: { in: customerIds },
+            OR: [
+              { status: { in: [...BUSHA_WALLET_SUCCESS] } },
+              { bushaStatus: { in: [...BUSHA_WALLET_SUCCESS] } },
+            ],
+          },
+          select: {
+            customerId: true,
+            side: true,
+            sourceCurrency: true,
+            targetCurrency: true,
+            sourceAmount: true,
+            targetAmount: true,
+            status: true,
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const statsMap = new Map<
+    string,
+    {
+      buy: number;
+      sell: number;
+      receive: number;
+      send: number;
+      convert: number;
+      other: number;
+      total: number;
+      completed: number;
+      volumeBuyNgn: number;
+      volumeSellNgn: number;
+    }
+  >();
+
+  for (const row of sideByCustomer as Array<{ customerId: string; side: string; _count: { _all: number } }>) {
+    const cur = statsMap.get(row.customerId) || {
+      buy: 0,
+      sell: 0,
+      receive: 0,
+      send: 0,
+      convert: 0,
+      other: 0,
+      total: 0,
+      completed: 0,
+      volumeBuyNgn: 0,
+      volumeSellNgn: 0,
+    };
+    const key = normalizeBushaTradeSide(row.side);
+    cur[key] += row._count._all;
+    cur.total += row._count._all;
+    statsMap.set(row.customerId, cur);
+  }
+
+  for (const t of recentCompleted as Array<{
+    customerId: string;
+    side: string;
+    sourceCurrency: string;
+    targetCurrency: string;
+    sourceAmount: string;
+    targetAmount: string | null;
+  }>) {
+    const cur = statsMap.get(t.customerId) || {
+      buy: 0,
+      sell: 0,
+      receive: 0,
+      send: 0,
+      convert: 0,
+      other: 0,
+      total: 0,
+      completed: 0,
+      volumeBuyNgn: 0,
+      volumeSellNgn: 0,
+    };
+    cur.completed += 1;
+    const side = normalizeBushaTradeSide(t.side);
+    if (side === 'buy' && String(t.sourceCurrency).toUpperCase() === 'NGN') {
+      cur.volumeBuyNgn += parseAmt(t.sourceAmount);
+    }
+    if (side === 'sell' && String(t.targetCurrency).toUpperCase() === 'NGN') {
+      cur.volumeSellNgn += parseAmt(t.targetAmount);
+    }
+    statsMap.set(t.customerId, cur);
+  }
+
+  const lastMap = new Map<string, (typeof lastTrades)[0]>();
+  for (const t of lastTrades as Array<{ customerId: string }>) {
+    if (!lastMap.has(t.customerId)) lastMap.set(t.customerId, t as any);
+  }
+
+  let rows = customers.map((c: any) => {
+    const stats = statsMap.get(c.id) || {
+      buy: 0,
+      sell: 0,
+      receive: 0,
+      send: 0,
+      convert: 0,
+      other: 0,
+      total: c._count?.trades || 0,
+      completed: 0,
+      volumeBuyNgn: 0,
+      volumeSellNgn: 0,
+    };
+    if (!stats.total && c._count?.trades) stats.total = c._count.trades;
+    return {
+      id: c.id,
+      bushaProfileId: c.bushaProfileId,
+      email: c.email,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      phone: c.phone,
+      countryId: c.countryId,
+      status: c.status,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      userId: c.userId,
+      user: c.user,
+      tradeStats: stats,
+      lastTrade: lastMap.get(c.id) || null,
+    };
+  });
+
+  if (sort === 'trades-desc') {
+    rows.sort((a: { tradeStats: { total: number } }, b: { tradeStats: { total: number } }) => b.tradeStats.total - a.tradeStats.total);
+  } else if (sort === 'trades-asc') {
+    rows.sort((a: { tradeStats: { total: number } }, b: { tradeStats: { total: number } }) => a.tradeStats.total - b.tradeStats.total);
+  }
+
+  if (sort.startsWith('trades')) {
+    rows = rows.slice(skip, skip + limit);
+  }
+
+  const statusBreakdown: Record<string, number> = {};
+  for (const g of statusGroups as Array<{ status: string; _count: { _all: number } }>) {
+    statusBreakdown[g.status || 'unknown'] = g._count._all;
+  }
+
+  const sideBreakdown: Record<string, number> = {};
+  for (const g of tradeSideGroups as Array<{ side: string; _count: { _all: number } }>) {
+    const key = normalizeBushaTradeSide(g.side);
+    sideBreakdown[key] = (sideBreakdown[key] || 0) + g._count._all;
+  }
+
+  const activeStatuses = new Set(['active', 'verified', 'approved']);
+  const activeCustomers = Object.entries(statusBreakdown).reduce(
+    (sum, [st, n]) => (activeStatuses.has(st.toLowerCase()) ? sum + n : sum),
+    0
+  );
+
+  return {
+    rows,
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+    summary: {
+      customers: total,
+      activeCustomers,
+      trades: allTradeCount,
+      statusBreakdown,
+      sideBreakdown,
+    },
+  };
+}
+
+/** Detail drawer: profile + live balances + recent trades + stats. */
+export async function getBushaCustomerWalletOverview(customerId: string, tradeLimit = 25) {
+  const customer = await bushaCustomerModel.findUnique({
+    where: { id: customerId },
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          firstname: true,
+          lastname: true,
+          email: true,
+          phone: true,
+          profilePicture: true,
+          country: true,
+        },
+      },
+      createdBy: { select: { id: true, firstname: true, lastname: true, email: true } },
+      _count: { select: { trades: true } },
+    },
+  });
+  if (!customer) throw ApiError.notFound('Busha customer not found');
+
+  const trades = await bushaTradeLogModel.findMany({
+    where: { customerId },
+    orderBy: { createdAt: 'desc' },
+    take: Math.min(100, Math.max(1, tradeLimit)),
+    include: {
+      initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
+    },
+  });
+
+  const tradeStats = {
+    buy: 0,
+    sell: 0,
+    receive: 0,
+    send: 0,
+    convert: 0,
+    other: 0,
+    total: customer._count?.trades || trades.length,
+    completed: 0,
+    volumeBuyNgn: 0,
+    volumeSellNgn: 0,
+  };
+
+  const allForStats = await bushaTradeLogModel.findMany({
+    where: { customerId },
+    select: {
+      side: true,
+      status: true,
+      bushaStatus: true,
+      sourceCurrency: true,
+      targetCurrency: true,
+      sourceAmount: true,
+      targetAmount: true,
+    },
+  });
+
+  for (const t of allForStats) {
+    const key = normalizeBushaTradeSide(t.side);
+    tradeStats[key] += 1;
+    const ok =
+      BUSHA_WALLET_SUCCESS.has(String(t.status || '').toLowerCase()) ||
+      BUSHA_WALLET_SUCCESS.has(String(t.bushaStatus || '').toLowerCase());
+    if (ok) {
+      tradeStats.completed += 1;
+      if (key === 'buy' && String(t.sourceCurrency).toUpperCase() === 'NGN') {
+        tradeStats.volumeBuyNgn += parseAmt(t.sourceAmount);
+      }
+      if (key === 'sell' && String(t.targetCurrency).toUpperCase() === 'NGN') {
+        tradeStats.volumeSellNgn += parseAmt(t.targetAmount);
+      }
+    }
+  }
+  tradeStats.total = allForStats.length;
+
+  let wallet: Awaited<ReturnType<typeof getBushaCustomerWallet>> | null = null;
+  let walletError: string | null = null;
+  try {
+    wallet = await getBushaCustomerWallet(customerId);
+  } catch (e: any) {
+    walletError = e?.message || 'Failed to load live Busha balances';
+  }
+
+  let bushaRemote = null;
+  try {
+    assertBushaConfigured();
+    bushaRemote = await bushaClient.getCustomer(customer.bushaProfileId);
+    if (bushaRemote?.status && bushaRemote.status !== customer.status) {
+      await bushaCustomerModel.update({
+        where: { id: customerId },
+        data: { status: bushaRemote.status, providerData: bushaRemote as any },
+      });
+      customer.status = bushaRemote.status;
+    }
+  } catch {
+    /* optional remote refresh */
+  }
+
+  return {
+    customer: {
+      id: customer.id,
+      bushaProfileId: customer.bushaProfileId,
+      email: customer.email,
+      firstName: customer.firstName,
+      lastName: customer.lastName,
+      phone: customer.phone,
+      countryId: customer.countryId,
+      status: customer.status,
+      createdAt: customer.createdAt,
+      updatedAt: customer.updatedAt,
+      userId: customer.userId,
+      user: customer.user,
+      createdBy: customer.createdBy,
+    },
+    bushaRemote,
+    tradeStats,
+    trades,
+    wallet,
+    walletError,
+  };
+}
+

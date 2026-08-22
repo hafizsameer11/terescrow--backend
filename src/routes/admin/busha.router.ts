@@ -26,6 +26,8 @@ import {
   listBushaTradesController,
   getBushaTradeController,
   refreshBushaTradeController,
+  listBushaCustomerWalletsController,
+  getBushaCustomerWalletOverviewController,
 } from '../../controllers/admin/busha.controller';
 
 const router = express.Router();
@@ -34,6 +36,9 @@ const adminOnly = [authenticateUser, authenticateAdmin];
 router.get('/status', ...adminOnly, getBushaStatusController);
 router.put('/settings', ...adminOnly, putBushaSettingsController);
 router.post('/recipients/sync', ...adminOnly, syncBushaRecipientController);
+
+router.get('/customer-wallets', ...adminOnly, listBushaCustomerWalletsController);
+router.get('/customer-wallets/:id', ...adminOnly, getBushaCustomerWalletOverviewController);
 
 router.get('/customers', ...adminOnly, listBushaCustomersController);
 router.post('/customers', ...adminOnly, createBushaCustomerController);

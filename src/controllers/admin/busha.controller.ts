@@ -26,6 +26,8 @@ import {
   listBushaTrades,
   getBushaTrade,
   refreshBushaTrade,
+  listBushaCustomerWallets,
+  getBushaCustomerWalletOverview,
 } from '../../services/admin/busha.admin.service';
 
 export async function getBushaStatusController(req: Request, res: Response, next: NextFunction) {
@@ -413,5 +415,32 @@ export async function listBushaCustomerRecipientsController(req: Request, res: R
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     return next(ApiError.internal('Failed to list Busha recipients'));
+  }
+}
+
+export async function listBushaCustomerWalletsController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await listBushaCustomerWallets({
+      search: req.query.search ? String(req.query.search) : undefined,
+      status: req.query.status ? String(req.query.status) : undefined,
+      sort: req.query.sort as any,
+      page: req.query.page ? Number(req.query.page) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+    return new ApiResponse(200, data, 'Busha customer wallets fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to list Busha customer wallets'));
+  }
+}
+
+export async function getBushaCustomerWalletOverviewController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const tradeLimit = req.query.tradeLimit ? Number(req.query.tradeLimit) : 25;
+    const data = await getBushaCustomerWalletOverview(req.params.id, tradeLimit);
+    return new ApiResponse(200, data, 'Busha customer wallet overview fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to fetch Busha customer wallet overview'));
   }
 }
