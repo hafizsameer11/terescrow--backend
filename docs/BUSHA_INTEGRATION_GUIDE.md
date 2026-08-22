@@ -573,7 +573,7 @@ Idempotency: skip if already `wallet_credited` / appropriately completed.
 POST /api/v2/webhooks/busha
 ```
 
-- Verify HMAC-SHA256(`rawBody`, `BUSHA_WEBHOOK_SECRET`) vs header (`x-busha-signature` / `x-bc-signature` / `x-signature`).  
+- Verify HMAC-SHA256 of **raw body** with `BUSHA_WEBHOOK_SECRET`; compare to `x-bu-signature` (base64 per Busha docs). Also accepts `x-bc-signature` / hex fallbacks. Route captures `rawBody` before JSON parse.  
 - Preserve **raw body** for signature (Express `verify` / `rawBody`).
 
 | Events | Handling |

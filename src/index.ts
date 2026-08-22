@@ -137,7 +137,7 @@ app.use(
   })
 );
 
-// Tatum webhooks: capture raw body for HMAC verification before global JSON parsers
+// Tatum + Busha webhooks: capture raw body for HMAC verification before global JSON parsers
 app.use(
   '/api/v2/webhooks/tatum',
   bodyParser.json({
@@ -146,6 +146,16 @@ app.use(
     },
   }),
   tatumWebhookRouter
+);
+
+app.use(
+  '/api/v2/webhooks/busha',
+  bodyParser.json({
+    verify: (req: express.Request, _res: express.Response, buf: Buffer) => {
+      (req as express.Request & { rawBody?: string }).rawBody = buf.toString('utf8');
+    },
+  }),
+  bushaWebhookRouter
 );
 
 app.use(express.json({ limit: '8mb' }));
@@ -259,7 +269,6 @@ app.use('/api/v2/referrals', referralRouter);
 // V2 API Routes - Webhooks
 // ============================================
 app.use('/api/v2/webhooks', palmpayWebhookRouter);
-app.use('/api/v2/webhooks', bushaWebhookRouter);
 
 // ============================================
 // Testing Routes

@@ -3,6 +3,7 @@ import { bushaWebhookController } from '../../controllers/webhooks/busha.webhook
 
 const router = Router();
 
-router.post('/busha', bushaWebhookController);
+/** Mounted at `/api/v2/webhooks/busha` (with rawBody capture) → POST / */
+router.post('/', bushaWebhookController);
 
 export default router;

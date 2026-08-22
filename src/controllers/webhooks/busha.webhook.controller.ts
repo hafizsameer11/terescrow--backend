@@ -8,21 +8,81 @@ const bushaCustomerModel = (prisma as any).bushaCustomer;
 const bushaTradeLogModel = (prisma as any).bushaTradeLog;
 const bushaKycApplicationModel = (prisma as any).bushaKycApplication;
 
+/**
+ * Busha docs (docs.busha.io): HMAC-SHA256 of raw body, sent as base64 in `x-bu-signature`.
+ * Commerce docs also mention `X-BC-Signature` (base64). Accept both + legacy hex/hex-prefix forms.
+ */
+function getBushaSignatureHeader(req: Request): string | undefined {
+  const headers = req.headers;
+  const candidates = [
+    headers['x-bu-signature'],
+    headers['x-busha-signature'],
+    headers['x-bc-signature'],
+    headers['x-signature'],
+  ];
+  for (const c of candidates) {
+    const v = Array.isArray(c) ? c[0] : c;
+    if (v && String(v).trim()) return String(v).trim();
+  }
+  return undefined;
+}
+
+function timingSafeEqualBuffers(a: Buffer, b: Buffer): boolean {
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
 function verifyBushaSignature(rawBody: Buffer | string, signatureHeader: string | undefined): boolean {
   const secret = process.env.BUSHA_WEBHOOK_SECRET?.trim();
   if (!secret) {
     console.warn('[Busha webhook] BUSHA_WEBHOOK_SECRET not set — skipping signature verify');
     return true;
   }
-  if (!signatureHeader) return false;
-  const payload = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
-  const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-  const provided = signatureHeader.replace(/^sha256=/i, '').trim();
-  try {
-    return crypto.timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(provided, 'utf8'));
-  } catch {
-    return expected === provided;
+  if (!signatureHeader) {
+    console.warn('[Busha webhook] missing signature header (expected x-bu-signature)');
+    return false;
   }
+
+  const payloadBuf = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(String(rawBody), 'utf8');
+  const expectedMac = crypto.createHmac('sha256', secret).update(payloadBuf).digest(); // raw bytes
+  const expectedHex = expectedMac.toString('hex');
+  const expectedB64 = expectedMac.toString('base64');
+
+  let provided = signatureHeader.replace(/^sha256=/i, '').trim();
+
+  // 1) Base64 (official Busha format) — compare decoded bytes
+  try {
+    const providedMac = Buffer.from(provided, 'base64');
+    if (providedMac.length === expectedMac.length && timingSafeEqualBuffers(expectedMac, providedMac)) {
+      return true;
+    }
+  } catch {
+    /* not valid base64 */
+  }
+
+  // 2) Base64 string equality (commerce sample style)
+  if (provided.length === expectedB64.length && timingSafeEqualBuffers(Buffer.from(provided), Buffer.from(expectedB64))) {
+    return true;
+  }
+
+  // 3) Hex fallback (legacy / misconfigured clients)
+  const providedHex = provided.toLowerCase();
+  if (
+    /^[0-9a-f]+$/i.test(providedHex) &&
+    providedHex.length === expectedHex.length &&
+    timingSafeEqualBuffers(Buffer.from(expectedHex, 'utf8'), Buffer.from(providedHex, 'utf8'))
+  ) {
+    return true;
+  }
+
+  console.warn(
+    `[Busha webhook] signature mismatch (hdr_len=${provided.length} raw_len=${payloadBuf.length} has_raw=${!!rawBody})`
+  );
+  return false;
 }
 
 function mapTransferEventToStatus(event: string, dataStatus?: string): string {
@@ -137,21 +197,23 @@ async function handlePaymentRequestEvent(event: string, data: any, rawBody: any)
 export async function bushaWebhookController(req: Request, res: Response, _next: NextFunction) {
   try {
     const raw =
-      (req as any).rawBody ||
-      (Buffer.isBuffer(req.body) ? req.body : JSON.stringify(req.body || {}));
-    const signature =
-      (req.headers['x-busha-signature'] as string) ||
-      (req.headers['x-bc-signature'] as string) ||
-      (req.headers['x-signature'] as string);
+      (req as Request & { rawBody?: string | Buffer }).rawBody ||
+      (Buffer.isBuffer(req.body) ? req.body : null);
 
-    if (!verifyBushaSignature(raw, signature)) {
+    if (!raw) {
+      console.warn('[Busha webhook] rawBody missing — signature may fail; ensure route captures verify buffer');
+    }
+
+    const signature = getBushaSignatureHeader(req);
+
+    if (!verifyBushaSignature(raw || JSON.stringify(req.body || {}), signature)) {
       return res.status(401).json({ status: 'error', message: 'Invalid webhook signature' });
     }
 
     const body =
-      typeof req.body === 'object' && !Buffer.isBuffer(req.body)
+      typeof req.body === 'object' && req.body !== null && !Buffer.isBuffer(req.body)
         ? req.body
-        : JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf8'));
+        : JSON.parse(typeof raw === 'string' ? raw : Buffer.isBuffer(raw) ? raw.toString('utf8') : '{}');
 
     const event = String(body.event || body.type || '');
     const data = body.data || {};
