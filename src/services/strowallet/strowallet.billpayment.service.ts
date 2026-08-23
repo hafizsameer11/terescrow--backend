@@ -11,6 +11,7 @@ import {
   mapCableBillerToServiceId,
   mapDataBillerToServiceId,
   parseElectricityBillerId,
+  getElectricityBillerLimits,
   wrapPalmPayList,
   type StroWalletBiller,
 } from './strowallet.billpayment.catalog';
@@ -458,6 +459,14 @@ class StroWalletBillPaymentService {
   }) {
     this.ensureConfigured();
     const { serviceName, meterType } = parseElectricityBillerId(params.billerId);
+    const { minAmount, maxAmount } = getElectricityBillerLimits(params.billerId);
+    const amountKobo = Math.round(params.amount * 100);
+    if (amountKobo < minAmount) {
+      throw new Error(`Minimum amount is ₦${(minAmount / 100).toLocaleString('en-NG')}`);
+    }
+    if (amountKobo > maxAmount) {
+      throw new Error(`Maximum amount is ₦${(maxAmount / 100).toLocaleString('en-NG')}`);
+    }
 
     const response = await axios.post(
       `${this.baseUrl}/electricity/request`,

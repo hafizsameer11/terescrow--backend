@@ -27,19 +27,26 @@ const DATA_NETWORKS = [
   { billerId: '9MOBILE', billerName: '9mobile', serviceId: 'etisalat-data' },
 ] as const;
 
+/** StroWallet electricity max (kobo) — ₦500,000 */
+const ELECTRICITY_MAX_KOBO = 50_000_000;
+
+/**
+ * Per-disco minimums from StroWallet live probes (kobo).
+ * Unconfirmed discos use ₦1,000 conservative default.
+ */
 const ELECTRICITY_DISCOS = [
-  { serviceName: 'ikeja-electric', billerName: 'Ikeja Electric' },
-  { serviceName: 'eko-electric', billerName: 'Eko Electric' },
-  { serviceName: 'abuja-electric', billerName: 'Abuja Electric' },
-  { serviceName: 'ibadan-electric', billerName: 'Ibadan Electric' },
-  { serviceName: 'enugu-electric', billerName: 'Enugu Electric' },
-  { serviceName: 'benin-electric', billerName: 'Benin Electric' },
-  { serviceName: 'portharcourt-electric', billerName: 'Port Harcourt Electric' },
-  { serviceName: 'jos-electric', billerName: 'Jos Electric' },
-  { serviceName: 'kaduna-electric', billerName: 'Kaduna Electric' },
-  { serviceName: 'kano-electric', billerName: 'Kano Electric' },
-  { serviceName: 'aba-electric', billerName: 'Aba Electric' },
-  { serviceName: 'yola-electric', billerName: 'Yola Electric' },
+  { serviceName: 'ikeja-electric', billerName: 'Ikeja Electric', minAmountKobo: 100_000 },
+  { serviceName: 'eko-electric', billerName: 'Eko Electric', minAmountKobo: 100_000 },
+  { serviceName: 'abuja-electric', billerName: 'Abuja Electric', minAmountKobo: 100_000 },
+  { serviceName: 'ibadan-electric', billerName: 'Ibadan Electric', minAmountKobo: 200_000 },
+  { serviceName: 'enugu-electric', billerName: 'Enugu Electric', minAmountKobo: 100_000 },
+  { serviceName: 'benin-electric', billerName: 'Benin Electric', minAmountKobo: 100_000 },
+  { serviceName: 'portharcourt-electric', billerName: 'Port Harcourt Electric', minAmountKobo: 100_000 },
+  { serviceName: 'jos-electric', billerName: 'Jos Electric', minAmountKobo: 100_000 },
+  { serviceName: 'kaduna-electric', billerName: 'Kaduna Electric', minAmountKobo: 120_000 },
+  { serviceName: 'kano-electric', billerName: 'Kano Electric', minAmountKobo: 50_000 },
+  { serviceName: 'aba-electric', billerName: 'Aba Electric', minAmountKobo: 100_000 },
+  { serviceName: 'yola-electric', billerName: 'Yola Electric', minAmountKobo: 100_000 },
 ] as const;
 
 const CABLE_PROVIDERS = [
@@ -101,8 +108,8 @@ export function getStroWalletElectricityBillers(): StroWalletBiller[] {
         billerId,
         billerName: `${disco.billerName} (${meterType === 'prepaid' ? 'Prepaid' : 'Postpaid'})`,
         billerIcon: getStroWalletBillerIcon('electricity', billerId, disco.serviceName),
-        minAmount: 50000,
-        maxAmount: 50000000,
+        minAmount: disco.minAmountKobo,
+        maxAmount: ELECTRICITY_MAX_KOBO,
         status: 1,
         serviceId: disco.serviceName,
         meterType,
@@ -167,6 +174,19 @@ export function parseElectricityBillerId(billerId: string): { serviceName: strin
     throw new Error('Electricity billerId must include :prepaid or :postpaid');
   }
   return { serviceName, meterType };
+}
+
+/** Limits for a disco billerId (amounts in kobo). */
+export function getElectricityBillerLimits(billerId: string): {
+  minAmount: number;
+  maxAmount: number;
+} {
+  const { serviceName } = parseElectricityBillerId(billerId);
+  const disco = ELECTRICITY_DISCOS.find((d) => d.serviceName === serviceName);
+  return {
+    minAmount: disco?.minAmountKobo ?? 100_000,
+    maxAmount: ELECTRICITY_MAX_KOBO,
+  };
 }
 
 export function wrapPalmPayList<T>(items: T[]) {
