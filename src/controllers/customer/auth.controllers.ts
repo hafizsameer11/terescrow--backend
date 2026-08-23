@@ -59,18 +59,30 @@ const registerCustomerController = async (
     console.log(req.body)
     const profilePicture = req.file ? req.file.filename : '';
 
-    // Check if any attribute already exists
+    const normalizedUsername = String(username || '').trim();
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedPhone = String(phoneNumber || '').trim();
+
+    // Check if email, username, or phone number is already registered
     const existingUser = await prisma.user.findFirst({
       where: {
-        OR: [{ email }],
+        OR: [
+          { email: normalizedEmail },
+          { username: normalizedUsername },
+          { phoneNumber: normalizedPhone },
+        ],
       },
     });
 
     if (existingUser) {
-      let conflictField = '';
-      if (existingUser.email === email) {
+      let conflictField = 'account detail';
+      if (existingUser.email === normalizedEmail) {
         conflictField = 'email';
-      } 
+      } else if (existingUser.username === normalizedUsername) {
+        conflictField = 'username';
+      } else if (existingUser.phoneNumber === normalizedPhone) {
+        conflictField = 'phone number';
+      }
       throw ApiError.badRequest(
         `This ${conflictField} is already registered.`,
         { conflictField }
@@ -91,7 +103,7 @@ const registerCustomerController = async (
     })
 
     // Referral code = username (v2 only — off by default for v1 production)
-    const referralCode = username;
+    const referralCode = normalizedUsername;
 
     let referrerId: number | null = null;
     if (v1Compat.enableV2RegisterReferral) {
@@ -126,7 +138,7 @@ const registerCustomerController = async (
         email,
         phoneNumber,
         password: hashedPassword,
-        username,
+        username: normalizedUsername,
         gender: gender == 1 ? 'male' : gender == 2 ? 'female' : 'other',
         // countryId: +countryId,
         country: selectCountry?.title || 'Nigeria',
@@ -960,6 +972,51 @@ export const verifyPinController = async (
       200,
       { verified: true, email: user.email },
       'PIN verified successfully'
+    ).send(res);
+  } catch (error) {
+    console.log(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    return next(ApiError.internal('Internal Server Error'));
+  }
+};
+
+export const checkUsernameAvailabilityController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const username = String(req.query.username || '').trim();
+
+    if (!username) {
+      return next(ApiError.badRequest('Username is required'));
+    }
+
+    if (
+      username.length < 3 ||
+      username.length > 20 ||
+      !/^[a-zA-Z0-9_]+$/.test(username)
+    ) {
+      return next(
+        ApiError.badRequest(
+          'Username must be 3–20 characters and contain only letters, numbers, and underscores'
+        )
+      );
+    }
+
+    const existingUser = await prisma.user.findFirst({
+      where: { username },
+      select: { id: true },
+    });
+
+    const available = !existingUser;
+
+    return new ApiResponse(
+      200,
+      { available },
+      available ? 'Username is available' : 'Username is already taken'
     ).send(res);
   } catch (error) {
     console.log(error);

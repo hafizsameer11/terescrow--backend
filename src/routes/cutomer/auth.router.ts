@@ -7,6 +7,7 @@ import {
   getKycDetails,
   logoutController,
   registerCustomerController,
+  checkUsernameAvailabilityController,
   resendOtpController,
   sendPasswordOtpController,
   setNewPasswordController,
@@ -88,6 +89,25 @@ const authRouter = express.Router();
  *         description: Validation error or user already exists
  */
 authRouter.post('/customer/register', upload.single('profilePicture'), registerCustomerController);
+/**
+ * @swagger
+ * /api/auth/check-username:
+ *   get:
+ *     summary: Check if a username is available for registration
+ *     tags: [Customer Auth]
+ *     parameters:
+ *       - in: query
+ *         name: username
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Availability result
+ *       400:
+ *         description: Invalid username
+ */
+authRouter.get('/check-username', checkUsernameAvailabilityController);
 /**
  * @swagger
  * /api/auth/logout:
