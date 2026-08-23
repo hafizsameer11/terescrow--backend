@@ -113,6 +113,14 @@ const registerCustomerController = async (
       if (providedReferralCode) {
         const codeToLookup = providedReferralCode.toString().trim();
 
+        if (
+          codeToLookup.toLowerCase() === normalizedUsername.toLowerCase()
+        ) {
+          throw ApiError.badRequest(
+            'You cannot use your own username as a referral code'
+          );
+        }
+
         let referrer = await prisma.user.findFirst({
           where: { username: codeToLookup },
           select: { id: true },
