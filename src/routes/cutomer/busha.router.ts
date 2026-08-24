@@ -19,6 +19,7 @@ import {
   executeBushaBuyController,
   executeBushaReceiveController,
   previewBushaSendController,
+  getBushaCurrencyLimitsController,
   executeBushaSendController,
   previewBushaConvertController,
   executeBushaConvertController,
@@ -57,6 +58,7 @@ router.post('/receive', authenticateUser, executeBushaReceiveController);
 
 router.post('/send/preview', authenticateUser, previewBushaSendController);
 router.post('/send', authenticateUser, executeBushaSendController);
+router.get('/currencies/:currency', authenticateUser, getBushaCurrencyLimitsController);
 
 router.post('/convert/preview', authenticateUser, previewBushaConvertController);
 router.post('/convert/quote', authenticateUser, previewBushaConvertController);

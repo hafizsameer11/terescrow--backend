@@ -51,6 +51,7 @@ export {
   getBushaCustomerBalance,
   getBushaCustomerDepositAddress,
   regenerateBushaCustomerDepositAddress,
+  getBushaCurrencyNetworkLimits,
   listBushaCustomerTransfers,
   getBushaCustomerTransfer,
   getBushaCustomerQuote,

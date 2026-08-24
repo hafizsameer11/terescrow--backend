@@ -345,6 +345,19 @@ class BushaClient {
     return this.request<BushaPair[]>('GET', '/v1/pairs', undefined, undefined, query);
   }
 
+  /** GET /v1/currencies — catalog with per-network deposit/withdraw limits + fees. */
+  listCurrencies(): Promise<BushaCurrency[]> {
+    return this.request<BushaCurrency[]>('GET', '/v1/currencies');
+  }
+
+  /** GET /v1/currencies/{code} */
+  getCurrency(code: string): Promise<BushaCurrency> {
+    return this.request<BushaCurrency>(
+      'GET',
+      `/v1/currencies/${encodeURIComponent(code.trim().toUpperCase())}`
+    );
+  }
+
   createQuote(input: CreateBushaQuoteInput, profileId?: string): Promise<BushaQuote> {
     return this.request<BushaQuote>('POST', '/v1/quotes', input, profileId);
   }
@@ -451,6 +464,30 @@ export type BushaDepositAddress = {
     processing_time?: string;
     [key: string]: unknown;
   } | null;
+};
+
+/** Per-network limits from GET /v1/currencies/{code}. */
+export type BushaCurrencyNetwork = {
+  network?: string;
+  name?: string;
+  deposit?: boolean;
+  withdraw?: boolean;
+  withdrawal?: boolean;
+  min_deposit_amount?: string | number | null;
+  min_withdrawal_amount?: string | number | null;
+  withdrawal_fee?: string | number | null;
+  [key: string]: unknown;
+};
+
+export type BushaCurrency = {
+  code?: string;
+  id?: string;
+  name?: string;
+  type?: string;
+  precision?: number;
+  supported_networks?: BushaCurrencyNetwork[];
+  networks?: BushaCurrencyNetwork[];
+  [key: string]: unknown;
 };
 
 export const bushaClient = new BushaClient();

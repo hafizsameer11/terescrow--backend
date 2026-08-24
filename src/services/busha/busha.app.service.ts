@@ -16,6 +16,7 @@ import {
   getBushaCustomerWallet,
   getBushaCustomerDepositAddress,
   regenerateBushaCustomerDepositAddress,
+  getBushaCurrencyNetworkLimits,
   refreshBushaCustomer,
   submitBushaCustomerKyc,
   verifyBushaCustomer,
@@ -900,6 +901,26 @@ export async function executeAppBushaSend(
   const customer = await ensureBushaCustomerForUser(userId);
   await assertCustomerTradeReady(customer.id, true);
 
+  let network: string | undefined;
+  try {
+    network = resolveBushaNetwork(params.currency, params.destinationNetwork);
+  } catch (error: any) {
+    throw ApiError.badRequest(error?.message || 'Unsupported network');
+  }
+
+  try {
+    const limits = await getBushaCurrencyNetworkLimits(params.currency, network);
+    const min = limits.minWithdraw != null ? parseFloat(String(limits.minWithdraw)) : NaN;
+    const amount = parseFloat(String(params.amount).replace(/,/g, ''));
+    if (Number.isFinite(min) && min > 0 && Number.isFinite(amount) && amount < min) {
+      throw ApiError.badRequest(
+        `Minimum send on ${network} is ${limits.minWithdraw} ${params.currency.toUpperCase()}.`
+      );
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+  }
+
   const trade = await executeBushaCryptoSend({
     adminUserId: userId,
     customerId: customer.id,
@@ -973,12 +994,24 @@ export async function previewAppBushaSend(
     fees: sendPreview.fees,
     networkFee: sendPreview.networkFee,
     networkFeeCurrency: sendPreview.networkFeeCurrency,
+    withdrawalFee: (sendPreview as any).withdrawalFee || sendPreview.networkFee || null,
     minWithdraw: sendPreview.minWithdraw,
     belowMinimum: belowMin,
     quoteError: sendPreview.quoteError,
     providerErrorRaw: (sendPreview as any).providerErrorRaw || null,
     quote: sendPreview.quote,
   };
+}
+
+/** Catalog limits for a currency (all networks) from Busha GET /v1/currencies/{code}. */
+export async function getAppBushaCurrencyLimits(
+  userId: number,
+  currency: string,
+  network?: string
+) {
+  await assertBushaAppActive();
+  await ensureBushaCustomerForUser(userId);
+  return getBushaCurrencyNetworkLimits(currency, network);
 }
 
 export async function getAppBushaTrade(userId: number, tradeId: string) {

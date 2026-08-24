@@ -19,6 +19,7 @@ import {
   executeAppBushaReceive,
   executeAppBushaSend,
   previewAppBushaSend,
+  getAppBushaCurrencyLimits,
   previewAppBushaConvert,
   executeAppBushaConvert,
   getAppBushaTrade,
@@ -328,6 +329,19 @@ export async function previewBushaSendController(req: Request, res: Response, ne
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     return next(ApiError.internal('Failed to preview Busha send'));
+  }
+}
+
+export async function getBushaCurrencyLimitsController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const currency = String(req.params.currency || '').trim();
+    if (!currency) throw ApiError.badRequest('currency is required');
+    const network = req.query.network ? String(req.query.network) : undefined;
+    const data = await getAppBushaCurrencyLimits(userId(req), currency, network);
+    return new ApiResponse(200, data, 'Busha currency network limits').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to fetch Busha currency limits'));
   }
 }
 

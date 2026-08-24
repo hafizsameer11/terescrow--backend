@@ -3,6 +3,7 @@ import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import { bushaConfig } from '../busha/busha.config';
 import { bushaClient, type BushaIdentifyingDocument, flattenProviderErrorDetails } from '../busha/busha.client';
+import type { BushaCurrencyNetwork } from '../busha/busha.client';
 import { resolvePalmpayBankCode, resolveBushaBankCodeFromPalmpay } from '../busha/busha.bank.mapper';
 import { createPalmpayVirtualBankAccount } from '../palmpay/palmpay.virtual.account.service';
 import {
@@ -1052,6 +1053,94 @@ function parseMinAmountFromMessage(message: string | undefined | null): string |
   return null;
 }
 
+function amountOrNull(value: unknown): string | null {
+  if (value == null) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+  const n = parseFloat(s.replace(/,/g, ''));
+  if (!Number.isFinite(n)) return null;
+  return s;
+}
+
+/**
+ * Read min deposit/withdraw + withdrawal fee from Busha GET /v1/currencies/{code}.
+ */
+export async function getBushaCurrencyNetworkLimits(
+  currency: string,
+  network?: string
+): Promise<{
+  currency: string;
+  network: string | null;
+  minDeposit: string | null;
+  minWithdraw: string | null;
+  withdrawalFee: string | null;
+  withdrawEnabled: boolean | null;
+  networks: Array<{
+    network: string;
+    minDeposit: string | null;
+    minWithdraw: string | null;
+    withdrawalFee: string | null;
+    withdrawEnabled: boolean;
+    depositEnabled: boolean;
+  }>;
+}> {
+  assertBushaConfigured();
+  const code = currency.trim().toUpperCase();
+  let resolvedNetwork: string | null = null;
+  if (network) {
+    try {
+      resolvedNetwork = resolveBushaNetwork(code, network);
+    } catch {
+      resolvedNetwork = String(network).trim().toUpperCase() || null;
+    }
+  }
+
+  const currencyRow = await bushaClient.getCurrency(code);
+  const rawNetworks: BushaCurrencyNetwork[] = Array.isArray(currencyRow?.supported_networks)
+    ? currencyRow.supported_networks
+    : Array.isArray(currencyRow?.networks)
+      ? currencyRow.networks
+      : [];
+
+  const networks = rawNetworks
+    .map((n) => {
+      const net = String(n.network || '').trim().toUpperCase();
+      if (!net) return null;
+      const withdrawEnabled = n.withdraw !== false && n.withdrawal !== false;
+      return {
+        network: net,
+        minDeposit: amountOrNull(n.min_deposit_amount),
+        minWithdraw: amountOrNull(n.min_withdrawal_amount),
+        withdrawalFee: amountOrNull(n.withdrawal_fee),
+        withdrawEnabled,
+        depositEnabled: n.deposit !== false,
+      };
+    })
+    .filter(Boolean) as Array<{
+    network: string;
+    minDeposit: string | null;
+    minWithdraw: string | null;
+    withdrawalFee: string | null;
+    withdrawEnabled: boolean;
+    depositEnabled: boolean;
+  }>;
+
+  const match =
+    (resolvedNetwork
+      ? networks.find((n) => n.network === resolvedNetwork)
+      : null) || networks[0] || null;
+
+  return {
+    currency: code,
+    network: match?.network || resolvedNetwork,
+    minDeposit: match?.minDeposit || null,
+    minWithdraw: match?.minWithdraw || null,
+    withdrawalFee: match?.withdrawalFee || null,
+    withdrawEnabled: match ? match.withdrawEnabled : null,
+    networks,
+  };
+}
+
 /** Turn Busha/provider validation blobs into a clear send error for the app. */
 function looksLikeInvalidAddressError(text: string): boolean {
   const lower = text.toLowerCase();
@@ -1144,20 +1233,21 @@ export async function previewBushaCryptoSend(params: {
     throw ApiError.badRequest(error?.message || `Unsupported currency/network for ${currency}`);
   }
 
+  let catalogMinWithdraw: string | null = null;
+  let catalogWithdrawalFee: string | null = null;
+  try {
+    const limits = await getBushaCurrencyNetworkLimits(currency, destinationNetwork);
+    catalogMinWithdraw = limits.minWithdraw;
+    catalogWithdrawalFee = limits.withdrawalFee;
+  } catch (error: any) {
+    console.warn('[Busha send preview] currency limits fetch failed', error?.message || error);
+  }
+
   let fromAddress: string | null = null;
-  let minWithdraw: string | null = null;
+  let minWithdraw: string | null = catalogMinWithdraw;
   try {
     const deposit = await getBushaCustomerDepositAddress(customer.id, currency, destinationNetwork);
     fromAddress = deposit.address || null;
-    const depositMin =
-      (deposit as any).minimumWithdraw ??
-      (deposit as any).minimumWithdrawal ??
-      (deposit as any).provider?.minimum_withdrawal ??
-      (deposit as any).provider?.minimumWithdraw ??
-      null;
-    if (depositMin != null && String(depositMin).trim() !== '') {
-      minWithdraw = String(depositMin).trim();
-    }
   } catch {
     fromAddress = null;
   }
@@ -1167,7 +1257,13 @@ export async function previewBushaCryptoSend(params: {
   let belowMinimum = false;
   let providerErrorRaw: string | null = null;
 
-  if (destinationAddress) {
+  const catalogMinNum = catalogMinWithdraw != null ? parseFloat(String(catalogMinWithdraw)) : NaN;
+  if (Number.isFinite(catalogMinNum) && sourceAmountNum < catalogMinNum) {
+    belowMinimum = true;
+    quoteError = `Minimum send on ${destinationNetwork} is ${catalogMinWithdraw} ${currency}.`;
+  }
+
+  if (destinationAddress && !belowMinimum) {
     // Busha crypto payout: balance → external address (pay_in defaults to balance when omitted)
     const payOut: Record<string, unknown> = {
       type: 'address',
@@ -1206,13 +1302,15 @@ export async function previewBushaCryptoSend(params: {
         belowMinimum = true;
       } else if (/minimum|below min/i.test(friendly)) {
         belowMinimum = true;
+        if (!minWithdraw && catalogMinWithdraw) minWithdraw = catalogMinWithdraw;
       }
     }
   }
 
   const fees = Array.isArray(quote?.fees) ? quote.fees : [];
   const firstFee = fees[0];
-  const networkFee = firstFee?.amount?.amount != null ? String(firstFee.amount.amount) : null;
+  const quoteNetworkFee = firstFee?.amount?.amount != null ? String(firstFee.amount.amount) : null;
+  const networkFee = quoteNetworkFee || catalogWithdrawalFee;
   const networkFeeCurrency = firstFee?.amount?.currency
     ? String(firstFee.amount.currency).toUpperCase()
     : currency;
@@ -1227,6 +1325,7 @@ export async function previewBushaCryptoSend(params: {
     fees,
     networkFee,
     networkFeeCurrency,
+    withdrawalFee: catalogWithdrawalFee || quoteNetworkFee,
     minWithdraw,
     belowMinimum,
     quoteError,
