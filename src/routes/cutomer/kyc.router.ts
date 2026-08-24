@@ -72,8 +72,7 @@ kycRouter.get('/status', authenticateUser, getKycStatusController);
  *     description: |
  *       **V2 API** - Submit Tier 2 KYC verification.
  *       Requires Tier 1 to be verified first.
- *       Uploads: Government ID document and selfie image.
- *       An OTP will be sent to the number registered on your BVN.
+ *       Uploads: Selfie image. Passport or drivers license is verified via Prembly (number + face).
  *     security:
  *       - bearerAuth: []
  *     consumes:
@@ -94,7 +93,6 @@ kycRouter.get('/status', authenticateUser, getKycStatusController);
  *               - bvn
  *               - documentType
  *               - documentNumber
- *               - idDocument
  *               - selfie
  *             properties:
  *               firstName:
@@ -128,7 +126,7 @@ kycRouter.get('/status', authenticateUser, getKycStatusController);
  *               idDocument:
  *                 type: string
  *                 format: binary
- *                 description: Government ID document (image)
+ *                 description: Optional legacy ID document image (not required; Prembly verifies by number + face)
  *               selfie:
  *                 type: string
  *                 format: binary

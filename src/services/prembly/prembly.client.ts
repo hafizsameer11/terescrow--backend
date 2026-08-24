@@ -72,26 +72,44 @@ class PremblyClient {
     }
   }
 
-  /** NIN + face match */
+  /** NIN + face match — Prembly v2: POST /verification/nin_w_face */
   verifyNinWithFace(number: string, imageBase64OrUrl: string) {
-    return this.post('/api/v2/biometrics/merchant/data/verification/nin_face', {
-      number,
+    return this.post('/verification/nin_w_face', {
+      number_nin: number,
       image: imageBase64OrUrl,
     });
   }
 
-  /** BVN + face match */
+  /** BVN + face match — Prembly v2: POST /verification/bvn_w_face */
   verifyBvnWithFace(number: string, imageBase64OrUrl: string) {
-    return this.post('/api/v1/biometrics/merchant/data/verification/bvn_w_face', {
+    return this.post('/verification/bvn_w_face', {
       number,
       image: imageBase64OrUrl,
     });
   }
 
-  /** BVN basic (no face) — fallback */
+  /** BVN basic (no face) — fallback; Prembly v2: POST /verification/bvn_validation */
   verifyBvnBasic(number: string) {
-    return this.post('/api/v1/biometrics/merchant/data/verification/bvn', {
+    return this.post('/verification/bvn_validation', {
       number,
+    });
+  }
+
+  /** International passport + face — POST /verification/national_passport_with_face */
+  verifyPassportWithFace(lastName: string, number: string, imageBase64OrUrl: string) {
+    return this.post('/verification/national_passport_with_face', {
+      last_name: lastName,
+      number,
+      image: imageBase64OrUrl,
+    });
+  }
+
+  /** Drivers license + face — POST /verification/drivers_license/face */
+  verifyDriversLicenseWithFace(number: string, dob: string, imageBase64OrUrl: string) {
+    return this.post('/verification/drivers_license/face', {
+      number,
+      dob,
+      image: imageBase64OrUrl,
     });
   }
 }

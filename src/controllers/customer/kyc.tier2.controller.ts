@@ -11,9 +11,9 @@ import { verifyTier2WithPrembly } from '../../services/prembly/prembly.kyc.servi
  * POST /api/v2/kyc/tier2/submit
  *
  * Flow:
- * 1. Validate form + upload selfie + ID
+ * 1. Validate form + upload selfie
  * 2. Save KycStateTwo row
- * 3. Prembly NIN+face + BVN+face (required when Prembly configured)
+ * 3. Prembly NIN+face + BVN+face + passport/DL+face (when Prembly configured)
  * 4. On pass → auto-approve Tier 2 + store Prembly-verified identity
  * 5. Queue Busha KYC sync with full details (when Busha app active)
  */
@@ -78,8 +78,8 @@ export const submitTier2Controller = async (
     const idDocumentUrl = idDocumentFile?.filename ? `uploads/${idDocumentFile.filename}` : null;
     const selfieUrl = selfieFile?.filename ? `uploads/${selfieFile.filename}` : null;
 
-    if (!idDocumentUrl || !selfieUrl) {
-      return next(ApiError.badRequest('ID document and selfie are required'));
+    if (!selfieUrl) {
+      return next(ApiError.badRequest('Selfie is required'));
     }
 
     const ninClean = String(nin).replace(/\s+/g, '');
@@ -173,6 +173,8 @@ export const submitTier2Controller = async (
         dob: String(dob).trim(),
         nin: ninClean,
         bvn: bvnClean,
+        documentType: documentType as 'drivers_license' | 'international_passport',
+        documentNumber: String(documentNumber).trim(),
         selfieRelativePath: selfieUrl,
       });
     } catch (error: any) {
@@ -215,7 +217,7 @@ export const submitTier2Controller = async (
       data: {
         state: shouldAutoApprove ? 'approved' : 'pending',
         reason: shouldAutoApprove
-          ? 'Verified via Prembly (NIN + BVN face match)'
+          ? 'Verified via Prembly (NIN + BVN + document face match)'
           : 'Prembly passed; awaiting admin approval',
         // Prefer registry-verified legal names / DOB
         firtName: verified.firstName,
@@ -277,6 +279,7 @@ export const submitTier2Controller = async (
           premblyReference: premblyResult.reference,
           ninFaceConfidence: premblyResult.ninConfidence,
           bvnFaceConfidence: premblyResult.bvnConfidence,
+          docFaceConfidence: premblyResult.docConfidence,
           verifiedIdentity: {
             firstName: verified.firstName,
             lastName: verified.lastName,
