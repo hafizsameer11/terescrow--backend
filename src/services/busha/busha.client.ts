@@ -131,7 +131,9 @@ export function flattenProviderErrorDetails(data: unknown, depth = 0): string {
 export type BushaPair = {
   id: string;
   base: string;
+  base_currency_name?: string;
   counter: string;
+  counter_currency_name?: string;
   type?: string;
   is_buy_supported?: boolean;
   is_sell_supported?: boolean;
@@ -141,6 +143,9 @@ export type BushaPair = {
   max_sell_amount?: BushaPairAmount;
   buy_price?: BushaAmount;
   sell_price?: BushaAmount;
+  base_decimal?: string;
+  counter_decimal?: string;
+  percentage_change?: string;
 };
 
 export type BushaBalance = {

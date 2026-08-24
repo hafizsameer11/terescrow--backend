@@ -25,7 +25,8 @@ export type TerescrowKycProfile = {
 export type TerescrowKycReadiness = {
   ready: boolean;
   needsTerescrowKyc: boolean;
-  terescrowKycStatus: 'verified' | 'pending' | 'unverified' | 'incomplete';
+  /** pending = Prembly passed / awaiting Busha; verified = Tier 2 approved after Busha */
+  terescrowKycStatus: 'verified' | 'pending' | 'unverified' | 'incomplete' | 'rejected';
   profile: TerescrowKycProfile | null;
 };
 
@@ -44,9 +45,57 @@ export function readUploadFileAsBase64(relativePath: string): string {
   return fs.readFileSync(abs).toString('base64');
 }
 
+function buildProfileFromRow(
+  row: any,
+  user: { firstname: string | null; lastname: string | null; phoneNumber: string | null }
+): TerescrowKycProfile | null {
+  if (!row?.nin || !row.dob || !row.selfieUrl) return null;
+
+  const firstName = (
+    row.premblyVerifiedFirstName ||
+    row.firtName ||
+    user.firstname ||
+    ''
+  ).trim();
+  const lastName = (
+    row.premblyVerifiedLastName ||
+    row.surName ||
+    user.lastname ||
+    ''
+  ).trim();
+  const birthDate = (row.premblyVerifiedDob || row.dob || '').trim();
+
+  if (firstName.length < 2 || lastName.length < 2) return null;
+
+  try {
+    readUploadFileAsBase64(row.selfieUrl);
+  } catch {
+    return null;
+  }
+
+  return {
+    firstName,
+    lastName,
+    birthDate,
+    nin: String(row.nin).replace(/\s+/g, ''),
+    bvn: row.bvn || null,
+    selfiePath: row.selfieUrl,
+    idDocumentPath: row.idDocumentUrl || null,
+    documentType: row.documentType || null,
+    documentNumber: row.documentNumber || null,
+    address: row.address || null,
+    phone: row.premblyPhone || user.phoneNumber || null,
+    gender: row.premblyGender || null,
+    country: row.country || 'Nigeria',
+    terescrowKycId: row.id,
+    premblyVerified: !!row.premblyVerified,
+    premblyReference: row.premblyReference || null,
+  };
+}
+
 /**
- * Load the user's approved Terescrow Tier 2 KYC for Busha submission.
- * Prefers Prembly-verified legal names / DOB when present.
+ * Load Terescrow Tier 2 KYC for Busha submission.
+ * Ready when Prembly has passed (pending awaiting Busha) OR Tier 2 is already approved.
  */
 export async function getTerescrowKycProfileForBusha(userId: number): Promise<TerescrowKycReadiness> {
   const user = await prisma.user.findUnique({
@@ -63,95 +112,130 @@ export async function getTerescrowKycProfileForBusha(userId: number): Promise<Te
     throw ApiError.notFound('User not found');
   }
 
-  if (!user.kycTier2Verified) {
-    const pending = await prisma.kycStateTwo.findFirst({
-      where: { userId, tier: 'tier2', state: 'pending' },
-      orderBy: { createdAt: 'desc' },
-    });
+  if (user.kycTier2Verified) {
+    const approved =
+      (await prisma.kycStateTwo.findFirst({
+        where: { userId, tier: 'tier2', state: 'approved' },
+        orderBy: { createdAt: 'desc' },
+      })) ||
+      (await prisma.kycStateTwo.findFirst({
+        where: { userId, tier: 'tier2' },
+        orderBy: { createdAt: 'desc' },
+      }));
+
+    const profile = buildProfileFromRow(approved, user);
+    if (!profile) {
+      return {
+        ready: false,
+        needsTerescrowKyc: true,
+        terescrowKycStatus: 'incomplete',
+        profile: null,
+      };
+    }
+    return {
+      ready: true,
+      needsTerescrowKyc: false,
+      terescrowKycStatus: 'verified',
+      profile,
+    };
+  }
+
+  // Prembly passed, awaiting Busha — still ready to submit to Busha
+  const premblyPending = await prisma.kycStateTwo.findFirst({
+    where: {
+      userId,
+      tier: 'tier2',
+      state: 'pending',
+      premblyVerified: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (premblyPending) {
+    const profile = buildProfileFromRow(premblyPending, user);
+    if (profile) {
+      return {
+        ready: true,
+        needsTerescrowKyc: false,
+        terescrowKycStatus: 'pending',
+        profile,
+      };
+    }
+  }
+
+  const rejected = await prisma.kycStateTwo.findFirst({
+    where: { userId, tier: 'tier2', state: 'rejected' },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (rejected) {
     return {
       ready: false,
       needsTerescrowKyc: true,
-      terescrowKycStatus: pending ? 'pending' : 'unverified',
+      terescrowKycStatus: 'rejected',
       profile: null,
     };
   }
 
-  const approved =
-    (await prisma.kycStateTwo.findFirst({
-      where: { userId, tier: 'tier2', state: 'approved' },
-      orderBy: { createdAt: 'desc' },
-    })) ||
-    (await prisma.kycStateTwo.findFirst({
-      where: { userId, tier: 'tier2' },
-      orderBy: { createdAt: 'desc' },
-    }));
+  const pending = await prisma.kycStateTwo.findFirst({
+    where: { userId, tier: 'tier2', state: 'pending' },
+    orderBy: { createdAt: 'desc' },
+  });
 
-  if (!approved?.nin || !approved.dob || !approved.selfieUrl) {
-    return {
-      ready: false,
-      needsTerescrowKyc: true,
-      terescrowKycStatus: 'incomplete',
-      profile: null,
-    };
-  }
+  return {
+    ready: false,
+    needsTerescrowKyc: true,
+    terescrowKycStatus: pending ? 'pending' : 'unverified',
+    profile: null,
+  };
+}
+
+/** After Busha customer is active — mark Terescrow Tier 2 approved. */
+export async function markTier2ApprovedAfterBusha(userId: number): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { kycTier2Verified: true },
+  });
+  if (!user || user.kycTier2Verified) return;
+
+  const submission = await prisma.kycStateTwo.findFirst({
+    where: {
+      userId,
+      tier: 'tier2',
+      OR: [{ state: 'pending', premblyVerified: true }, { state: 'approved' }],
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!submission) return;
 
   const firstName = (
-    (approved as any).premblyVerifiedFirstName ||
-    approved.firtName ||
-    user.firstname ||
+    (submission as any).premblyVerifiedFirstName ||
+    submission.firtName ||
     ''
   ).trim();
   const lastName = (
-    (approved as any).premblyVerifiedLastName ||
-    approved.surName ||
-    user.lastname ||
+    (submission as any).premblyVerifiedLastName ||
+    submission.surName ||
     ''
   ).trim();
-  const birthDate = ((approved as any).premblyVerifiedDob || approved.dob || '').trim();
 
-  if (firstName.length < 2 || lastName.length < 2) {
-    return {
-      ready: false,
-      needsTerescrowKyc: true,
-      terescrowKycStatus: 'incomplete',
-      profile: null,
-    };
-  }
-
-  try {
-    readUploadFileAsBase64(approved.selfieUrl);
-  } catch {
-    return {
-      ready: false,
-      needsTerescrowKyc: true,
-      terescrowKycStatus: 'incomplete',
-      profile: null,
-    };
-  }
-
-  return {
-    ready: true,
-    needsTerescrowKyc: false,
-    terescrowKycStatus: 'verified',
-    profile: {
-      firstName,
-      lastName,
-      birthDate,
-      nin: approved.nin.replace(/\s+/g, ''),
-      bvn: approved.bvn || null,
-      selfiePath: approved.selfieUrl,
-      idDocumentPath: approved.idDocumentUrl || null,
-      documentType: approved.documentType || null,
-      documentNumber: approved.documentNumber || null,
-      address: approved.address || null,
-      phone: (approved as any).premblyPhone || user.phoneNumber || null,
-      gender: (approved as any).premblyGender || null,
-      country: approved.country || 'Nigeria',
-      terescrowKycId: approved.id,
-      premblyVerified: !!(approved as any).premblyVerified,
-      premblyReference: (approved as any).premblyReference || null,
+  await prisma.kycStateTwo.update({
+    where: { id: submission.id },
+    data: {
+      state: 'approved',
+      reason: 'Verified via Prembly; Busha KYC approved',
     },
-  };
+  });
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(firstName ? { firstname: firstName } : {}),
+      ...(lastName ? { lastname: lastName } : {}),
+      kycTier2Verified: true,
+      currentKycTier: 'tier2',
+    },
+  });
 }
 
 /** Split a free-text address into Busha address fields (best-effort). */

@@ -27,11 +27,22 @@ import {
   listAppBushaTrades,
 } from '../../services/busha/busha.app.service';
 import { startBushaKycForUser, getBushaKycStatusForUser, startBushaKycFromTerescrowProfile } from '../../services/busha/busha.kyc.service';
+import { getBushaPublicNgnRates } from '../../services/busha/busha.pairs.service';
 
 function userId(req: Request): number {
   const user = (req as any).user || req.body._user;
   if (!user?.id) throw ApiError.unauthorized('Unauthorized');
   return user.id;
+}
+
+export async function getBushaPublicRatesController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await getBushaPublicNgnRates();
+    return new ApiResponse(200, data, 'Indicative NGN rates').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to fetch public rates'));
+  }
 }
 
 export async function getBushaStatusController(req: Request, res: Response, next: NextFunction) {

@@ -7,6 +7,7 @@ import { bushaClient } from './busha.client';
 import { assertBushaAppActive, submitBushaCustomerKyc, verifyBushaCustomer } from './busha.trade.service';
 import {
   getTerescrowKycProfileForBusha,
+  markTier2ApprovedAfterBusha,
   readUploadFileAsBase64,
   splitAddressForBusha,
 } from '../kyc/terescrow.kyc.profile.service';
@@ -148,6 +149,14 @@ export async function getBushaKycStatusForUser(userId: number) {
   const needsKyc = !canTrade;
   const inProgress = ['pending', 'processing', 'submitted', 'in_review'].includes(appStatus);
 
+  if (canTrade) {
+    try {
+      await markTier2ApprovedAfterBusha(userId);
+    } catch {
+      // non-blocking
+    }
+  }
+
   let kycStatus: string = 'none';
   if (canTrade) kycStatus = 'active';
   else if (customerStatus === 'in_review' || appStatus === 'in_review' || appStatus === 'submitted') {
@@ -282,11 +291,6 @@ export async function startBushaKycFromTerescrowProfile(userId: number) {
 
   const terescrow = await getTerescrowKycProfileForBusha(userId);
   if (!terescrow.ready || !terescrow.profile) {
-    if (terescrow.terescrowKycStatus === 'pending') {
-      throw ApiError.badRequest(
-        'Your Terescrow identity verification is under review. You can activate crypto once it is approved.'
-      );
-    }
     throw ApiError.badRequest(
       'Complete Terescrow Tier 2 verification first (legal name, date of birth, NIN, and selfie).'
     );
@@ -467,6 +471,18 @@ export async function processBushaKycApplication(applicationId: string) {
       },
     });
 
+    if (status === 'active') {
+      await markTier2ApprovedAfterBusha(app.userId);
+    } else if (status === 'rejected') {
+      await prisma.kycStateTwo.updateMany({
+        where: { userId: app.userId, tier: 'tier2', state: 'pending', premblyVerified: true },
+        data: {
+          state: 'rejected',
+          reason: 'Busha KYC rejected',
+        },
+      });
+    }
+
     deleteTempSelfieCopy(app.selfiePath);
 
     return getBushaKycStatusForUser(app.userId);
@@ -483,7 +499,51 @@ export async function processBushaKycApplication(applicationId: string) {
   }
 }
 
-/** Poll pending/failed (retryable) KYC applications. */
+/** Sync submitted Busha apps — approve Tier 2 when customer becomes active. */
+async function syncSubmittedBushaKycStatus(limit = 10) {
+  const submitted = await bushaKycApplicationModel.findMany({
+    where: { status: { in: ['submitted', 'in_review', 'processing'] } },
+    orderBy: { updatedAt: 'asc' },
+    take: limit,
+  });
+
+  for (const app of submitted) {
+    try {
+      if (!app.bushaCustomerId) continue;
+      const customer = await bushaCustomerModel.findUnique({ where: { id: app.bushaCustomerId } });
+      if (!customer?.bushaProfileId) continue;
+
+      const remote = await bushaClient.getCustomer(customer.bushaProfileId);
+      const status = String(remote.status || '').toLowerCase();
+
+      await bushaCustomerModel.update({
+        where: { id: customer.id },
+        data: { status: remote.status || customer.status },
+      });
+
+      if (status === 'active') {
+        await bushaKycApplicationModel.update({
+          where: { id: app.id },
+          data: { status: 'active', errorMessage: null },
+        });
+        await markTier2ApprovedAfterBusha(app.userId);
+      } else if (status === 'rejected') {
+        await bushaKycApplicationModel.update({
+          where: { id: app.id },
+          data: { status: 'rejected', errorMessage: 'Busha KYC rejected' },
+        });
+        await prisma.kycStateTwo.updateMany({
+          where: { userId: app.userId, tier: 'tier2', state: 'pending', premblyVerified: true },
+          data: { state: 'rejected', reason: 'Busha KYC rejected' },
+        });
+      }
+    } catch (err: any) {
+      console.error(`[Busha KYC] status sync failed for ${app.id}:`, err?.message || err);
+    }
+  }
+}
+
+/** Poll pending/failed (retryable) KYC applications + sync in-review status. */
 export async function pollPendingBushaKyc(limit = 10) {
   const pending = await bushaKycApplicationModel.findMany({
     where: {
@@ -501,5 +561,7 @@ export async function pollPendingBushaKyc(limit = 10) {
       console.error(`[Busha KYC] poll failed for ${app.id}:`, err?.message || err);
     }
   }
+
+  await syncSubmittedBushaKycStatus(limit);
   return pending.length;
 }

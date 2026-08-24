@@ -4,15 +4,23 @@ import { premblyClient, PremblyEnvelope, PremblyFaceData } from './prembly.clien
 import { premblyConfig } from './prembly.config';
 import ApiError from '../../utils/ApiError';
 
-export type PremblyTier2DocumentType = 'drivers_license' | 'international_passport';
+export type PremblyDocumentType = 'drivers_license' | 'international_passport';
 
 export type PremblyTier2Input = {
   firstName: string;
   lastName: string;
   dob: string;
   nin: string;
+  phone?: string | null;
+  selfieRelativePath: string;
+};
+
+export type PremblyTier3Input = {
+  firstName: string;
+  lastName: string;
+  dob: string;
   bvn: string;
-  documentType: PremblyTier2DocumentType;
+  documentType: PremblyDocumentType;
   documentNumber: string;
   selfieRelativePath: string;
 };
@@ -25,24 +33,32 @@ export type PremblyVerifiedIdentity = {
   phone?: string | null;
   gender?: string | null;
   residentialAddress?: string | null;
-  nin: string;
-  bvn: string;
+  nin?: string;
+  bvn?: string;
 };
 
 export type PremblyTier2Result = {
   passed: boolean;
-  autoApproved: boolean;
   ninFacePassed: boolean;
+  ninConfidence: number | null;
+  reference: string | null;
+  verified: PremblyVerifiedIdentity | null;
+  failureReasons: string[];
+  raw: {
+    ninFace?: PremblyEnvelope;
+  };
+};
+
+export type PremblyTier3Result = {
+  passed: boolean;
   bvnFacePassed: boolean;
   docFacePassed: boolean;
-  ninConfidence: number | null;
   bvnConfidence: number | null;
   docConfidence: number | null;
   reference: string | null;
   verified: PremblyVerifiedIdentity | null;
   failureReasons: string[];
   raw: {
-    ninFace?: PremblyEnvelope;
     bvnFace?: PremblyEnvelope;
     docFace?: PremblyEnvelope;
   };
@@ -67,7 +83,7 @@ export function normalizeConfidence(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
-  if (n >= 0 && n <= 1) return Math.round(n * 10000) / 100; // 0.995 → 99.5
+  if (n >= 0 && n <= 1) return Math.round(n * 10000) / 100;
   return n;
 }
 
@@ -85,7 +101,10 @@ function isApiSuccess(envelope: PremblyEnvelope): boolean {
   return true;
 }
 
-function facePassed(envelope: PremblyEnvelope, minConfidence: number): { ok: boolean; confidence: number | null; message?: string } {
+function facePassed(
+  envelope: PremblyEnvelope,
+  minConfidence: number
+): { ok: boolean; confidence: number | null; message?: string } {
   const face = extractFaceData(envelope);
   const confidence = normalizeConfidence(face?.confidence);
   const faceOk = face?.status === true || String(face?.message || '').toLowerCase().includes('match');
@@ -110,8 +129,7 @@ function pickNinPayload(envelope: PremblyEnvelope): any {
 }
 
 function pickBvnPayload(envelope: PremblyEnvelope): any {
-  const data = envelope.data || {};
-  return data;
+  return envelope.data || {};
 }
 
 function pickDocPayload(envelope: PremblyEnvelope): any {
@@ -177,23 +195,8 @@ function dobsMatch(submitted: string, official: string | null | undefined): bool
   return a === b;
 }
 
-async function verifyDocumentWithFace(
-  input: PremblyTier2Input,
-  selfieBase64: string
-): Promise<{ envelope: PremblyEnvelope; result: { ok: boolean; confidence: number | null; message?: string } }> {
-  const docNumber = input.documentNumber.trim();
-  if (input.documentType === 'international_passport') {
-    const envelope = await premblyClient.verifyPassportWithFace(input.lastName, docNumber, selfieBase64);
-    const minConfidence = premblyConfig.getMinFaceConfidence();
-    return { envelope, result: facePassed(envelope, minConfidence) };
-  }
-  const envelope = await premblyClient.verifyDriversLicenseWithFace(docNumber, input.dob, selfieBase64);
-  const minConfidence = premblyConfig.getMinFaceConfidence();
-  return { envelope, result: facePassed(envelope, minConfidence) };
-}
-
 /**
- * Run Prembly NIN+face, BVN+face, and passport/DL+face for Tier 2.
+ * Tier 2: Prembly NIN + face only (Busha-ready identity).
  */
 export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<PremblyTier2Result> {
   if (!premblyConfig.isConfigured()) {
@@ -201,13 +204,7 @@ export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<
   }
 
   const nin = input.nin.replace(/\s+/g, '');
-  const bvn = input.bvn.replace(/\s+/g, '');
   if (!/^\d{11}$/.test(nin)) throw ApiError.badRequest('NIN must be exactly 11 digits');
-  if (!/^\d{11}$/.test(bvn)) throw ApiError.badRequest('BVN must be exactly 11 digits');
-  if (!input.documentNumber?.trim()) throw ApiError.badRequest('Document number is required');
-  if (input.documentType !== 'drivers_license' && input.documentType !== 'international_passport') {
-    throw ApiError.badRequest('Document type must be drivers_license or international_passport');
-  }
 
   const selfieBase64 = readSelfieAsBase64(input.selfieRelativePath);
   const minConfidence = premblyConfig.getMinFaceConfidence();
@@ -218,6 +215,87 @@ export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<
   if (!ninFaceResult.ok) {
     failureReasons.push(`NIN face: ${ninFaceResult.message}`);
   }
+
+  const ninPayload = pickNinPayload(ninFace);
+
+  const officialFirst =
+    ninPayload.firstname || ninPayload.firstName || ninPayload.first_name || input.firstName;
+  const officialLast =
+    ninPayload.surname || ninPayload.lastName || ninPayload.last_name || input.lastName;
+  const officialDob =
+    normalizePremblyDob(
+      ninPayload.birthdate || ninPayload.birthDate || ninPayload.dateOfBirth || input.dob
+    ) || input.dob;
+
+  if (ninFaceResult.ok) {
+    if (!namesLooselyMatch(input.firstName, String(officialFirst))) {
+      failureReasons.push(
+        `First name "${input.firstName}" does not match NIN record "${officialFirst}"`
+      );
+    }
+    if (!namesLooselyMatch(input.lastName, String(officialLast))) {
+      failureReasons.push(
+        `Last name "${input.lastName}" does not match NIN record "${officialLast}"`
+      );
+    }
+    if (!dobsMatch(input.dob, officialDob)) {
+      failureReasons.push(
+        `Date of birth "${input.dob}" does not match NIN record "${officialDob}"`
+      );
+    }
+  }
+
+  const nameOk = !failureReasons.some((r) => r.startsWith('First name') || r.startsWith('Last name'));
+  const dobOk = !failureReasons.some((r) => r.startsWith('Date of birth'));
+  const passed = ninFaceResult.ok && nameOk && dobOk;
+
+  const verified: PremblyVerifiedIdentity | null = passed
+    ? {
+        firstName: String(officialFirst).trim(),
+        lastName: String(officialLast).trim(),
+        middleName: ninPayload.middlename || ninPayload.middleName || null,
+        birthDate: officialDob,
+        phone:
+          input.phone ||
+          ninPayload.telephoneno ||
+          ninPayload.telephoneNo ||
+          null,
+        gender: ninPayload.gender || null,
+        residentialAddress:
+          ninPayload.residence_address || ninPayload.residenceAddress || null,
+        nin,
+      }
+    : null;
+
+  return {
+    passed,
+    ninFacePassed: ninFaceResult.ok,
+    ninConfidence: ninFaceResult.confidence,
+    reference: ninFace.verification?.reference || null,
+    verified,
+    failureReasons,
+    raw: { ninFace },
+  };
+}
+
+/**
+ * Tier 3: Prembly BVN + face and passport/DL + face.
+ */
+export async function verifyTier3WithPrembly(input: PremblyTier3Input): Promise<PremblyTier3Result> {
+  if (!premblyConfig.isConfigured()) {
+    throw ApiError.badRequest('Prembly is not configured on the server');
+  }
+
+  const bvn = input.bvn.replace(/\s+/g, '');
+  if (!/^\d{11}$/.test(bvn)) throw ApiError.badRequest('BVN must be exactly 11 digits');
+  if (!input.documentNumber?.trim()) throw ApiError.badRequest('Document number is required');
+  if (input.documentType !== 'drivers_license' && input.documentType !== 'international_passport') {
+    throw ApiError.badRequest('Document type must be drivers_license or international_passport');
+  }
+
+  const selfieBase64 = readSelfieAsBase64(input.selfieRelativePath);
+  const minConfidence = premblyConfig.getMinFaceConfidence();
+  const failureReasons: string[] = [];
 
   let bvnFace: PremblyEnvelope | undefined;
   let bvnFaceResult: { ok: boolean; confidence: number | null; message?: string } = {
@@ -243,9 +321,13 @@ export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<
   };
   const docLabel = input.documentType === 'international_passport' ? 'Passport' : 'Drivers license';
   try {
-    const docCheck = await verifyDocumentWithFace(input, selfieBase64);
-    docFace = docCheck.envelope;
-    docFaceResult = docCheck.result;
+    const docNumber = input.documentNumber.trim();
+    if (input.documentType === 'international_passport') {
+      docFace = await premblyClient.verifyPassportWithFace(input.lastName, docNumber, selfieBase64);
+    } else {
+      docFace = await premblyClient.verifyDriversLicenseWithFace(docNumber, input.dob, selfieBase64);
+    }
+    docFaceResult = facePassed(docFace, minConfidence);
     if (!docFaceResult.ok) {
       failureReasons.push(`${docLabel} face: ${docFaceResult.message}`);
     }
@@ -253,23 +335,16 @@ export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<
     failureReasons.push(`${docLabel} face: ${error?.message || 'Document verification failed'}`);
   }
 
-  const ninPayload = pickNinPayload(ninFace);
   const bvnPayload = bvnFace ? pickBvnPayload(bvnFace) : {};
   const docPayload = docFace ? pickDocPayload(docFace) : {};
 
   const officialFirst =
-    ninPayload.firstname ||
-    ninPayload.firstName ||
-    ninPayload.first_name ||
     bvnPayload.firstName ||
     bvnPayload.first_name ||
     docPayload.firstName ||
     docPayload.first_name ||
     input.firstName;
   const officialLast =
-    ninPayload.surname ||
-    ninPayload.lastName ||
-    ninPayload.last_name ||
     bvnPayload.lastName ||
     bvnPayload.last_name ||
     docPayload.lastName ||
@@ -277,10 +352,7 @@ export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<
     input.lastName;
   const officialDob =
     normalizePremblyDob(
-      ninPayload.birthdate ||
-        ninPayload.birthDate ||
-        ninPayload.dateOfBirth ||
-        bvnPayload.dateOfBirth ||
+      bvnPayload.dateOfBirth ||
         bvnPayload.birthdate ||
         docPayload.birthDate ||
         docPayload.birthdate ||
@@ -288,86 +360,58 @@ export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<
         input.dob
     ) || input.dob;
 
-  if (ninFaceResult.ok) {
+  if (bvnFaceResult.ok) {
     if (!namesLooselyMatch(input.firstName, String(officialFirst))) {
       failureReasons.push(
-        `First name "${input.firstName}" does not match NIN record "${officialFirst}"`
+        `First name "${input.firstName}" does not match BVN record "${officialFirst}"`
       );
     }
     if (!namesLooselyMatch(input.lastName, String(officialLast))) {
       failureReasons.push(
-        `Last name "${input.lastName}" does not match NIN record "${officialLast}"`
+        `Last name "${input.lastName}" does not match BVN record "${officialLast}"`
       );
     }
   }
 
   const submittedDob = normalizePremblyDob(input.dob);
   const registryDobs = [
-    normalizePremblyDob(ninPayload.birthdate || ninPayload.birthDate || ninPayload.dateOfBirth),
     normalizePremblyDob(bvnPayload.dateOfBirth || bvnPayload.birthdate),
     normalizePremblyDob(docPayload.birthDate || docPayload.birthdate || docPayload.dob),
   ].filter(Boolean) as string[];
 
-  if (submittedDob && registryDobs.length > 0) {
-    const dobOk = registryDobs.some((d) => d === submittedDob);
-    if (!dobOk) {
-      failureReasons.push(
-        `Date of birth "${input.dob}" does not match identity records (${registryDobs.join(', ')})`
-      );
-    }
-  } else if (submittedDob && officialDob && !dobsMatch(input.dob, officialDob)) {
+  if (submittedDob && registryDobs.length > 0 && !registryDobs.some((d) => d === submittedDob)) {
     failureReasons.push(
-      `Date of birth "${input.dob}" does not match verified record "${officialDob}"`
+      `Date of birth "${input.dob}" does not match identity records (${registryDobs.join(', ')})`
     );
   }
 
-  const nameOk =
-    !failureReasons.some((r) => r.startsWith('First name') || r.startsWith('Last name'));
+  const nameOk = !failureReasons.some((r) => r.startsWith('First name') || r.startsWith('Last name'));
   const dobOk = !failureReasons.some((r) => r.startsWith('Date of birth'));
-  const passed =
-    ninFaceResult.ok && bvnFaceResult.ok && docFaceResult.ok && nameOk && dobOk;
-
-  const reference =
-    ninFace.verification?.reference ||
-    bvnFace?.verification?.reference ||
-    docFace?.verification?.reference ||
-    null;
+  const passed = bvnFaceResult.ok && docFaceResult.ok && nameOk && dobOk;
 
   const verified: PremblyVerifiedIdentity | null = passed
     ? {
         firstName: String(officialFirst).trim(),
         lastName: String(officialLast).trim(),
-        middleName:
-          ninPayload.middlename ||
-          ninPayload.middleName ||
-          bvnPayload.middleName ||
-          docPayload.middleName ||
-          null,
+        middleName: bvnPayload.middleName || docPayload.middleName || null,
         birthDate: officialDob,
-        phone: ninPayload.telephoneno || bvnPayload.phoneNumber1 || null,
-        gender: ninPayload.gender || bvnPayload.gender || docPayload.gender || null,
-        residentialAddress:
-          ninPayload.residence_address ||
-          ninPayload.residenceAddress ||
-          bvnPayload.residentialAddress ||
-          null,
-        nin,
+        phone: bvnPayload.phoneNumber1 || bvnPayload.phoneNumber || null,
+        gender: bvnPayload.gender || docPayload.gender || null,
+        residentialAddress: bvnPayload.residentialAddress || null,
         bvn,
       }
     : null;
 
   return {
     passed,
-    autoApproved: passed && premblyConfig.autoApproveOnPass(),
-    ninFacePassed: ninFaceResult.ok,
     bvnFacePassed: bvnFaceResult.ok,
     docFacePassed: docFaceResult.ok,
-    ninConfidence: ninFaceResult.confidence,
     bvnConfidence: bvnFaceResult.confidence,
     docConfidence: docFaceResult.confidence,
-    reference,
+    reference:
+      bvnFace?.verification?.reference || docFace?.verification?.reference || null,
     verified,
     failureReasons,
-    raw: { ninFace, bvnFace, docFace },
+    raw: { bvnFace, docFace },
   };
 }

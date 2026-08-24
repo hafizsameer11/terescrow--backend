@@ -2,6 +2,7 @@ import { Router } from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
 import {
   getBushaStatusController,
+  getBushaPublicRatesController,
   getBushaProfileController,
   ensureBushaProfileController,
   getBushaKycStatusController,
@@ -31,6 +32,7 @@ import {
 const router = Router();
 
 router.get('/status', authenticateUser, getBushaStatusController);
+router.get('/rates/public', authenticateUser, getBushaPublicRatesController);
 router.get('/profile', authenticateUser, getBushaProfileController);
 router.post('/profile/ensure', authenticateUser, ensureBushaProfileController);
 router.post('/profile/refresh', authenticateUser, getBushaProfileController);

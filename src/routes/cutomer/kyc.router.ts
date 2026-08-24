@@ -140,10 +140,7 @@ kycRouter.get('/status', authenticateUser, getKycStatusController);
 kycRouter.post(
   '/tier2/submit',
   authenticateUser,
-  upload.fields([
-    { name: 'idDocument', maxCount: 1 },
-    { name: 'selfie', maxCount: 1 },
-  ]),
+  upload.fields([{ name: 'selfie', maxCount: 1 }]),
   submitTier2Controller
 );
 
@@ -185,9 +182,9 @@ kycRouter.get('/tier2/status', authenticateUser, getTier2StatusController);
  *     summary: Submit Tier 3 KYC verification
  *     tags: [V2 - KYC Management]
  *     description: |
- *       **V2 API** - Submit Tier 3 KYC verification (Proof of Address).
- *       Requires Tier 2 to be verified first.
- *       Acceptable documents: Utility bill, Bank Statement (last 3 months).
+ *       **V2 API** - Submit Tier 3 KYC verification (BVN + passport/drivers license).
+ *       Requires Tier 2 to be verified (Busha-approved) first.
+ *       Prembly verifies BVN+face and document+face; auto-approves on pass.
  *     security:
  *       - bearerAuth: []
  *     consumes:
@@ -199,12 +196,22 @@ kycRouter.get('/tier2/status', authenticateUser, getTier2StatusController);
  *           schema:
  *             type: object
  *             required:
- *               - proofOfAddress
+ *               - bvn
+ *               - documentType
+ *               - documentNumber
  *             properties:
- *               proofOfAddress:
+ *               bvn:
+ *                 type: string
+ *                 example: "12345678901"
+ *               documentType:
+ *                 type: string
+ *                 enum: [drivers_license, international_passport]
+ *               documentNumber:
+ *                 type: string
+ *               selfie:
  *                 type: string
  *                 format: binary
- *                 description: Proof of address document (PDF or image)
+ *                 description: Optional selfie (falls back to Tier 2 selfie)
  *     responses:
  *       200:
  *         description: Tier 3 submission successful
@@ -214,7 +221,7 @@ kycRouter.get('/tier2/status', authenticateUser, getTier2StatusController);
 kycRouter.post(
   '/tier3/submit',
   authenticateUser,
-  upload.fields([{ name: 'proofOfAddress', maxCount: 1 }]),
+  upload.fields([{ name: 'selfie', maxCount: 1 }]),
   submitTier3Controller
 );
 

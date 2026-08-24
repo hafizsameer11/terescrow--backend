@@ -39,8 +39,8 @@ class KycStatusService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Build tier status array
-    const tiers = ['tier1', 'tier2', 'tier3', 'tier4'] as KycTier[];
+    // Build tier status array (product uses 3 tiers; tier4 kept in DB but omitted from hub)
+    const tiers = ['tier1', 'tier2', 'tier3'] as KycTier[];
     const tierStatuses = tiers.map((tier) => {
       const limit = limits.find((l) => l.tier === tier);
       const pendingSubmission = pendingSubmissions.find((s) => s.tier === tier);
