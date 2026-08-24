@@ -5,7 +5,7 @@ import ApiResponse from '../../utils/ApiResponse';
 import { prisma } from '../../utils/prisma';
 import { palmpayBillPaymentService } from '../../services/palmpay/palmpay.billpayment.service';
 import { vtpassBillPaymentService } from '../../services/vtpass/vtpass.billpayment.service';
-import { strowalletBillPaymentService } from '../../services/strowallet/strowallet.billpayment.service';
+import { strowalletBillPaymentService, extractEducationPin } from '../../services/strowallet/strowallet.billpayment.service';
 import { resolveBillPaymentProvider } from '../../services/strowallet/strowallet.billpayment.catalog';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 import { palmpayConfig } from '../../services/palmpay/palmpay.config';
@@ -490,6 +490,15 @@ export const createBillOrderController = async (
         requestId = outOrderNo || stroResult.transactionId;
         providerResponse = stroResult.raw;
 
+        const educationPin =
+          sceneCode === 'education'
+            ? (stroResult as { pin?: string | null }).pin || extractEducationPin(stroResult.raw)
+            : null;
+        const electricityToken =
+          sceneCode === 'electricity'
+            ? (stroResult as { token?: string | null }).token || extractElectricityToken(stroResult.raw)
+            : null;
+
         await completeBillPaymentIfSuccessful({
           userId: user.id,
           transactionId: transaction.id,
@@ -503,9 +512,12 @@ export const createBillOrderController = async (
             ...(typeof stroResult.raw === 'object' && stroResult.raw ? stroResult.raw : { raw: stroResult.raw }),
             ...feeMeta,
           },
-          billReference: (stroResult as { token?: string | null; pin?: string | null }).token
-            || (stroResult as { pin?: string | null }).pin
-            || stroResult.transactionId,
+          billReference:
+            educationPin ||
+            electricityToken ||
+            (stroResult as { token?: string | null; pin?: string | null }).token ||
+            (stroResult as { pin?: string | null }).pin ||
+            null,
         });
       } else if (actualProvider === 'vtpass') {
         // Get meterType for electricity
@@ -799,7 +811,25 @@ export const queryOrderStatusController = async (
 
     // Build response from database record
     const palmpayStatus = billPayment.palmpayStatus ? parseInt(billPayment.palmpayStatus) : null;
-    
+
+    let billReference = billPayment.billReference || null;
+    let educationPin: string | null = null;
+    if (String(billPayment.sceneCode || '').toLowerCase() === 'education') {
+      educationPin =
+        extractEducationPin(billPayment.billReference) ||
+        extractEducationPin(billPayment.providerResponse);
+      // Prefer real PIN over long provider order ids stored as billReference
+      if (educationPin) {
+        billReference = educationPin;
+        if (educationPin !== billPayment.billReference) {
+          await prisma.billPayment.update({
+            where: { id: billPayment.id },
+            data: { billReference: educationPin },
+          }).catch(() => undefined);
+        }
+      }
+    }
+
     return res.status(200).json(
       new ApiResponse(200, {
         orderStatus: {
@@ -831,7 +861,8 @@ export const queryOrderStatusController = async (
           palmpayOrderId: billPayment.palmpayOrderId,
           palmpayOrderNo: billPayment.palmpayOrderNo,
           palmpayStatus: billPayment.palmpayStatus,
-          billReference: billPayment.billReference,
+          billReference,
+          educationPin,
           errorMessage: billPayment.errorMessage,
           createdAt: billPayment.createdAt,
           completedAt: billPayment.completedAt,

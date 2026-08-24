@@ -63,6 +63,88 @@ function extractTransactionId(data: StroWalletApiResponse): string | null {
   return null;
 }
 
+/** Pull WAEC/NECO/etc result-checker PIN from StroWallet / VTpass-shaped payloads. */
+export function extractEducationPin(source: unknown): string | null {
+  if (source == null) return null;
+
+  const fromText = (text: string): string | null => {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    const labeled = trimmed.match(
+      /(?:purchased[_\s-]?code|token|pin|cards?\s*pin)\s*:?\s*([A-Za-z0-9][A-Za-z0-9\-<=>\s]{5,})/i
+    );
+    if (labeled?.[1]) return labeled[1].replace(/\s+/g, ' ').trim();
+    // Avoid treating long provider transaction ids as pins when unlabeled
+    if (/^\d{20,}$/.test(trimmed)) return null;
+    if (/^[A-Za-z0-9][A-Za-z0-9\-<=>]{5,80}$/.test(trimmed) && /[A-Za-z]/.test(trimmed)) {
+      return trimmed;
+    }
+    // Numeric pins (common for WAEC) — typically 10–16 digits, not 20+ order ids
+    if (/^\d{8,18}$/.test(trimmed)) return trimmed;
+    return null;
+  };
+
+  if (typeof source === 'string') {
+    try {
+      return extractEducationPin(JSON.parse(source));
+    } catch {
+      return fromText(source);
+    }
+  }
+
+  if (typeof source !== 'object') return null;
+  const root = source as Record<string, any>;
+  const response = (root.response && typeof root.response === 'object' ? root.response : root) as Record<
+    string,
+    any
+  >;
+  const content = response.content && typeof response.content === 'object' ? response.content : null;
+
+  const candidates: unknown[] = [
+    response.purchased_code,
+    response.PurchasedCode,
+    response.Pin,
+    response.pin,
+    response.PIN,
+    response.Token,
+    response.token,
+    root.purchased_code,
+    root.Pin,
+    root.pin,
+    content?.purchased_code,
+    content?.Pin,
+    content?.pin,
+  ];
+
+  if (Array.isArray(response.tokens)) candidates.push(...response.tokens);
+  if (Array.isArray(response.pins)) candidates.push(...response.pins);
+  if (Array.isArray(root.tokens)) candidates.push(...root.tokens);
+  if (Array.isArray(root.pins)) candidates.push(...root.pins);
+  if (Array.isArray(response.cards)) {
+    for (const card of response.cards) {
+      if (card && typeof card === 'object') {
+        candidates.push((card as any).pin, (card as any).Pin, (card as any).purchased_code, (card as any).serial);
+      } else {
+        candidates.push(card);
+      }
+    }
+  }
+
+  candidates.push(response.message, root.message, response.response_description);
+
+  for (const c of candidates) {
+    if (c == null) continue;
+    if (typeof c === 'object') {
+      const nested = extractEducationPin(c);
+      if (nested) return nested;
+      continue;
+    }
+    const found = fromText(String(c));
+    if (found) return found;
+  }
+  return null;
+}
+
 function mapOrderStatus(data: StroWalletApiResponse): 'completed' | 'pending' | 'failed' {
   const response = data.response as Record<string, unknown> | undefined;
   const content = response?.content as Record<string, unknown> | undefined;
@@ -441,7 +523,7 @@ class StroWalletBillPaymentService {
     assertSuccess(data, data.message || 'StroWallet education purchase failed');
 
     const responseObj = data.response as Record<string, unknown> | undefined;
-    const pin = responseObj?.purchased_code || responseObj?.Pin || responseObj?.pin;
+    const pin = extractEducationPin(data);
 
     return {
       status: mapOrderStatus(data),
