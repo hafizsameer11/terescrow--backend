@@ -34,6 +34,72 @@ function mapBushaSideToTxType(side: string): string {
   return s.toUpperCase();
 }
 
+function isUsdStableSymbol(symbol: string): boolean {
+  const s = String(symbol || '').toUpperCase();
+  return s === 'USDT' || s === 'USDC' || s === 'USD' || s.startsWith('USDT_');
+}
+
+function normalizePriceSymbol(symbol: string): string {
+  const s = String(symbol || '').toUpperCase().trim();
+  if (!s) return s;
+  if (s.startsWith('USDT')) return 'USDT';
+  if (s.includes('_')) return s.split('_')[0];
+  if (s === 'TRON') return 'TRX';
+  if (s === 'MATIC' || s === 'POLYGON') return 'POL';
+  return s;
+}
+
+async function loadUsdPriceMap(symbols: string[]): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const unique = [
+    ...new Set(symbols.map(normalizePriceSymbol).filter(Boolean)),
+  ];
+  for (const s of unique) {
+    if (isUsdStableSymbol(s)) map.set(s, 1);
+  }
+  const needLookup = unique.filter((s) => !map.has(s));
+  if (!needLookup.length) return map;
+
+  const rows = await prisma.walletCurrency.findMany({
+    where: {
+      OR: needLookup.flatMap((s) => [
+        { symbol: s },
+        { symbol: s.toLowerCase() },
+        { currency: s },
+        { currency: s.toLowerCase() },
+      ]),
+    },
+    select: { symbol: true, currency: true, price: true },
+  });
+
+  for (const row of rows) {
+    const price = row.price != null ? Number(row.price) : NaN;
+    if (!Number.isFinite(price) || price <= 0) continue;
+    const keys = [row.symbol, row.currency]
+      .filter(Boolean)
+      .map((v) => normalizePriceSymbol(String(v)));
+    for (const k of keys) {
+      if (k && !map.has(k)) map.set(k, price);
+    }
+  }
+  return map;
+}
+
+function cryptoAmountToUsd(
+  amountStr: string | undefined,
+  currency: string,
+  priceMap: Map<string, number>
+): string | undefined {
+  const qty = parseFloat(String(amountStr || '').replace(/,/g, ''));
+  if (!Number.isFinite(qty) || qty <= 0) return undefined;
+  const sym = normalizePriceSymbol(currency);
+  if (isUsdStableSymbol(sym)) return qty.toFixed(2);
+  const price = priceMap.get(sym);
+  if (!price || price <= 0) return undefined;
+  const usd = qty * price;
+  return usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2);
+}
+
 function isCryptoLinkedFiatType(type: string): boolean {
   return String(type || '').toUpperCase().startsWith('CRYPTO_');
 }
@@ -160,7 +226,17 @@ class RecentTransactionsService {
       take: 100,
     });
 
-    return trades.map((t: any) => {
+    const priceSymbols: string[] = [];
+    for (const t of trades as any[]) {
+      const side = String(t.side || '').toLowerCase();
+      const source = String(t.sourceCurrency || '').toUpperCase();
+      const target = String(t.targetCurrency || '').toUpperCase();
+      if (side === 'buy') priceSymbols.push(target || source);
+      else priceSymbols.push(source || target);
+    }
+    const priceMap = await loadUsdPriceMap(priceSymbols);
+
+    return (trades as any[]).map((t) => {
       const side = String(t.side || '').toLowerCase();
       const txType = mapBushaSideToTxType(t.side);
       const source = String(t.sourceCurrency || '').toUpperCase();
@@ -178,21 +254,25 @@ class RecentTransactionsService {
         currency = target || source;
         amount = targetAmount || sourceAmount;
         amountNaira = source === 'NGN' ? sourceAmount : undefined;
-        amountUsd = targetAmount;
+        // Never treat crypto qty as USD (was showing 9 TRX → $9)
+        amountUsd = cryptoAmountToUsd(amount, currency, priceMap);
         description = `Bought ${targetAmount || '?'} ${target} for ₦${sourceAmount}`;
       } else if (side === 'sell') {
         currency = source;
         amount = sourceAmount;
         amountNaira = target === 'NGN' ? targetAmount : undefined;
-        amountUsd = sourceAmount;
+        amountUsd = cryptoAmountToUsd(amount, currency, priceMap);
         description = `Sold ${sourceAmount} ${source} for ₦${targetAmount || '?'}`;
       } else if (side === 'convert' || side === 'swap') {
         currency = source;
         amount = sourceAmount;
+        amountUsd = cryptoAmountToUsd(amount, currency, priceMap);
         description = `Swapped ${sourceAmount} ${source} to ${targetAmount || '?'} ${target}`;
       } else if (side === 'cryptosend' || side === 'send') {
+        amountUsd = cryptoAmountToUsd(sourceAmount, source, priceMap);
         description = `Sent ${sourceAmount} ${source}`;
       } else if (side === 'cryptorecv' || side === 'receive') {
+        amountUsd = cryptoAmountToUsd(sourceAmount, source, priceMap);
         description = `Received ${sourceAmount} ${source}`;
       }
 
