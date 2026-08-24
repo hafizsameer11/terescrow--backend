@@ -288,7 +288,7 @@ export async function startBushaKycFromTerescrowProfile(userId: number) {
       );
     }
     throw ApiError.badRequest(
-      'Complete Terescrow Tier 2 verification first (legal name, date of birth, NIN, ID document and selfie).'
+      'Complete Terescrow Tier 2 verification first (legal name, date of birth, NIN, and selfie).'
     );
   }
 
@@ -303,7 +303,6 @@ export async function startBushaKycFromTerescrowProfile(userId: number) {
     birthDate: toBushaBirthDate(p.birthDate),
     nin: p.nin,
     selfiePath: p.selfiePath,
-    idDocumentPath: p.idDocumentPath,
     source: 'terescrow_kyc',
     terescrowKycId: p.terescrowKycId,
   });
@@ -367,15 +366,6 @@ export async function processBushaKycApplication(applicationId: string) {
     const phoneRaw = profile?.phone || user.phoneNumber || '+2348000000000';
     const phone = normalizePhone(phoneRaw);
     const selfieBase64 = readKycSelfieBase64(app.selfiePath || profile?.selfiePath || '');
-    let documentImageBase64: string | undefined;
-    const idPath = app.idDocumentPath || profile?.idDocumentPath;
-    if (idPath) {
-      try {
-        documentImageBase64 = readUploadFileAsBase64(idPath);
-      } catch {
-        // ID image optional for NIN+selfie Busha combo
-      }
-    }
 
     const bushaAddress = splitAddressForBusha(profile?.address || null);
     const birthDate = app.birthDate || (profile ? toBushaBirthDate(profile.birthDate) : undefined);
@@ -452,12 +442,11 @@ export async function processBushaKycApplication(applicationId: string) {
       });
     }
 
-    // Always send NIN + selfie (+ ID image) — full Prembly-backed identity to Busha
+    // Busha national-id: NIN number + selfie only (no NIN document scan).
     await submitBushaCustomerKyc(customer.id, {
       documentType: 'national-id',
       documentNumber: app.nin,
       selfieBase64,
-      documentImageBase64,
       birthDate: birthDate || app.birthDate,
       firstName: app.firstName,
       lastName: app.lastName,

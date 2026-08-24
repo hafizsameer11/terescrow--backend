@@ -20,8 +20,8 @@ Customer enters **once**:
 | Country | NG |
 | **NIN** (11 digits) | Prembly NIN + face |
 | **BVN** (11 digits) | Prembly BVN + face |
-| Government ID image (passport or driver’s licence) | Stored; sent to Busha as `image_front` on national-id |
-| **Live selfie** (camera, not gallery) | Face match against NIN and BVN photos |
+| Government ID image (passport or driver’s licence) | Stored on Terescrow only — **not** sent to Busha |
+| **Live selfie** (camera, not gallery) | Prembly face match + sent to Busha |
 
 ### Step 3 — Automatic verification (no OTP wait when Prembly is configured)
 On submit, backend:
@@ -44,7 +44,7 @@ Right after Prembly auto-approve (and also when user taps “Activate crypto”)
    - birth_date (`DD-MM-YYYY`)
    - phone
    - address (split from Tier 2 address)
-   - `identifying_information`: **national-id (NIN + ID image)** + **selfie**
+   - `identifying_information`: **national-id (NIN number only)** + **selfie**
 3. `POST /verify`  
 4. Wait for webhook → Busha `active`  
 5. User can buy/sell/receive/send  
@@ -90,7 +90,7 @@ POST /api/v2/kyc/tier2/submit  (multipart)
 ### `BushaCustomer` + Busha remote profile
 - Legal name, phone, DOB, NIN  
 - Address  
-- identifying_information (NIN + ID image + selfie)  
+- identifying_information (NIN number + selfie)  
 - `providerData.terescrowKyc` snapshot (Prembly ref, BVN, doc type, etc.)
 
 ---

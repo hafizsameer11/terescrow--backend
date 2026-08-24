@@ -314,7 +314,11 @@ function stripBase64DataUrl(value: string): string {
 function buildIdentifyingInformation(input: BushaCustomerKycInput): BushaIdentifyingDocument[] {
   const country = 'NG';
   const selfie = stripBase64DataUrl(input.selfieBase64);
-  const docImage = input.documentImageBase64 ? stripBase64DataUrl(input.documentImageBase64) : undefined;
+  // National ID: Busha expects NIN number + selfie only — not a scanned NIN slip/card image.
+  const docImage =
+    input.documentType !== 'national-id' && input.documentImageBase64
+      ? stripBase64DataUrl(input.documentImageBase64)
+      : undefined;
   const docs: BushaIdentifyingDocument[] = [
     {
       type: input.documentType,
