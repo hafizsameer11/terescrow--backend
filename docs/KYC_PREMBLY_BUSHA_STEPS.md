@@ -102,8 +102,10 @@ POST /api/v2/kyc/tier2/submit  (multipart)
 # Set to true when ready to enforce NIN/BVN face verification
 PREMBLY_ENABLED=false
 
-PREMBLY_APP_ID=
+# Secret key from Prembly dashboard → Integrations (required when enabled)
 PREMBLY_API_KEY=
+# Optional — only if your account requires app-id (NIN/BVN face docs often need only x-api-key)
+PREMBLY_APP_ID=
 PREMBLY_BASE_URL=https://api.prembly.com
 PREMBLY_FACE_MATCH_MIN=80
 PREMBLY_AUTO_APPROVE=true

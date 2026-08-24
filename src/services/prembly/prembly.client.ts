@@ -29,18 +29,21 @@ export type PremblyEnvelope<T = any> = {
  * Docs: https://docs.prembly.com
  */
 class PremblyClient {
-  private getHeaders() {
-    const appId = premblyConfig.getAppId();
+  private getHeaders(): Record<string, string> {
     const apiKey = premblyConfig.getApiKey();
-    if (!appId || !apiKey) {
-      throw ApiError.badRequest('Prembly is not configured. Set PREMBLY_APP_ID and PREMBLY_API_KEY.');
+    if (!apiKey) {
+      throw ApiError.badRequest('Prembly is not configured. Set PREMBLY_API_KEY.');
     }
-    return {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      'app-id': appId,
       'x-api-key': apiKey,
     };
+    const appId = premblyConfig.getAppId();
+    if (appId) {
+      headers['app-id'] = appId;
+    }
+    return headers;
   }
 
   private async post<T = any>(path: string, body: Record<string, unknown>): Promise<PremblyEnvelope<T>> {

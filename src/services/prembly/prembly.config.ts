@@ -6,8 +6,8 @@ dotenv.config();
  * Prembly (IdentityPass) credentials.
  *
  * PREMBLY_ENABLED          true|false — default false (hidden for testing)
- * PREMBLY_APP_ID
- * PREMBLY_API_KEY          (x-api-key)
+ * PREMBLY_API_KEY          (x-api-key) — required when enabled
+ * PREMBLY_APP_ID           optional; legacy IdentityPass header (many endpoints need only x-api-key)
  * PREMBLY_BASE_URL         optional (default https://api.prembly.com)
  * PREMBLY_FACE_MATCH_MIN   min face confidence 0-100 (default 80)
  * PREMBLY_AUTO_APPROVE     true|false (default true when Prembly configured)
@@ -38,7 +38,7 @@ class PremblyConfigService {
   }
 
   isConfigured(): boolean {
-    return this.isEnabled() && !!(this.getAppId() && this.getApiKey());
+    return this.isEnabled() && !!this.getApiKey();
   }
 
   /** Minimum face match confidence (0–100). Prembly may return 0–1 or 0–100. */
