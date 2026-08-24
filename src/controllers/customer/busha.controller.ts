@@ -316,12 +316,13 @@ export async function executeBushaReceiveController(req: Request, res: Response,
 
 export async function previewBushaSendController(req: Request, res: Response, next: NextFunction) {
   try {
-    const { currency, amount, destinationNetwork } = req.body ?? {};
+    const { currency, amount, destinationNetwork, destinationAddress } = req.body ?? {};
     if (!currency || !amount) throw ApiError.badRequest('currency and amount are required');
     const data = await previewAppBushaSend(userId(req), {
       currency,
       amount: String(amount),
       destinationNetwork: destinationNetwork ? String(destinationNetwork) : undefined,
+      destinationAddress: destinationAddress ? String(destinationAddress) : undefined,
     });
     return new ApiResponse(200, data, 'Busha send preview').send(res);
   } catch (error) {

@@ -10,6 +10,7 @@ import {
   executeBushaBuy,
   executeBushaCryptoReceive,
   executeBushaCryptoSend,
+  previewBushaCryptoSend,
   executeBushaConvert,
   previewBushaConvertQuote,
   getBushaCustomerWallet,
@@ -921,26 +922,61 @@ export async function executeAppBushaSend(
 
 export async function previewAppBushaSend(
   userId: number,
-  params: { currency: string; amount: string; destinationNetwork?: string }
+  params: {
+    currency: string;
+    amount: string;
+    destinationNetwork?: string;
+    destinationAddress?: string;
+  }
 ) {
   await assertBushaAppActive();
   const customer = await ensureBushaCustomerForUser(userId);
-  let network: string | undefined;
-  try {
-    network = resolveBushaNetwork(params.currency, params.destinationNetwork);
-  } catch (error: any) {
-    throw ApiError.badRequest(error?.message || 'Unsupported network');
-  }
-  const wallet = await getBushaCustomerWallet(customer.id, params.currency.toUpperCase());
-  const bal = wallet.balances.find((b: any) => b.currency?.toUpperCase() === params.currency.toUpperCase());
+  const currency = params.currency.toUpperCase();
+  const amount = parseFloat(String(params.amount).replace(/,/g, ''));
+
+  const wallet = await getBushaCustomerWallet(customer.id, currency);
+  const bal = wallet.balances.find((b: any) => b.currency?.toUpperCase() === currency);
   const available = parseFloat(bal?.available?.amount || '0');
-  const amount = parseFloat(params.amount);
+  const sufficient = Number.isFinite(amount) && amount > 0 && available >= amount;
+
+  const sendPreview = await previewBushaCryptoSend({
+    customerId: customer.id,
+    currency,
+    amount: String(params.amount),
+    destinationAddress: params.destinationAddress,
+    destinationNetwork: params.destinationNetwork,
+  });
+
+  const belowMin =
+    sendPreview.belowMinimum ||
+    (sendPreview.minWithdraw != null &&
+      Number.isFinite(amount) &&
+      amount > 0 &&
+      amount < parseFloat(String(sendPreview.minWithdraw)));
+
+  const canProceed =
+    sufficient &&
+    !belowMin &&
+    !sendPreview.quoteError &&
+    !!String(params.destinationAddress || '').trim();
+
   return {
-    currency: params.currency.toUpperCase(),
-    network,
+    currency,
+    network: sendPreview.network,
     amount: params.amount,
     available: String(available),
-    sufficient: Number.isFinite(amount) && amount > 0 && available >= amount,
+    sufficient,
+    hasSufficientBalance: sufficient,
+    canProceed,
+    fromAddress: sendPreview.fromAddress,
+    toAddress: sendPreview.toAddress || String(params.destinationAddress || '').trim() || null,
+    fees: sendPreview.fees,
+    networkFee: sendPreview.networkFee,
+    networkFeeCurrency: sendPreview.networkFeeCurrency,
+    minWithdraw: sendPreview.minWithdraw,
+    belowMinimum: belowMin,
+    quoteError: sendPreview.quoteError,
+    quote: sendPreview.quote,
   };
 }
 

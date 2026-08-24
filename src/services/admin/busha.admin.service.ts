@@ -1031,6 +1031,121 @@ export async function executeBushaCryptoSend(params: {
   return trade;
 }
 
+function parseMinAmountFromMessage(message: string | undefined | null): string | null {
+  const text = String(message || '');
+  if (!text) return null;
+  const patterns = [
+    /minimum(?:\s+withdrawal)?(?:\s+amount)?(?:\s+is|\s+of|:)?\s*([0-9]+(?:\.[0-9]+)?)/i,
+    /below(?:\s+the)?\s+minimum(?:\s+of)?\s*([0-9]+(?:\.[0-9]+)?)/i,
+    /min(?:imum)?(?:\s+send)?[:\s]+([0-9]+(?:\.[0-9]+)?)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+/**
+ * Preview a crypto send (withdrawal) without creating a transfer.
+ * Returns fee quote, from/to addresses, and min-amount errors from Busha.
+ */
+export async function previewBushaCryptoSend(params: {
+  customerId: string;
+  currency: string;
+  amount: string;
+  destinationAddress?: string;
+  destinationNetwork?: string;
+}) {
+  assertBushaConfigured();
+  const customer = await getCustomerOrThrow(params.customerId);
+
+  const currency = params.currency.toUpperCase();
+  const sourceAmount = String(params.amount).trim();
+  const destinationAddress = String(params.destinationAddress || '').trim();
+
+  let destinationNetwork: string;
+  try {
+    destinationNetwork = resolveBushaNetwork(currency, params.destinationNetwork);
+  } catch (error: any) {
+    throw ApiError.badRequest(error?.message || `Unsupported currency/network for ${currency}`);
+  }
+
+  let fromAddress: string | null = null;
+  let minWithdraw: string | null = null;
+  try {
+    const deposit = await getBushaCustomerDepositAddress(customer.id, currency, destinationNetwork);
+    fromAddress = deposit.address || null;
+    const depositMin =
+      (deposit as any).minimumWithdraw ??
+      (deposit as any).minimumWithdrawal ??
+      (deposit as any).provider?.minimum_withdrawal ??
+      (deposit as any).provider?.minimumWithdraw ??
+      null;
+    if (depositMin != null && String(depositMin).trim() !== '') {
+      minWithdraw = String(depositMin).trim();
+    }
+  } catch {
+    fromAddress = null;
+  }
+
+  let quote: any = null;
+  let quoteError: string | null = null;
+  let belowMinimum = false;
+
+  if (destinationAddress) {
+    const payOut: Record<string, unknown> = {
+      type: 'address',
+      address: destinationAddress,
+      network: destinationNetwork,
+    };
+    try {
+      quote = await bushaClient.createQuote(
+        {
+          source_currency: currency,
+          target_currency: currency,
+          source_amount: sourceAmount,
+          pay_in: { type: 'balance' },
+          pay_out: payOut,
+        } as any,
+        customer.bushaProfileId
+      );
+    } catch (error: any) {
+      const message = error?.message || 'Failed to quote this send';
+      quoteError = message;
+      const parsedMin = parseMinAmountFromMessage(message);
+      if (parsedMin) {
+        minWithdraw = parsedMin;
+        belowMinimum = true;
+      } else if (/minimum|below min/i.test(message)) {
+        belowMinimum = true;
+      }
+    }
+  }
+
+  const fees = Array.isArray(quote?.fees) ? quote.fees : [];
+  const firstFee = fees[0];
+  const networkFee = firstFee?.amount?.amount != null ? String(firstFee.amount.amount) : null;
+  const networkFeeCurrency = firstFee?.amount?.currency
+    ? String(firstFee.amount.currency).toUpperCase()
+    : currency;
+
+  return {
+    currency,
+    network: destinationNetwork,
+    amount: sourceAmount,
+    fromAddress,
+    toAddress: destinationAddress || null,
+    quote,
+    fees,
+    networkFee,
+    networkFeeCurrency,
+    minWithdraw,
+    belowMinimum,
+    quoteError,
+  };
+}
+
 /** Crypto → crypto balance convert (Busha swap). */
 export async function executeBushaConvert(params: {
   adminUserId: number;

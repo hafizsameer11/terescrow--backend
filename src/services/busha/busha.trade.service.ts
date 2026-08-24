@@ -44,6 +44,7 @@ export {
   executeBushaBuy,
   executeBushaCryptoReceive,
   executeBushaCryptoSend,
+  previewBushaCryptoSend,
   executeBushaConvert,
   previewBushaConvertQuote,
   getBushaCustomerWallet,
