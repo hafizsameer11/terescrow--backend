@@ -28,10 +28,10 @@ import {
 import {
   resolveBushaNetwork,
   getBushaCurrenciesForAdmin,
+  BUSHA_CRYPTO_ASSETS,
   getBushaCryptoAsset,
   withBushaIcon,
 } from './busha.currencies';
-import { refreshBushaCryptoCatalog } from './busha.catalog.service';
 import { getBushaIconPath } from './busha.icons';
 import { fiatWalletService } from '../fiat/fiat.wallet.service';
 import { settleBushaTradeIfNeeded } from './busha.settlement.service';
@@ -53,7 +53,7 @@ const bushaCustomerModel = (prisma as any).bushaCustomer;
 const bushaTradeLogModel = (prisma as any).bushaTradeLog;
 
 async function getCurrenciesWithPairLimits() {
-  const base = await getBushaCurrenciesForAdmin();
+  const base = getBushaCurrenciesForAdmin();
   try {
     const limitsByCode = await getBushaNgnPairLimitsByCurrency();
     return {
@@ -139,7 +139,7 @@ export async function getAppBushaProfile(userId: number) {
       customer: null,
       bushaRemote: null,
       ready: { active: false, deposit: false, payout: false },
-      currencies: await getBushaCurrenciesForAdmin(),
+      currencies: getBushaCurrenciesForAdmin(),
       kyc,
     };
   }
@@ -154,7 +154,7 @@ export async function getAppBushaProfile(userId: number) {
       deposit: !!(remote as any).deposit,
       payout: !!(remote as any).payout,
     },
-    currencies: await getBushaCurrenciesForAdmin(),
+    currencies: getBushaCurrenciesForAdmin(),
     kyc,
   };
 }
@@ -247,7 +247,7 @@ export async function regenerateAppBushaDepositAddress(
 export async function getAppBushaAssets(userId: number) {
   await assertBushaAppActive();
 
-  const catalog = await refreshBushaCryptoCatalog();
+  const catalog = BUSHA_CRYPTO_ASSETS;
 
   let balances: any[] = [];
   const customer = await bushaCustomerModel.findUnique({ where: { userId } });

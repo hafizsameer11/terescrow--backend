@@ -1,19 +1,13 @@
 /**
- * Busha customer deposit/withdrawal cryptos from
- * https://docs.busha.io/guides/reference/supported-currencies
+ * Busha app catalog — cryptos with full NGN operations on Busha:
+ * GET /v1/pairs?currency=NGN → is_buy_supported + is_sell_supported
+ * GET /v1/currencies → deposit + withdraw on at least one network
  *
- * Only assets with deposit/withdraw support are listed (shown in the app).
- * Network codes are the parenthetical values Busha uses in pay_in / pay_out
- * (e.g. USDT-TRC20 → TRX). USDT defaults to TRX so TRC20 can be tested first.
- *
- * App surfaces (assets, buy, sell, receive, swap) show the full catalog below.
+ * Do NOT filter by currency-network is_ramp_* flags; those miss working pairs (e.g. TRX).
+ * Verified live: 2026-08-25
  */
 
 import { getBushaIconPath } from './busha.icons';
-import {
-  getBushaCryptoCatalogSync,
-  refreshBushaCryptoCatalog,
-} from './busha.catalog.service';
 import { BUSHA_CRYPTO_ASSETS_FALLBACK } from './busha.currencies.fallback';
 
 export type BushaCryptoAsset = {
@@ -29,7 +23,7 @@ export type BushaCryptoAsset = {
 
 export const BUSHA_FIAT_CURRENCIES = ['NGN'] as const;
 
-/** @deprecated Use live catalog from refreshBushaCryptoCatalog(); kept for tests/seeds. */
+/** NGN buy/sell (pairs API) + wallet deposit/withdraw. */
 export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
   ...(BUSHA_CRYPTO_ASSETS_FALLBACK as BushaCryptoAsset[]),
 ];
@@ -37,7 +31,7 @@ export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
 export const BUSHA_CRYPTO_CURRENCIES = BUSHA_CRYPTO_ASSETS.map((asset) => asset.code);
 
 export function getBushaCryptoCurrencyCodes(): string[] {
-  return getBushaCryptoCatalogSync().map((asset) => asset.code);
+  return BUSHA_CRYPTO_ASSETS.map((asset) => asset.code);
 }
 
 export const BUSHA_RAMP_CRYPTO_CURRENCIES = BUSHA_CRYPTO_ASSETS.filter(
@@ -53,15 +47,14 @@ export const CRYPTO_NETWORK: Record<string, string> = Object.fromEntries(
 );
 
 export function getBushaCryptoAsset(code: string): BushaCryptoAsset | undefined {
-  const normalized = code.toUpperCase();
-  return getBushaCryptoCatalogSync().find((asset) => asset.code === normalized);
+  return BUSHA_CRYPTO_ASSETS.find((asset) => asset.code === code.toUpperCase());
 }
 
 export function resolveBushaNetwork(currency: string, requested?: string): string {
   const asset = getBushaCryptoAsset(currency);
   if (!asset) {
     throw new Error(
-      `${currency.toUpperCase()} is not a Busha deposit/withdrawal currency. Supported: ${getBushaCryptoCurrencyCodes().join(', ')}`
+      `${currency.toUpperCase()} is not a Busha deposit/withdrawal currency. Supported: ${BUSHA_CRYPTO_CURRENCIES.join(', ')}`
     );
   }
 
@@ -86,19 +79,13 @@ export function withBushaIcon<T extends Record<string, unknown>>(
   };
 }
 
-export async function getBushaCurrenciesForAdmin() {
-  const assets = await refreshBushaCryptoCatalog();
-  const codes = assets.map((asset) => asset.code);
-  const rampCrypto = assets.filter((asset) => asset.rampBuy || asset.rampSell).map((asset) => asset.code);
-  const networks = Object.fromEntries(assets.map((asset) => [asset.code, asset.networks]));
-  const networkDefaults = Object.fromEntries(assets.map((asset) => [asset.code, asset.defaultNetwork]));
-
+export function getBushaCurrenciesForAdmin() {
   return {
     fiat: [...BUSHA_FIAT_CURRENCIES],
-    crypto: codes,
-    rampCrypto,
-    networks: networkDefaults,
-    networksByCurrency: networks,
-    assets: assets.map((asset) => withBushaIcon(asset, asset.code)),
+    crypto: [...BUSHA_CRYPTO_CURRENCIES],
+    rampCrypto: [...BUSHA_RAMP_CRYPTO_CURRENCIES],
+    networks: CRYPTO_NETWORK,
+    networksByCurrency: CRYPTO_NETWORKS,
+    assets: BUSHA_CRYPTO_ASSETS.map((asset) => withBushaIcon(asset, asset.code)),
   };
 }
