@@ -83,8 +83,27 @@ export const BUSHA_ICON_CODES = new Set([
   'XRP',
 ]);
 
+/** Legacy Tatum / wallet_currencies codes → Busha icon filename. */
+const ICON_CODE_ALIASES: Record<string, string> = {
+  TRON: 'TRX',
+  USDT_TRON: 'USDT',
+  USDT_BSC: 'USDT',
+  USDC_BSC: 'USDC',
+  BSC: 'BNB',
+  TUSDT: 'USDT',
+};
+
+function resolveIconCode(code: string): string {
+  const normalized = String(code || '').trim().toUpperCase();
+  if (!normalized) return '';
+  if (BUSHA_ICON_CODES.has(normalized)) return normalized;
+  const alias = ICON_CODE_ALIASES[normalized];
+  if (alias && BUSHA_ICON_CODES.has(alias)) return alias;
+  return normalized;
+}
+
 export function getBushaIconPath(code: string): string | null {
-  const c = String(code || '').trim().toUpperCase();
+  const c = resolveIconCode(code);
   if (!c || !BUSHA_ICON_CODES.has(c)) return null;
   return `busha_icons/${c}.png`;
 }

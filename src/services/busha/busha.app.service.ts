@@ -28,10 +28,10 @@ import {
 import {
   resolveBushaNetwork,
   getBushaCurrenciesForAdmin,
-  BUSHA_CRYPTO_ASSETS,
   getBushaCryptoAsset,
   withBushaIcon,
 } from './busha.currencies';
+import { refreshBushaCryptoCatalog } from './busha.catalog.service';
 import { getBushaIconPath } from './busha.icons';
 import { fiatWalletService } from '../fiat/fiat.wallet.service';
 import { settleBushaTradeIfNeeded } from './busha.settlement.service';
@@ -53,7 +53,7 @@ const bushaCustomerModel = (prisma as any).bushaCustomer;
 const bushaTradeLogModel = (prisma as any).bushaTradeLog;
 
 async function getCurrenciesWithPairLimits() {
-  const base = getBushaCurrenciesForAdmin();
+  const base = await getBushaCurrenciesForAdmin();
   try {
     const limitsByCode = await getBushaNgnPairLimitsByCurrency();
     return {
@@ -139,7 +139,7 @@ export async function getAppBushaProfile(userId: number) {
       customer: null,
       bushaRemote: null,
       ready: { active: false, deposit: false, payout: false },
-      currencies: getBushaCurrenciesForAdmin(),
+      currencies: await getBushaCurrenciesForAdmin(),
       kyc,
     };
   }
@@ -154,7 +154,7 @@ export async function getAppBushaProfile(userId: number) {
       deposit: !!(remote as any).deposit,
       payout: !!(remote as any).payout,
     },
-    currencies: getBushaCurrenciesForAdmin(),
+    currencies: await getBushaCurrenciesForAdmin(),
     kyc,
   };
 }
@@ -247,6 +247,8 @@ export async function regenerateAppBushaDepositAddress(
 export async function getAppBushaAssets(userId: number) {
   await assertBushaAppActive();
 
+  const catalog = await refreshBushaCryptoCatalog();
+
   let balances: any[] = [];
   const customer = await bushaCustomerModel.findUnique({ where: { userId } });
   if (customer) {
@@ -278,7 +280,7 @@ export async function getAppBushaAssets(userId: number) {
     return Number.isFinite(n) ? String(n) : '0';
   };
 
-  const assets = BUSHA_CRYPTO_ASSETS.map((asset, index) => {
+  const assets = catalog.map((asset, index) => {
     const bal = balanceByCurrency.get(asset.code);
     const available = readAmount(bal);
     return withBushaIcon({

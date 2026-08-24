@@ -10,6 +10,11 @@
  */
 
 import { getBushaIconPath } from './busha.icons';
+import {
+  getBushaCryptoCatalogSync,
+  refreshBushaCryptoCatalog,
+} from './busha.catalog.service';
+import { BUSHA_CRYPTO_ASSETS_FALLBACK } from './busha.currencies.fallback';
 
 export type BushaCryptoAsset = {
   code: string;
@@ -24,160 +29,16 @@ export type BushaCryptoAsset = {
 
 export const BUSHA_FIAT_CURRENCIES = ['NGN'] as const;
 
+/** @deprecated Use live catalog from refreshBushaCryptoCatalog(); kept for tests/seeds. */
 export const BUSHA_CRYPTO_ASSETS: BushaCryptoAsset[] = [
-  {
-    code: 'USDT',
-    name: 'Tether',
-    networks: ['TRX', 'ETH', 'BSC', 'SOL', 'XPL'],
-    defaultNetwork: 'TRX',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'TRX',
-    name: 'Tron',
-    networks: ['TRX'],
-    defaultNetwork: 'TRX',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'BTC',
-    name: 'Bitcoin',
-    networks: ['BTC'],
-    defaultNetwork: 'BTC',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'ETH',
-    name: 'Ethereum',
-    networks: ['ETH', 'BASE'],
-    defaultNetwork: 'ETH',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'USDC',
-    name: 'USD Coin',
-    networks: ['TRX', 'ETH', 'BASE', 'SOL', 'XLM'],
-    defaultNetwork: 'TRX',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'BNB',
-    name: 'BNB',
-    networks: ['BSC'],
-    defaultNetwork: 'BSC',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'SOL',
-    name: 'Solana',
-    networks: ['SOL'],
-    defaultNetwork: 'SOL',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'TON',
-    name: 'Toncoin',
-    networks: ['TON'],
-    defaultNetwork: 'TON',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'LTC',
-    name: 'Litecoin',
-    networks: ['LTC'],
-    defaultNetwork: 'LTC',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'XRP',
-    name: 'Ripple',
-    networks: ['XRP'],
-    defaultNetwork: 'XRP',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'XLM',
-    name: 'Stellar',
-    networks: ['XLM'],
-    defaultNetwork: 'XLM',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'POL',
-    name: 'Polygon',
-    networks: ['MATIC'],
-    defaultNetwork: 'MATIC',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'SHIB',
-    name: 'SHIBA INU',
-    networks: ['ETH'],
-    defaultNetwork: 'ETH',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'MC',
-    name: 'MC Token',
-    networks: ['ETH'],
-    defaultNetwork: 'ETH',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
-  {
-    code: 'TRUMP',
-    name: 'Official Trump',
-    networks: ['SOL'],
-    defaultNetwork: 'SOL',
-    deposit: true,
-    withdraw: true,
-    rampBuy: true,
-    rampSell: true,
-  },
+  ...(BUSHA_CRYPTO_ASSETS_FALLBACK as BushaCryptoAsset[]),
 ];
 
 export const BUSHA_CRYPTO_CURRENCIES = BUSHA_CRYPTO_ASSETS.map((asset) => asset.code);
+
+export function getBushaCryptoCurrencyCodes(): string[] {
+  return getBushaCryptoCatalogSync().map((asset) => asset.code);
+}
 
 export const BUSHA_RAMP_CRYPTO_CURRENCIES = BUSHA_CRYPTO_ASSETS.filter(
   (asset) => asset.rampBuy || asset.rampSell
@@ -192,14 +53,15 @@ export const CRYPTO_NETWORK: Record<string, string> = Object.fromEntries(
 );
 
 export function getBushaCryptoAsset(code: string): BushaCryptoAsset | undefined {
-  return BUSHA_CRYPTO_ASSETS.find((asset) => asset.code === code.toUpperCase());
+  const normalized = code.toUpperCase();
+  return getBushaCryptoCatalogSync().find((asset) => asset.code === normalized);
 }
 
 export function resolveBushaNetwork(currency: string, requested?: string): string {
   const asset = getBushaCryptoAsset(currency);
   if (!asset) {
     throw new Error(
-      `${currency.toUpperCase()} is not a Busha deposit/withdrawal currency. Supported: ${BUSHA_CRYPTO_CURRENCIES.join(', ')}`
+      `${currency.toUpperCase()} is not a Busha deposit/withdrawal currency. Supported: ${getBushaCryptoCurrencyCodes().join(', ')}`
     );
   }
 
@@ -224,13 +86,19 @@ export function withBushaIcon<T extends Record<string, unknown>>(
   };
 }
 
-export function getBushaCurrenciesForAdmin() {
+export async function getBushaCurrenciesForAdmin() {
+  const assets = await refreshBushaCryptoCatalog();
+  const codes = assets.map((asset) => asset.code);
+  const rampCrypto = assets.filter((asset) => asset.rampBuy || asset.rampSell).map((asset) => asset.code);
+  const networks = Object.fromEntries(assets.map((asset) => [asset.code, asset.networks]));
+  const networkDefaults = Object.fromEntries(assets.map((asset) => [asset.code, asset.defaultNetwork]));
+
   return {
     fiat: [...BUSHA_FIAT_CURRENCIES],
-    crypto: [...BUSHA_CRYPTO_CURRENCIES],
-    rampCrypto: [...BUSHA_RAMP_CRYPTO_CURRENCIES],
-    networks: CRYPTO_NETWORK,
-    networksByCurrency: CRYPTO_NETWORKS,
-    assets: BUSHA_CRYPTO_ASSETS.map((asset) => withBushaIcon(asset, asset.code)),
+    crypto: codes,
+    rampCrypto,
+    networks: networkDefaults,
+    networksByCurrency: networks,
+    assets: assets.map((asset) => withBushaIcon(asset, asset.code)),
   };
 }

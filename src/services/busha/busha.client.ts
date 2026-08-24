@@ -488,8 +488,12 @@ export type BushaCurrency = {
   code?: string;
   id?: string;
   name?: string;
+  display_name?: string;
   type?: string;
   precision?: number;
+  default_network?: string;
+  deposit?: boolean;
+  withdrawal?: boolean;
   supported_networks?: BushaCurrencyNetwork[];
   networks?: BushaCurrencyNetwork[];
   [key: string]: unknown;

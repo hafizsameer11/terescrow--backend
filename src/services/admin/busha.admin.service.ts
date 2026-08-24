@@ -10,8 +10,10 @@ import {
   BUSHA_CRYPTO_CURRENCIES,
   BUSHA_FIAT_CURRENCIES,
   getBushaCurrenciesForAdmin,
+  getBushaCryptoCurrencyCodes,
   resolveBushaNetwork,
 } from '../busha/busha.currencies';
+import { refreshBushaCryptoCatalog } from '../busha/busha.catalog.service';
 import { palmpayConfig } from '../palmpay/palmpay.config';
 import { palmpayPayout } from '../palmpay/palmpay.payout.service';
 import { palmpayMerchantService } from '../palmpay/palmpay.merchant.service';
@@ -79,7 +81,7 @@ export async function getBushaStatusForAdmin() {
       : null,
     stats: { customerCount, tradeCount },
     recentTrades,
-    currencies: getBushaCurrenciesForAdmin(),
+    currencies: await getBushaCurrenciesForAdmin(),
   };
 }
 
@@ -1355,10 +1357,12 @@ export async function executeBushaConvert(params: {
   if (sourceCurrency === targetCurrency) {
     throw ApiError.badRequest('sourceCurrency and targetCurrency must differ for convert');
   }
-  if (!BUSHA_CRYPTO_CURRENCIES.includes(sourceCurrency)) {
+  await refreshBushaCryptoCatalog();
+  const supportedCrypto = getBushaCryptoCurrencyCodes();
+  if (!supportedCrypto.includes(sourceCurrency)) {
     throw ApiError.badRequest(`Unsupported source currency: ${sourceCurrency}`);
   }
-  if (!BUSHA_CRYPTO_CURRENCIES.includes(targetCurrency)) {
+  if (!supportedCrypto.includes(targetCurrency)) {
     throw ApiError.badRequest(`Unsupported target currency: ${targetCurrency}`);
   }
   const amountNum = parseFloat(sourceAmount);
