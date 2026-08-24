@@ -222,7 +222,7 @@ async function syncSignupRulesAcrossServices(signupBonus?: number, minFirstWithd
     level2Pct,
     signupBonus: signupBonus ?? (canonical ? Number(canonical.signupBonus) : 10000),
     minFirstWithdrawal:
-      minFirstWithdrawal ?? (canonical ? Number(canonical.minFirstWithdrawal) : 20000),
+      minFirstWithdrawal ?? (canonical ? Number(canonical.minFirstWithdrawal) : 100),
     isActive,
   });
 
@@ -304,7 +304,7 @@ export async function getCommissionSettings() {
       commissionValue: s ? Number(s.commissionValue) : 0,
       level2Pct: s ? Number(s.level2Pct) : 30,
       signupBonus: s ? Number(s.signupBonus) : 10000,
-      minFirstWithdrawal: s ? Number(s.minFirstWithdrawal) : 20000,
+      minFirstWithdrawal: s ? Number(s.minFirstWithdrawal) : 100,
       isActive: s?.isActive ?? false,
     };
   });
@@ -344,7 +344,7 @@ export async function upsertCommissionSetting(body: {
       commissionValue: body.commissionValue,
       level2Pct: body.level2Pct ?? 30,
       signupBonus: body.signupBonus ?? 10000,
-      minFirstWithdrawal: body.minFirstWithdrawal ?? 20000,
+      minFirstWithdrawal: body.minFirstWithdrawal ?? 100,
       isActive: body.isActive ?? true,
     },
   });

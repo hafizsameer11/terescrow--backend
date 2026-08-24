@@ -125,7 +125,7 @@ referralRouter.get('/earnings', authenticateUser, getReferralEarningsController)
  *     x-order: 3
  *     description: |
  *       Withdraws funds from the referral wallet to the user's main NGN fiat wallet.
- *       First withdrawal requires a minimum balance of 20,000 NGN.
+ *       First withdrawal requires a minimum balance of 100 NGN (temporarily lowered for testing).
  *       Subsequent withdrawals have no minimum.
  *     security:
  *       - bearerAuth: []

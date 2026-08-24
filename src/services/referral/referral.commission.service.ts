@@ -159,7 +159,7 @@ export async function creditReferralCommission(
 /**
  * Credit signup bonus to the NEW USER who signed up with a referral code.
  * The bonus goes into the new user's referral wallet (not the referrer's).
- * They cannot withdraw until balance reaches the minimum threshold (default 20,000).
+ * They cannot withdraw until balance reaches the minimum threshold (temporarily 100 NGN for testing).
  */
 export async function creditSignupBonus(newUserId: number, referrerId: number) {
   try {
