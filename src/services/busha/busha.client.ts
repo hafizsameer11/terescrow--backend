@@ -90,6 +90,44 @@ export type BushaPairAmount = {
   };
 };
 
+/** Flatten nested provider validation payloads into a readable string. */
+export function flattenProviderErrorDetails(data: unknown, depth = 0): string {
+  if (data == null || depth > 4) return '';
+  if (typeof data === 'string') return data.trim();
+  if (typeof data === 'number' || typeof data === 'boolean') return String(data);
+  if (Array.isArray(data)) {
+    return data
+      .map((item) => flattenProviderErrorDetails(item, depth + 1))
+      .filter(Boolean)
+      .join('; ');
+  }
+  if (typeof data === 'object') {
+    const obj = data as Record<string, unknown>;
+    const preferred =
+      flattenProviderErrorDetails(obj.message, depth + 1) ||
+      flattenProviderErrorDetails(obj.msg, depth + 1) ||
+      flattenProviderErrorDetails(obj.error, depth + 1) ||
+      flattenProviderErrorDetails(obj.errors, depth + 1) ||
+      flattenProviderErrorDetails(obj.details, depth + 1) ||
+      flattenProviderErrorDetails(obj.data, depth + 1);
+    if (preferred) return preferred;
+
+    const parts: string[] = [];
+    for (const [key, value] of Object.entries(obj)) {
+      if (['status', 'statusCode', 'code', 'type', 'name'].includes(key)) continue;
+      const nested = flattenProviderErrorDetails(value, depth + 1);
+      if (!nested) continue;
+      if (Array.isArray(value) || typeof value === 'string') {
+        parts.push(`${key}: ${nested}`);
+      } else {
+        parts.push(nested);
+      }
+    }
+    return parts.join('; ');
+  }
+  return '';
+}
+
 export type BushaPair = {
   id: string;
   base: string;
@@ -227,15 +265,23 @@ class BushaClient {
         const data = error.response.data as {
           message?: string;
           error?: string | { name?: string; message?: string };
+          data?: unknown;
         };
         const nested =
           typeof data?.error === 'object' && data.error?.message ? data.error.message : null;
-        const message =
+        const detailFromData = flattenProviderErrorDetails(data?.data ?? (data as any)?.errors);
+        const rawMessage =
           nested ||
           data?.message ||
           (typeof data?.error === 'string' ? data.error : null) ||
           error.message ||
           'Busha API request failed';
+        const message =
+          /request validation/i.test(String(rawMessage)) && detailFromData
+            ? detailFromData
+            : detailFromData && detailFromData.length > String(rawMessage).length
+              ? detailFromData
+              : String(rawMessage);
 
         if (status === 401 || status === 403) throw ApiError.unauthorized(message, data);
         if (status === 404) throw ApiError.notFound(message, data);

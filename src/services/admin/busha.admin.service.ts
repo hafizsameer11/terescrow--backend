@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import { bushaConfig } from '../busha/busha.config';
-import { bushaClient, type BushaIdentifyingDocument } from '../busha/busha.client';
+import { bushaClient, type BushaIdentifyingDocument, flattenProviderErrorDetails } from '../busha/busha.client';
 import { resolvePalmpayBankCode, resolveBushaBankCodeFromPalmpay } from '../busha/busha.bank.mapper';
 import { createPalmpayVirtualBankAccount } from '../palmpay/palmpay.virtual.account.service';
 import {
@@ -1002,7 +1002,15 @@ export async function executeBushaCryptoSend(params: {
       pay_out: payOut,
     } as any,
     customer.bushaProfileId
-  );
+  ).catch((error: any) => {
+    throw ApiError.badRequest(
+      humanizeBushaSendError(error?.message, error?.data, {
+        network: destinationNetwork,
+        currency,
+      }),
+      error?.data
+    );
+  });
 
   const transfer = await bushaClient.createTransfer(quote.id, customer.bushaProfileId);
 
@@ -1044,6 +1052,54 @@ function parseMinAmountFromMessage(message: string | undefined | null): string |
     if (match?.[1]) return match[1];
   }
   return null;
+}
+
+/** Turn Busha/provider validation blobs into a clear send error for the app. */
+function humanizeBushaSendError(
+  message: string | undefined | null,
+  data?: unknown,
+  ctx?: { network?: string; currency?: string }
+): string {
+  const raw = String(message || '').trim();
+  const details = flattenProviderErrorDetails(data);
+  const combined = `${raw} ${details}`.trim();
+  const lower = combined.toLowerCase();
+  const currency = ctx?.currency ? String(ctx.currency).toUpperCase() : '';
+  const network = ctx?.network ? String(ctx.network).toUpperCase() : '';
+
+  if (/address|destination|recipient|invalid.*addr|addr.*invalid|checksum/i.test(lower)) {
+    return network
+      ? `Invalid destination address for ${network}. Check the address matches this network and try again.`
+      : 'Invalid destination address. Check the address and network, then try again.';
+  }
+
+  const parsedMin = parseMinAmountFromMessage(combined);
+  if (parsedMin || /minimum|below min|too (low|small)|min.?amount/i.test(lower)) {
+    if (parsedMin) {
+      return `Minimum send is ${parsedMin}${currency ? ` ${currency}` : ''}.`;
+    }
+    return `Amount is below the minimum allowed${currency ? ` for ${currency}` : ''}.`;
+  }
+
+  if (/insufficient|not enough|balance/i.test(lower)) {
+    return 'Insufficient balance to complete this send.';
+  }
+
+  if (/network|unsupported chain|wrong network|chain/i.test(lower)) {
+    return network
+      ? `This send is not supported on ${network}. Pick another network.`
+      : 'This network is not supported for this send. Pick another network.';
+  }
+
+  if (/request validation|see data for additional/i.test(raw)) {
+    if (details && !/request validation/i.test(details)) {
+      return details;
+    }
+    return 'Could not quote this send. Check the address, network, and amount, then try again.';
+  }
+
+  if (details && details.length > raw.length) return details;
+  return raw || 'Could not quote this send. Please try again.';
 }
 
 /**
@@ -1111,13 +1167,16 @@ export async function previewBushaCryptoSend(params: {
         customer.bushaProfileId
       );
     } catch (error: any) {
-      const message = error?.message || 'Failed to quote this send';
-      quoteError = message;
-      const parsedMin = parseMinAmountFromMessage(message);
+      const friendly = humanizeBushaSendError(error?.message, error?.data, {
+        network: destinationNetwork,
+        currency,
+      });
+      quoteError = friendly;
+      const parsedMin = parseMinAmountFromMessage(`${error?.message || ''} ${friendly}`);
       if (parsedMin) {
         minWithdraw = parsedMin;
         belowMinimum = true;
-      } else if (/minimum|below min/i.test(message)) {
+      } else if (/minimum|below min/i.test(friendly)) {
         belowMinimum = true;
       }
     }
