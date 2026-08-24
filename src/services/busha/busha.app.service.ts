@@ -976,6 +976,7 @@ export async function previewAppBushaSend(
     minWithdraw: sendPreview.minWithdraw,
     belowMinimum: belowMin,
     quoteError: sendPreview.quoteError,
+    providerErrorRaw: (sendPreview as any).providerErrorRaw || null,
     quote: sendPreview.quote,
   };
 }

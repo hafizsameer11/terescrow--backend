@@ -966,8 +966,12 @@ export async function executeBushaCryptoSend(params: {
   const customer = await getCustomerOrThrow(params.customerId);
 
   const currency = params.currency.toUpperCase();
-  const sourceAmount = String(params.amount).trim();
-  const destinationAddress = params.destinationAddress.trim();
+  const sourceAmountNum = parseFloat(String(params.amount).replace(/,/g, '').trim());
+  if (!Number.isFinite(sourceAmountNum) || sourceAmountNum <= 0) {
+    throw ApiError.badRequest('amount must be greater than 0');
+  }
+  const sourceAmount = String(sourceAmountNum);
+  const destinationAddress = params.destinationAddress.trim().replace(/\s+/g, '');
 
   if (!destinationAddress) throw ApiError.badRequest('destinationAddress is required');
 
@@ -978,13 +982,8 @@ export async function executeBushaCryptoSend(params: {
     throw ApiError.badRequest(error?.message || `Unsupported currency/network for ${currency}`);
   }
 
-  const amountNgn = parseFloat(sourceAmount);
-  if (!Number.isFinite(amountNgn) || amountNgn <= 0) {
-    throw ApiError.badRequest('amount must be greater than 0');
-  }
-
   // Create a "withdrawal/send" style transfer:
-  // - Source is customer's Busha crypto balance
+  // - Source is customer's Busha crypto balance (default when pay_in omitted)
   // - Target is an external crypto address
   const payOut: Record<string, unknown> = {
     type: 'address',
@@ -998,7 +997,6 @@ export async function executeBushaCryptoSend(params: {
       source_currency: currency,
       target_currency: currency,
       source_amount: sourceAmount,
-      pay_in: { type: 'balance' },
       pay_out: payOut,
     } as any,
     customer.bushaProfileId
@@ -1055,6 +1053,17 @@ function parseMinAmountFromMessage(message: string | undefined | null): string |
 }
 
 /** Turn Busha/provider validation blobs into a clear send error for the app. */
+function looksLikeInvalidAddressError(text: string): boolean {
+  const lower = text.toLowerCase();
+  // Require clear "invalid address" language — do NOT match mere field keys like "pay_out.address"
+  return (
+    /invalid\s+(destination\s+)?address/.test(lower) ||
+    /(destination\s+)?address\s+(is\s+)?(invalid|incorrect|wrong|malformed|not\s+valid)/.test(lower) ||
+    /bad\s+address|checksum|address\s+format|unsupported\s+address/.test(lower) ||
+    /recipient\s+(address\s+)?(is\s+)?(invalid|incorrect|wrong)/.test(lower)
+  );
+}
+
 function humanizeBushaSendError(
   message: string | undefined | null,
   data?: unknown,
@@ -1067,14 +1076,14 @@ function humanizeBushaSendError(
   const currency = ctx?.currency ? String(ctx.currency).toUpperCase() : '';
   const network = ctx?.network ? String(ctx.network).toUpperCase() : '';
 
-  if (/address|destination|recipient|invalid.*addr|addr.*invalid|checksum/i.test(lower)) {
+  if (looksLikeInvalidAddressError(combined)) {
     return network
       ? `Invalid destination address for ${network}. Check the address matches this network and try again.`
       : 'Invalid destination address. Check the address and network, then try again.';
   }
 
   const parsedMin = parseMinAmountFromMessage(combined);
-  if (parsedMin || /minimum|below min|too (low|small)|min.?amount/i.test(lower)) {
+  if (parsedMin || /minimum|below min|too (low|small)|min.?amount|amount.*(too|below)/i.test(lower)) {
     if (parsedMin) {
       return `Minimum send is ${parsedMin}${currency ? ` ${currency}` : ''}.`;
     }
@@ -1085,20 +1094,21 @@ function humanizeBushaSendError(
     return 'Insufficient balance to complete this send.';
   }
 
-  if (/network|unsupported chain|wrong network|chain/i.test(lower)) {
+  if (/unsupported\s+network|wrong\s+network|network\s+(is\s+)?(invalid|unsupported)|chain\s+not\s+supported/i.test(lower)) {
     return network
       ? `This send is not supported on ${network}. Pick another network.`
       : 'This network is not supported for this send. Pick another network.';
   }
 
-  if (/request validation|see data for additional/i.test(raw)) {
-    if (details && !/request validation/i.test(details)) {
-      return details;
-    }
-    return 'Could not quote this send. Check the address, network, and amount, then try again.';
+  // Prefer concrete provider details over generic "Request validation failed"
+  if (details && !/request validation|see data for additional/i.test(details)) {
+    return details;
   }
 
-  if (details && details.length > raw.length) return details;
+  if (/request validation|see data for additional/i.test(raw)) {
+    return 'Could not quote this send. Check the amount and network, then try again.';
+  }
+
   return raw || 'Could not quote this send. Please try again.';
 }
 
@@ -1117,8 +1127,15 @@ export async function previewBushaCryptoSend(params: {
   const customer = await getCustomerOrThrow(params.customerId);
 
   const currency = params.currency.toUpperCase();
-  const sourceAmount = String(params.amount).trim();
-  const destinationAddress = String(params.destinationAddress || '').trim();
+  const sourceAmountNum = parseFloat(String(params.amount).replace(/,/g, '').trim());
+  if (!Number.isFinite(sourceAmountNum) || sourceAmountNum <= 0) {
+    throw ApiError.badRequest('amount must be greater than 0');
+  }
+  // Busha expects a plain decimal string (avoid scientific notation / trailing junk)
+  const sourceAmount = String(sourceAmountNum);
+  const destinationAddress = String(params.destinationAddress || '')
+    .trim()
+    .replace(/\s+/g, '');
 
   let destinationNetwork: string;
   try {
@@ -1148,8 +1165,10 @@ export async function previewBushaCryptoSend(params: {
   let quote: any = null;
   let quoteError: string | null = null;
   let belowMinimum = false;
+  let providerErrorRaw: string | null = null;
 
   if (destinationAddress) {
+    // Busha crypto payout: balance → external address (pay_in defaults to balance when omitted)
     const payOut: Record<string, unknown> = {
       type: 'address',
       address: destinationAddress,
@@ -1161,18 +1180,27 @@ export async function previewBushaCryptoSend(params: {
           source_currency: currency,
           target_currency: currency,
           source_amount: sourceAmount,
-          pay_in: { type: 'balance' },
           pay_out: payOut,
         } as any,
         customer.bushaProfileId
       );
     } catch (error: any) {
+      const details = flattenProviderErrorDetails(error?.data);
+      providerErrorRaw = [error?.message, details].filter(Boolean).join(' | ') || null;
+      console.warn('[Busha send preview] quote failed', {
+        currency,
+        network: destinationNetwork,
+        amount: sourceAmount,
+        addressPrefix: destinationAddress.slice(0, 6),
+        message: error?.message,
+        details,
+      });
       const friendly = humanizeBushaSendError(error?.message, error?.data, {
         network: destinationNetwork,
         currency,
       });
       quoteError = friendly;
-      const parsedMin = parseMinAmountFromMessage(`${error?.message || ''} ${friendly}`);
+      const parsedMin = parseMinAmountFromMessage(`${error?.message || ''} ${details || ''} ${friendly}`);
       if (parsedMin) {
         minWithdraw = parsedMin;
         belowMinimum = true;
@@ -1202,6 +1230,7 @@ export async function previewBushaCryptoSend(params: {
     minWithdraw,
     belowMinimum,
     quoteError,
+    providerErrorRaw,
   };
 }
 
