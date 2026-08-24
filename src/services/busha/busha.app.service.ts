@@ -30,7 +30,9 @@ import {
   getBushaCurrenciesForAdmin,
   BUSHA_CRYPTO_ASSETS,
   getBushaCryptoAsset,
+  withBushaIcon,
 } from './busha.currencies';
+import { getBushaIconPath } from './busha.icons';
 import { fiatWalletService } from '../fiat/fiat.wallet.service';
 import { settleBushaTradeIfNeeded } from './busha.settlement.service';
 import { bushaConfig } from './busha.config';
@@ -279,11 +281,11 @@ export async function getAppBushaAssets(userId: number) {
   const assets = BUSHA_CRYPTO_ASSETS.map((asset, index) => {
     const bal = balanceByCurrency.get(asset.code);
     const available = readAmount(bal);
-    return {
+    return withBushaIcon({
       id: -(index + 1),
       currency: asset.code,
       blockchain: asset.defaultNetwork,
-      symbol: asset.code,
+      symbol: getBushaIconPath(asset.code) || asset.code,
       name: asset.name,
       balance: available,
       availableBalance: available,
@@ -297,18 +299,18 @@ export async function getAppBushaAssets(userId: number) {
       networks: asset.networks,
       defaultNetwork: asset.defaultNetwork,
       source: 'busha' as const,
-    };
+    }, asset.code);
   });
 
   // Include any unexpected Busha crypto balances not in catalog
   for (const [code, bal] of balanceByCurrency.entries()) {
     if (getBushaCryptoAsset(code)) continue;
     const available = readAmount(bal);
-    assets.push({
+    assets.push(withBushaIcon({
       id: -(assets.length + 1),
       currency: code,
       blockchain: code,
-      symbol: code,
+      symbol: getBushaIconPath(code) || code,
       name: code,
       balance: available,
       availableBalance: available,
@@ -322,7 +324,7 @@ export async function getAppBushaAssets(userId: number) {
       networks: [code],
       defaultNetwork: code,
       source: 'busha' as const,
-    });
+    }, code));
   }
 
   let totalUsd = 0;
@@ -356,11 +358,11 @@ export async function getAppBushaAssetDetail(userId: number, currency: string) {
     throw ApiError.notFound(`Asset ${code} not found`);
   }
 
-  const row = asset || {
+  const row = withBushaIcon(asset || {
     id: -1,
     currency: code,
     blockchain: meta?.defaultNetwork || code,
-    symbol: code,
+    symbol: getBushaIconPath(code) || code,
     name: meta?.name || code,
     balance: '0',
     availableBalance: '0',
@@ -374,7 +376,7 @@ export async function getAppBushaAssetDetail(userId: number, currency: string) {
     networks: meta?.networks || [code],
     defaultNetwork: meta?.defaultNetwork || code,
     source: 'busha' as const,
-  };
+  }, code);
 
   const trades = await bushaTradeLogModel.findMany({
     where: {
@@ -406,7 +408,8 @@ export async function getAppBushaAssetDetail(userId: number, currency: string) {
       amountUsd: t.targetAmount || '0',
       status: t.status,
       createdAt: t.createdAt,
-      symbol: t.sourceCurrency,
+      symbol: getBushaIconPath(t.sourceCurrency) || t.sourceCurrency,
+      iconUrl: getBushaIconPath(t.sourceCurrency),
     })),
     source: 'busha' as const,
   };

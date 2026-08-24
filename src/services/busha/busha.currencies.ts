@@ -9,6 +9,8 @@
  * App surfaces (assets, buy, sell, receive, swap) show the full catalog below.
  */
 
+import { getBushaIconPath } from './busha.icons';
+
 export type BushaCryptoAsset = {
   code: string;
   name: string;
@@ -211,6 +213,17 @@ export function resolveBushaNetwork(currency: string, requested?: string): strin
   return network;
 }
 
+export function withBushaIcon<T extends Record<string, unknown>>(
+  row: T,
+  code?: string
+): T & { iconUrl: string | null } {
+  const currency = code || String(row.currency || row.code || '');
+  return {
+    ...row,
+    iconUrl: getBushaIconPath(currency),
+  };
+}
+
 export function getBushaCurrenciesForAdmin() {
   return {
     fiat: [...BUSHA_FIAT_CURRENCIES],
@@ -218,6 +231,6 @@ export function getBushaCurrenciesForAdmin() {
     rampCrypto: [...BUSHA_RAMP_CRYPTO_CURRENCIES],
     networks: CRYPTO_NETWORK,
     networksByCurrency: CRYPTO_NETWORKS,
-    assets: BUSHA_CRYPTO_ASSETS,
+    assets: BUSHA_CRYPTO_ASSETS.map((asset) => withBushaIcon(asset, asset.code)),
   };
 }
