@@ -10,6 +10,7 @@ import { palmpayConfig } from '../../services/palmpay/palmpay.config';
 import { getCustomerRestrictions, isFeatureFrozen, FEATURE_WITHDRAWAL } from '../../utils/customer.restrictions';
 import { assertPalmpayWithdrawEnabled } from '../../services/admin/platform.operation.settings.service';
 import { toCustomerSafeError } from '../../utils/customerSafeError';
+import { transferReferralToFiatWallet, assertReferralWithdrawAvailable } from '../../services/referral/referral.withdraw.service';
 
 /**
  * Get bank list
@@ -96,7 +97,19 @@ export const initiatePayoutController = async (
     if (isFeatureFrozen(restrictions, FEATURE_WITHDRAWAL)) {
       return next(ApiError.forbidden('Withdrawal is temporarily disabled for your account.'));
     }
-    const { amount, currency = 'NGN', bankCode, accountNumber, accountName, phoneNumber } = req.body;
+    const {
+      amount,
+      currency = 'NGN',
+      bankCode,
+      accountNumber,
+      accountName,
+      phoneNumber,
+      walletSource,
+      withdrawalSource,
+    } = req.body;
+
+    const isReferralSource =
+      String(walletSource || withdrawalSource || '').toLowerCase() === 'referral';
 
     // Validate inputs
     if (!amount || amount <= 0) {
@@ -113,16 +126,31 @@ export const initiatePayoutController = async (
       return next(ApiError.badRequest('Minimum amount is 1.00 NGN'));
     }
 
+    const amountDecimal = parseFloat(amount);
+
     // Get or create wallet
     const wallet = await fiatWalletService.getOrCreateWallet(user.id, currency);
 
-    // Check balance for withdrawal amount (no fees)
-    const amountDecimal = parseFloat(amount);
-    const balance = await fiatWalletService.getBalance(wallet.id);
-    if (!balance || parseFloat(balance.balance) < amountDecimal) {
-      return next(ApiError.badRequest(
-        `Insufficient balance. Required: ${amountDecimal.toFixed(2)} ${currency.toUpperCase()}, Available: ${balance?.balance || '0'} ${currency.toUpperCase()}`
-      ));
+    if (isReferralSource) {
+      if (String(currency).toUpperCase() !== 'NGN') {
+        return next(ApiError.badRequest('Referral withdrawals must be in NGN'));
+      }
+      try {
+        await assertReferralWithdrawAvailable(user.id, amount);
+      } catch (err: any) {
+        if (err instanceof ApiError) {
+          return next(err);
+        }
+        throw err;
+      }
+    } else {
+      // Check fiat balance for normal withdrawals
+      const balance = await fiatWalletService.getBalance(wallet.id);
+      if (!balance || parseFloat(balance.balance) < amountDecimal) {
+        return next(ApiError.badRequest(
+          `Insufficient balance. Required: ${amountDecimal.toFixed(2)} ${currency.toUpperCase()}, Available: ${balance?.balance || '0'} ${currency.toUpperCase()}`
+        ));
+      }
     }
 
     // Check withdrawal limits (daily and monthly) based on KYC tier
@@ -210,6 +238,18 @@ export const initiatePayoutController = async (
       return next(ApiError.internal('Unable to verify withdrawal limits. Please try again or contact support.'));
     }
 
+    // Move referral funds into fiat only after validation so limit failures don't debit referral.
+    if (isReferralSource) {
+      try {
+        await transferReferralToFiatWallet(user.id, amount);
+      } catch (err: any) {
+        if (err instanceof ApiError) {
+          return next(err);
+        }
+        throw err;
+      }
+    }
+
     // Generate unique order ID
     const orderId = `payout_${uuidv4().replace(/-/g, '')}`.substring(0, 32);
 
@@ -225,7 +265,9 @@ export const initiatePayoutController = async (
         amount: parseFloat(amount),
         fees: 0, // No fees
         totalAmount: parseFloat(amount), // Total equals amount (no fees)
-        description: `Withdrawal to ${accountNumber}`,
+        description: isReferralSource
+          ? `Referral withdrawal to ${accountNumber}`
+          : `Withdrawal to ${accountNumber}`,
         palmpayOrderId: orderId,
         payeeName: accountName,
         payeeBankCode: bankCode,

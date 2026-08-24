@@ -3,7 +3,7 @@ import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
-import { getReferralSignupRules } from '../../services/referral/referral.signup.rules';
+import { transferReferralToFiatWallet } from '../../services/referral/referral.withdraw.service';
 
 /**
  * Get referral code for user (= their username)
@@ -227,77 +227,17 @@ export const withdrawReferralController = async (
     }
 
     const { amount } = req.body;
-    const withdrawAmount = new Decimal(amount || 0);
-
-    if (withdrawAmount.lte(0)) {
-      return next(ApiError.badRequest('Withdrawal amount must be greater than 0'));
-    }
-
-    const wallet = await prisma.referralWallet.findUnique({
-      where: { userId },
-    });
-
-    if (!wallet) {
-      return next(ApiError.badRequest('No referral wallet found'));
-    }
-
-    if (new Decimal(wallet.balance.toString()).lt(withdrawAmount)) {
-      return next(ApiError.badRequest('Insufficient referral wallet balance'));
-    }
-
-    // First withdrawal must meet minimum threshold
-    if (!wallet.hasWithdrawn) {
-      const { minFirstWithdrawal: minAmount } = await getReferralSignupRules();
-
-      if (new Decimal(wallet.balance.toString()).lt(minAmount)) {
-        return next(
-          ApiError.badRequest(
-            `First withdrawal requires a minimum balance of ₦${minAmount.toString()}`
-          )
-        );
-      }
-    }
-
-    // Find the user's NGN fiat wallet
-    const fiatWallet = await prisma.fiatWallet.findFirst({
-      where: { userId, currency: 'NGN' },
-    });
-
-    if (!fiatWallet) {
-      return next(ApiError.badRequest('No NGN fiat wallet found'));
-    }
-
-    await prisma.$transaction(async (tx) => {
-      await tx.referralWallet.update({
-        where: { id: wallet.id },
-        data: {
-          balance: { decrement: withdrawAmount },
-          hasWithdrawn: true,
-        },
-      });
-
-      await tx.fiatWallet.update({
-        where: { id: fiatWallet.id },
-        data: { balance: { increment: withdrawAmount } },
-      });
-
-      await tx.referralWithdrawal.create({
-        data: {
-          walletId: wallet.id,
-          userId,
-          amount: withdrawAmount,
-          fiatWalletId: fiatWallet.id,
-          status: 'completed',
-        },
-      });
-    });
+    const result = await transferReferralToFiatWallet(userId, amount);
 
     return new ApiResponse(
       200,
-      { withdrawnAmount: Number(withdrawAmount) },
+      { withdrawnAmount: Number(result.amount) },
       'Withdrawal successful'
     ).send(res);
   } catch (error: any) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
     console.error('Referral withdrawal error:', error);
     return next(ApiError.internal(error.message || 'Withdrawal failed'));
   }
