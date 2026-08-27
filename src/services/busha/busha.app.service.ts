@@ -399,20 +399,7 @@ export async function getAppBushaAssetDetail(userId: number, currency: string) {
     accountBalanceUsd: row.balanceUsd,
     availableBalanceNaira: row.balanceNaira,
     accountBalanceNaira: row.balanceNaira,
-    transactions: trades.map((t: any) => ({
-      id: t.id,
-      transactionId: t.id,
-      transactionType: mapBushaSideToTxType(t.side),
-      type: mapBushaSideToTxType(t.side),
-      cryptocurrencyType: t.side === 'convert' ? `${t.sourceCurrency}→${t.targetCurrency}` : t.sourceCurrency,
-      currency: t.sourceCurrency,
-      amount: t.sourceAmount,
-      amountUsd: t.targetAmount || '0',
-      status: t.status,
-      createdAt: t.createdAt,
-      symbol: getBushaIconPath(t.sourceCurrency) || t.sourceCurrency,
-      iconUrl: getBushaIconPath(t.sourceCurrency),
-    })),
+    transactions: trades.map((t: any) => mapBushaTradeToAssetTx(t)),
     source: 'busha' as const,
   };
 }
@@ -425,6 +412,82 @@ function mapBushaSideToTxType(side: string): string {
   if (s === 'cryptosend' || s === 'send') return 'SEND';
   if (s === 'convert' || s === 'swap') return 'SWAP';
   return s.toUpperCase();
+}
+
+/**
+ * Normalize Busha trade rows for asset detail list.
+ * Never put NGN targetAmount into amountUsd (that caused "$150000" for sell).
+ */
+function mapBushaTradeToAssetTx(t: any) {
+  const side = String(t.side || '').toLowerCase();
+  const source = String(t.sourceCurrency || '').toUpperCase();
+  const target = String(t.targetCurrency || '').toUpperCase();
+  const sourceAmount = String(t.sourceAmount ?? '0');
+  const targetAmount =
+    t.targetAmount != null && t.targetAmount !== '' ? String(t.targetAmount) : undefined;
+  const type = mapBushaSideToTxType(t.side);
+
+  let currency = source;
+  let amount = sourceAmount;
+  let amountNaira: string | undefined;
+  let fromCurrency: string | undefined;
+  let toCurrency: string | undefined;
+  let fromAmount: string | undefined;
+  let toAmount: string | undefined;
+  let cryptocurrencyType = source;
+
+  if (side === 'buy') {
+    // NGN → crypto: show crypto received
+    currency = target || source;
+    amount = targetAmount || sourceAmount;
+    amountNaira = source === 'NGN' ? sourceAmount : undefined;
+    cryptocurrencyType = currency;
+  } else if (side === 'sell') {
+    // crypto → NGN: show crypto sold + NGN received
+    currency = source;
+    amount = sourceAmount;
+    amountNaira = target === 'NGN' ? targetAmount : undefined;
+    cryptocurrencyType = source;
+  } else if (side === 'convert' || side === 'swap') {
+    currency = source;
+    amount = sourceAmount;
+    fromCurrency = source;
+    toCurrency = target;
+    fromAmount = sourceAmount;
+    toAmount = targetAmount;
+    cryptocurrencyType = target ? `${source}→${target}` : source;
+  } else if (side === 'cryptorecv' || side === 'receive') {
+    currency = target || source;
+    amount = targetAmount || sourceAmount;
+    cryptocurrencyType = currency;
+  } else if (side === 'cryptosend' || side === 'send') {
+    currency = source;
+    amount = sourceAmount;
+    cryptocurrencyType = source;
+  }
+
+  const iconCode = currency.includes('→') ? source : currency;
+
+  return {
+    id: t.id,
+    transactionId: t.id,
+    transactionType: type,
+    type,
+    cryptocurrencyType,
+    currency,
+    amount,
+    // Do not invent USD from NGN/crypto units — client prices via CMC
+    amountUsd: null,
+    amountNaira: amountNaira || null,
+    fromCurrency,
+    toCurrency,
+    fromAmount,
+    toAmount,
+    status: t.status,
+    createdAt: t.createdAt,
+    symbol: getBushaIconPath(iconCode) || iconCode,
+    iconUrl: getBushaIconPath(iconCode),
+  };
 }
 
 export async function previewAppBushaConvert(
