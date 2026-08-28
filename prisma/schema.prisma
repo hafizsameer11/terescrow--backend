@@ -16,6 +16,8 @@ model User {
   country              String              @db.VarChar(255)
   profilePicture       String?
   phoneNumber          String              @db.VarChar(20)
+  dateOfBirth          String?             @map("date_of_birth") @db.VarChar(30)
+  residentialAddress   String?             @map("residential_address") @db.VarChar(500)
   password             String              @db.VarChar(255)
   gender               Gender
   role                 UserRoles

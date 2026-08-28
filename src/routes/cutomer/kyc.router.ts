@@ -221,7 +221,7 @@ kycRouter.get('/tier2/status', authenticateUser, getTier2StatusController);
 kycRouter.post(
   '/tier3/submit',
   authenticateUser,
-  upload.fields([{ name: 'selfie', maxCount: 1 }]),
+  upload.fields([{ name: 'proofOfAddress', maxCount: 1 }]),
   submitTier3Controller
 );
 
