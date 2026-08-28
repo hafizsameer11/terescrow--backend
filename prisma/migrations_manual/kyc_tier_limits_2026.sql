@@ -1,10 +1,14 @@
--- Tier 1 profile fields on User (registration)
-ALTER TABLE `User` ADD COLUMN `date_of_birth` VARCHAR(30) NULL,
-    ADD COLUMN `residential_address` VARCHAR(500) NULL;
+-- Tercescrow 3-tier KYC deposit/withdrawal limits (product spec Aug 2026)
+-- Tier 1 = registration (auto on email verify)
+-- Run manually against production DB when deploying.
 
--- Default Terescrow KYC fiat limits (NGN)
-INSERT INTO `KycLimits` (`tier`, `depositDailyLimit`, `depositMonthlyLimit`, `withdrawalDailyLimit`, `withdrawalMonthlyLimit`)
-VALUES
+INSERT INTO `KycLimits` (
+  `tier`,
+  `depositDailyLimit`,
+  `depositMonthlyLimit`,
+  `withdrawalDailyLimit`,
+  `withdrawalMonthlyLimit`
+) VALUES
   ('tier1', '100000', '3000000', '1000000', '30000000'),
   ('tier2', '1000000', '30000000', '5000000', '150000000'),
   ('tier3', '5000000', '150000000', '50000000', '1500000000')

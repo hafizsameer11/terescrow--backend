@@ -55,10 +55,6 @@ const registerCustomerController = async (
       referralCodeInput,
       referralCode: referralCodeFromBody,
       referral_code: referralCodeSnakeCase,
-      dateOfBirth,
-      dob,
-      residentialAddress,
-      address,
     } = req.body;
     console.log(req.body)
     const profilePicture = req.file ? req.file.filename : '';
@@ -149,8 +145,6 @@ const registerCustomerController = async (
         lastname: lastName,
         email,
         phoneNumber,
-        dateOfBirth: String(dateOfBirth || dob || '').trim() || null,
-        residentialAddress: String(residentialAddress || address || '').trim() || null,
         password: hashedPassword,
         username: normalizedUsername,
         gender: gender == 1 ? 'male' : gender == 2 ? 'female' : 'other',

@@ -1,6 +1,5 @@
 import { prisma } from '../../utils/prisma';
 import { KycTier } from '@prisma/client';
-import { ensureKycLimitsDefaults } from './kyc.limits.defaults';
 
 /**
  * KYC Status Service
@@ -11,8 +10,6 @@ class KycStatusService {
    * Get user's KYC status for all tiers
    */
   async getUserKycStatus(userId: number) {
-    await ensureKycLimitsDefaults();
-
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {

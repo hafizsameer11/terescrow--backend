@@ -71,8 +71,8 @@ kycRouter.get('/status', authenticateUser, getKycStatusController);
  *     tags: [V2 - KYC Management]
  *     description: |
  *       **V2 API** - Submit Tier 2 KYC verification.
- *       Requires Tier 1 to be verified first.
- *       Uploads: Selfie image. Passport or drivers license is verified via Prembly (number + face).
+ *       Uploads: Selfie image. Requires Tier 1 (registration) on file.
+ *       Fields: NIN, government ID type/number, selfie.
  *     security:
  *       - bearerAuth: []
  *     consumes:
@@ -84,36 +84,12 @@ kycRouter.get('/status', authenticateUser, getKycStatusController);
  *           schema:
  *             type: object
  *             required:
- *               - firstName
- *               - surName
- *               - dob
- *               - address
- *               - country
  *               - nin
- *               - bvn
  *               - documentType
  *               - documentNumber
  *               - selfie
  *             properties:
- *               firstName:
- *                 type: string
- *                 example: "John"
- *               surName:
- *                 type: string
- *                 example: "Doe"
- *               dob:
- *                 type: string
- *                 example: "1990-01-01"
- *               address:
- *                 type: string
- *                 example: "123 Main Street, Lagos"
- *               country:
- *                 type: string
- *                 example: "Nigeria"
  *               nin:
- *                 type: string
- *                 example: "12345678901"
- *               bvn:
  *                 type: string
  *                 example: "12345678901"
  *               documentType:
@@ -123,10 +99,6 @@ kycRouter.get('/status', authenticateUser, getKycStatusController);
  *               documentNumber:
  *                 type: string
  *                 example: "A12345678"
- *               idDocument:
- *                 type: string
- *                 format: binary
- *                 description: Optional legacy ID document image (not required; Prembly verifies by number + face)
  *               selfie:
  *                 type: string
  *                 format: binary
@@ -182,9 +154,9 @@ kycRouter.get('/tier2/status', authenticateUser, getTier2StatusController);
  *     summary: Submit Tier 3 KYC verification
  *     tags: [V2 - KYC Management]
  *     description: |
- *       **V2 API** - Submit Tier 3 KYC verification (BVN + passport/drivers license).
+ *       **V2 API** - Submit Tier 3 KYC verification (BVN + proof of residence).
  *       Requires Tier 2 to be verified (Busha-approved) first.
- *       Prembly verifies BVN+face and document+face; auto-approves on pass.
+ *       Prembly verifies BVN+face; proof of residence is uploaded for compliance.
  *     security:
  *       - bearerAuth: []
  *     consumes:
@@ -197,17 +169,15 @@ kycRouter.get('/tier2/status', authenticateUser, getTier2StatusController);
  *             type: object
  *             required:
  *               - bvn
- *               - documentType
- *               - documentNumber
+ *               - proofOfAddress
  *             properties:
  *               bvn:
  *                 type: string
  *                 example: "12345678901"
- *               documentType:
+ *               proofOfAddress:
  *                 type: string
- *                 enum: [drivers_license, international_passport]
- *               documentNumber:
- *                 type: string
+ *                 format: binary
+ *                 description: Proof of residence (utility bill, bank statement, etc.)
  *               selfie:
  *                 type: string
  *                 format: binary
@@ -221,7 +191,10 @@ kycRouter.get('/tier2/status', authenticateUser, getTier2StatusController);
 kycRouter.post(
   '/tier3/submit',
   authenticateUser,
-  upload.fields([{ name: 'proofOfAddress', maxCount: 1 }]),
+  upload.fields([
+    { name: 'proofOfAddress', maxCount: 1 },
+    { name: 'selfie', maxCount: 1 },
+  ]),
   submitTier3Controller
 );
 

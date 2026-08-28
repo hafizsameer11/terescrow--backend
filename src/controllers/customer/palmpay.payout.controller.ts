@@ -11,7 +11,6 @@ import { getCustomerRestrictions, isFeatureFrozen, FEATURE_WITHDRAWAL } from '..
 import { assertPalmpayWithdrawEnabled } from '../../services/admin/platform.operation.settings.service';
 import { toCustomerSafeError } from '../../utils/customerSafeError';
 import { transferReferralToFiatWallet, assertReferralWithdrawAvailable } from '../../services/referral/referral.withdraw.service';
-import { getUserFiatLimits } from '../../services/kyc/kyc.limits.defaults';
 
 /**
  * Get bank list
@@ -156,9 +155,20 @@ export const initiatePayoutController = async (
 
     // Check withdrawal limits (daily and monthly) based on KYC tier
     try {
-      const fiatLimits = await getUserFiatLimits(user.id);
-      const DAILY_WITHDRAWAL_LIMIT = fiatLimits.withdrawalDaily;
-      const MONTHLY_WITHDRAWAL_LIMIT = fiatLimits.withdrawalMonthly;
+      // Fetch user with KYC tier information
+      const userWithKyc = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: {
+          id: true,
+          kycTier2Verified: true,
+        },
+      });
+
+      // Set limits based on KYC tier
+      // Tier 2 verified: 3,000 daily / 30,000 monthly
+      // Default (Tier 1 or unverified): 1,000 daily / 10,000 monthly
+      const DAILY_WITHDRAWAL_LIMIT = userWithKyc?.kycTier2Verified ? 3000 : 1000;
+      const MONTHLY_WITHDRAWAL_LIMIT = userWithKyc?.kycTier2Verified ? 30000 : 10000;
       
       const now = new Date();
       

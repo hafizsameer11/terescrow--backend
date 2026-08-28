@@ -7,9 +7,11 @@ import { premblyConfig } from '../../services/prembly/prembly.config';
 import { verifyTier2WithPrembly } from '../../services/prembly/prembly.kyc.service';
 
 /**
- * Submit Tier 2 KYC — Identity verification
- * NIN + liveness selfie + government ID (passport or drivers license).
- * Personal details come from Tier 1 (registration).
+ * Submit Tier 2 KYC Verification
+ * POST /api/v2/kyc/tier2/submit
+ *
+ * Tier 1 = registration (name, phone, email, country on file).
+ * Tier 2 adds: NIN + government ID + liveness selfie.
  */
 export const submitTier2Controller = async (
   req: Request,
@@ -41,43 +43,20 @@ export const submitTier2Controller = async (
         firstname: true,
         lastname: true,
         phoneNumber: true,
-        dateOfBirth: true,
-        residentialAddress: true,
+        email: true,
         country: true,
-        kycTier1Verified: true,
       },
     });
 
-    if (!profile) {
-      return next(ApiError.notFound('User not found'));
-    }
-
-    if (!profile.kycTier1Verified) {
+    if (!profile?.firstname || !profile?.lastname || !profile?.phoneNumber) {
       return next(
-        ApiError.badRequest(
-          'Complete basic verification (registration profile) before upgrading to Tier 2'
-        )
-      );
-    }
-
-    const firstName = String(profile.firstname || '').trim();
-    const surName = String(profile.lastname || '').trim();
-    const dob = String(profile.dateOfBirth || '').trim();
-    const address = String(profile.residentialAddress || '').trim();
-    const country = String(profile.country || 'Nigeria').trim();
-    const phoneClean = String(profile.phoneNumber || '').trim();
-
-    if (!firstName || !surName || !dob || !address || !phoneClean) {
-      return next(
-        ApiError.badRequest(
-          'Your profile is missing required Tier 1 details (name, date of birth, address, phone). Update your registration profile first.'
-        )
+        ApiError.badRequest('Complete your registration profile before Tier 2 verification')
       );
     }
 
     const canUpgrade = await kycStatusService.isTierVerified(user.id, 'tier1');
     if (!canUpgrade) {
-      return next(ApiError.badRequest('You must complete Tier 1 (basic verification) first'));
+      return next(ApiError.badRequest('You must verify Tier 1 first'));
     }
 
     const isTier2Verified = await kycStatusService.isTierVerified(user.id, 'tier2');
@@ -102,10 +81,14 @@ export const submitTier2Controller = async (
     const selfieUrl = selfieFile?.filename ? `uploads/${selfieFile.filename}` : null;
 
     if (!selfieUrl) {
-      return next(ApiError.badRequest('Selfie is required for liveness verification'));
+      return next(ApiError.badRequest('Selfie is required'));
     }
 
     const ninClean = String(nin).replace(/\s+/g, '');
+    const firstName = String(profile.firstname).trim();
+    const lastName = String(profile.lastname).trim();
+    const phoneClean = String(profile.phoneNumber).trim();
+    const country = String(profile.country || 'Nigeria').trim();
 
     let submission = await prisma.kycStateTwo.create({
       data: {
@@ -113,13 +96,11 @@ export const submitTier2Controller = async (
         tier: 'tier2',
         nin: ninClean,
         firtName: firstName,
-        surName,
-        dob,
-        address,
+        surName: lastName,
         country,
+        premblyPhone: phoneClean,
         documentType: String(documentType),
         documentNumber: String(documentNumber).trim(),
-        premblyPhone: phoneClean,
         selfieUrl,
         status: 'tier2',
         state: 'pending',
@@ -156,8 +137,7 @@ export const submitTier2Controller = async (
             : 'Prembly disabled — awaiting Busha KYC',
           premblyVerified: true,
           premblyVerifiedFirstName: firstName,
-          premblyVerifiedLastName: surName,
-          premblyVerifiedDob: dob,
+          premblyVerifiedLastName: lastName,
           premblyPhone: phoneClean,
         },
       });
@@ -175,7 +155,7 @@ export const submitTier2Controller = async (
             premblyEnabled: premblyConfig.isEnabled(),
             bushaSyncQueued: true,
             message:
-              'Identity verification is under review. You can trade after approval.',
+              'KYC is under review. You can trade after verification is approved.',
           },
           'Tier 2 submitted — awaiting Busha KYC'
         )
@@ -186,8 +166,7 @@ export const submitTier2Controller = async (
     try {
       premblyResult = await verifyTier2WithPrembly({
         firstName,
-        lastName: surName,
-        dob,
+        lastName: lastName,
         nin: ninClean,
         phone: phoneClean,
         documentType: documentType as 'drivers_license' | 'international_passport',
@@ -237,7 +216,7 @@ export const submitTier2Controller = async (
         firtName: verified.firstName,
         surName: verified.lastName,
         dob: verified.birthDate,
-        address: verified.residentialAddress || address,
+        address: verified.residentialAddress || submission.address,
         premblyVerified: true,
         premblyReference: premblyResult.reference,
         premblyNinConfidence: premblyResult.ninConfidence,
@@ -278,7 +257,7 @@ export const submitTier2Controller = async (
             dob: verified.birthDate,
           },
           bushaSyncQueued: true,
-          message: 'Identity verification is under review. You can trade after approval.',
+          message: 'KYC is under review. You can trade after verification is approved.',
         },
         'Identity verified by Prembly — awaiting Busha KYC'
       )

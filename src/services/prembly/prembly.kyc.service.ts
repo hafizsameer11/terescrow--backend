@@ -9,7 +9,7 @@ export type PremblyDocumentType = 'drivers_license' | 'international_passport';
 export type PremblyTier2Input = {
   firstName: string;
   lastName: string;
-  dob: string;
+  dob?: string;
   nin: string;
   phone?: string | null;
   documentType: PremblyDocumentType;
@@ -220,28 +220,6 @@ export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<
     failureReasons.push(`NIN face: ${ninFaceResult.message}`);
   }
 
-  const docLabel = input.documentType === 'international_passport' ? 'Passport' : 'Drivers license';
-  let docFace: PremblyEnvelope | undefined;
-  let docFaceResult: { ok: boolean; confidence: number | null; message?: string } = {
-    ok: false,
-    confidence: null,
-    message: 'Document face not run',
-  };
-  try {
-    const docNumber = input.documentNumber.trim();
-    if (input.documentType === 'international_passport') {
-      docFace = await premblyClient.verifyPassportWithFace(input.lastName, docNumber, selfieBase64);
-    } else {
-      docFace = await premblyClient.verifyDriversLicenseWithFace(docNumber, input.dob, selfieBase64);
-    }
-    docFaceResult = facePassed(docFace, minConfidence);
-    if (!docFaceResult.ok) {
-      failureReasons.push(`${docLabel} face: ${docFaceResult.message}`);
-    }
-  } catch (error: any) {
-    failureReasons.push(`${docLabel} face: ${error?.message || 'Document verification failed'}`);
-  }
-
   const ninPayload = pickNinPayload(ninFace);
 
   const officialFirst =
@@ -250,7 +228,10 @@ export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<
     ninPayload.surname || ninPayload.lastName || ninPayload.last_name || input.lastName;
   const officialDob =
     normalizePremblyDob(
-      ninPayload.birthdate || ninPayload.birthDate || ninPayload.dateOfBirth || input.dob
+      ninPayload.birthdate ||
+        ninPayload.birthDate ||
+        ninPayload.dateOfBirth ||
+        input.dob
     ) || input.dob;
 
   if (ninFaceResult.ok) {
@@ -264,11 +245,45 @@ export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<
         `Last name "${input.lastName}" does not match NIN record "${officialLast}"`
       );
     }
-    if (!dobsMatch(input.dob, officialDob)) {
+    if (input.dob && !dobsMatch(input.dob, officialDob)) {
       failureReasons.push(
         `Date of birth "${input.dob}" does not match NIN record "${officialDob}"`
       );
     }
+  }
+
+  let docFace: PremblyEnvelope | undefined;
+  let docFaceResult: { ok: boolean; confidence: number | null; message?: string } = {
+    ok: false,
+    confidence: null,
+    message: 'Document face not run',
+  };
+  const docLabel = input.documentType === 'international_passport' ? 'Passport' : 'Drivers license';
+  if (ninFaceResult.ok && officialDob) {
+    try {
+      const docNumber = input.documentNumber.trim();
+      if (input.documentType === 'international_passport') {
+        docFace = await premblyClient.verifyPassportWithFace(
+          String(officialLast).trim(),
+          docNumber,
+          selfieBase64
+        );
+      } else {
+        docFace = await premblyClient.verifyDriversLicenseWithFace(
+          docNumber,
+          officialDob,
+          selfieBase64
+        );
+      }
+      docFaceResult = facePassed(docFace, minConfidence);
+      if (!docFaceResult.ok) {
+        failureReasons.push(`${docLabel} face: ${docFaceResult.message}`);
+      }
+    } catch (error: any) {
+      failureReasons.push(`${docLabel} face: ${error?.message || 'Document verification failed'}`);
+    }
+  } else if (!officialDob) {
+    failureReasons.push('Could not resolve date of birth from NIN for document verification');
   }
 
   const nameOk = !failureReasons.some((r) => r.startsWith('First name') || r.startsWith('Last name'));
@@ -280,7 +295,7 @@ export async function verifyTier2WithPrembly(input: PremblyTier2Input): Promise<
         firstName: String(officialFirst).trim(),
         lastName: String(officialLast).trim(),
         middleName: ninPayload.middlename || ninPayload.middleName || null,
-        birthDate: officialDob,
+        birthDate: officialDob || input.dob || '',
         phone:
           input.phone ||
           ninPayload.telephoneno ||
@@ -341,13 +356,9 @@ export async function verifyTier3WithPrembly(input: PremblyTier3Input): Promise<
   const bvnPayload = bvnFace ? pickBvnPayload(bvnFace) : {};
 
   const officialFirst =
-    bvnPayload.firstName ||
-    bvnPayload.first_name ||
-    input.firstName;
+    bvnPayload.firstName || bvnPayload.first_name || input.firstName;
   const officialLast =
-    bvnPayload.lastName ||
-    bvnPayload.last_name ||
-    input.lastName;
+    bvnPayload.lastName || bvnPayload.last_name || input.lastName;
   const officialDob =
     normalizePremblyDob(
       bvnPayload.dateOfBirth || bvnPayload.birthdate || input.dob
@@ -364,14 +375,11 @@ export async function verifyTier3WithPrembly(input: PremblyTier3Input): Promise<
         `Last name "${input.lastName}" does not match BVN record "${officialLast}"`
       );
     }
-  }
-
-  const submittedDob = normalizePremblyDob(input.dob);
-  const registryDob = normalizePremblyDob(bvnPayload.dateOfBirth || bvnPayload.birthdate);
-  if (submittedDob && registryDob && submittedDob !== registryDob) {
-    failureReasons.push(
-      `Date of birth "${input.dob}" does not match BVN record "${registryDob}"`
-    );
+    if (!dobsMatch(input.dob, officialDob)) {
+      failureReasons.push(
+        `Date of birth does not match BVN record "${officialDob}"`
+      );
+    }
   }
 
   const nameOk = !failureReasons.some((r) => r.startsWith('First name') || r.startsWith('Last name'));

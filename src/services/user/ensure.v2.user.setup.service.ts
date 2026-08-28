@@ -46,23 +46,14 @@ export async function ensureV2UserSetup(userId: number): Promise<V2SetupStatus> 
   const status: V2SetupStatus = { ...DEFAULT_SETUP_STATUS };
 
   if (!user.kycTier1Verified) {
-    const profile = await prisma.user.findUnique({
+    await prisma.user.update({
       where: { id: userId },
-      select: { dateOfBirth: true, residentialAddress: true },
+      data: {
+        kycTier1Verified: true,
+        currentKycTier: 'tier1',
+      },
     });
-    const tier1Complete =
-      !!profile?.dateOfBirth?.trim() && !!profile?.residentialAddress?.trim();
-
-    if (tier1Complete) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          kycTier1Verified: true,
-          currentKycTier: 'tier1',
-        },
-      });
-      status.tier1Applied = true;
-    }
+    status.tier1Applied = true;
   }
 
   if (!user.referralCode && user.username) {
