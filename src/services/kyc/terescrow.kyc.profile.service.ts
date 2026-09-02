@@ -236,6 +236,9 @@ export async function markTier2ApprovedAfterBusha(userId: number): Promise<void>
       currentKycTier: 'tier2',
     },
   });
+
+  const { notifyUserKycApproved } = await import('./kyc.notification.service');
+  notifyUserKycApproved(userId, 'tier2').catch(console.error);
 }
 
 /** Split a free-text address into Busha address fields (best-effort). */

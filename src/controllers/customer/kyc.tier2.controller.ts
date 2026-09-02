@@ -3,15 +3,13 @@ import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { prisma } from '../../utils/prisma';
 import { kycStatusService } from '../../services/kyc/kyc.status.service';
-import { premblyConfig } from '../../services/prembly/prembly.config';
-import { verifyTier2WithPrembly } from '../../services/prembly/prembly.kyc.service';
+import { enqueueTier2PremblyProcessing } from '../../services/kyc/kyc.tier2.process.service';
+import { notifyUserKycSubmitted } from '../../services/kyc/kyc.notification.service';
 
 /**
- * Submit Tier 2 KYC Verification
- * POST /api/v2/kyc/tier2/submit
- *
- * Tier 1 = registration (name, phone, email, country on file).
- * Tier 2 adds: NIN + government ID + liveness selfie.
+ * Submit Tier 2 KYC — async flow.
+ * User submits name, DOB, NIN, selfie → immediate "submitted" response.
+ * Prembly runs in background; Busha only after Prembly pass.
  */
 export const submitTier2Controller = async (
   req: Request,
@@ -25,220 +23,66 @@ export const submitTier2Controller = async (
       return next(ApiError.unauthorized('User not authenticated'));
     }
 
-    const { nin, documentType, documentNumber } = req.body;
+    const { firstName, surName, dob, nin } = req.body;
 
-    if (!nin || !documentType || !documentNumber) {
-      return next(ApiError.badRequest('NIN, document type, and document number are required'));
-    }
-
-    if (documentType !== 'drivers_license' && documentType !== 'international_passport') {
-      return next(
-        ApiError.badRequest('Document type must be drivers_license or international_passport')
-      );
-    }
-
-    const profile = await prisma.user.findUnique({
-      where: { id: user.id },
-      select: {
-        firstname: true,
-        lastname: true,
-        phoneNumber: true,
-        email: true,
-        country: true,
-      },
-    });
-
-    if (!profile?.firstname || !profile?.lastname || !profile?.phoneNumber) {
-      return next(
-        ApiError.badRequest('Complete your registration profile before Tier 2 verification')
-      );
+    if (!firstName || !surName || !dob || !nin) {
+      return next(ApiError.badRequest('Full name, date of birth, and NIN are required'));
     }
 
     const canUpgrade = await kycStatusService.isTierVerified(user.id, 'tier1');
     if (!canUpgrade) {
-      return next(ApiError.badRequest('You must verify Tier 1 first'));
+      return next(ApiError.badRequest('Complete registration first'));
     }
 
-    const isTier2Verified = await kycStatusService.isTierVerified(user.id, 'tier2');
-    if (isTier2Verified) {
+    if (await kycStatusService.isTierVerified(user.id, 'tier2')) {
       return next(ApiError.badRequest('Tier 2 is already verified'));
     }
 
     const pendingSubmission = await prisma.kycStateTwo.findFirst({
-      where: {
-        userId: user.id,
-        tier: 'tier2',
-        state: 'pending',
-      },
+      where: { userId: user.id, tier: 'tier2', state: 'pending' },
     });
-
     if (pendingSubmission) {
-      return next(ApiError.badRequest('You already have a pending Tier 2 submission'));
+      return next(ApiError.badRequest('Your Tier 2 verification is already being processed'));
     }
 
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
     const selfieFile = files?.['selfie']?.[0];
     const selfieUrl = selfieFile?.filename ? `uploads/${selfieFile.filename}` : null;
-
     if (!selfieUrl) {
       return next(ApiError.badRequest('Selfie is required'));
     }
 
-    const ninClean = String(nin).replace(/\s+/g, '');
-    const firstName = String(profile.firstname).trim();
-    const lastName = String(profile.lastname).trim();
-    const phoneClean = String(profile.phoneNumber).trim();
-    const country = String(profile.country || 'Nigeria').trim();
+    const profile = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { phoneNumber: true, country: true },
+    });
 
-    let submission = await prisma.kycStateTwo.create({
+    const ninClean = String(nin).replace(/\s+/g, '');
+    const first = String(firstName).trim();
+    const last = String(surName).trim();
+    const dobClean = String(dob).trim();
+    const phoneClean = String(profile?.phoneNumber || user.phoneNumber || '').trim();
+
+    const submission = await prisma.kycStateTwo.create({
       data: {
         userId: user.id,
         tier: 'tier2',
         nin: ninClean,
-        firtName: firstName,
-        surName: lastName,
-        country,
-        premblyPhone: phoneClean,
-        documentType: String(documentType),
-        documentNumber: String(documentNumber).trim(),
+        firtName: first,
+        surName: last,
+        dob: dobClean,
+        country: String(profile?.country || user.country || 'Nigeria').trim(),
+        premblyPhone: phoneClean || null,
         selfieUrl,
         status: 'tier2',
         state: 'pending',
+        premblyVerified: false,
+        reason: 'Submitted — awaiting verification',
       },
     });
 
-    const queueBusha = () => {
-      setImmediate(() => {
-        (async () => {
-          try {
-            const { getBushaConfigRow } = await import('../../services/busha/busha.trade.service');
-            const { bushaConfig } = await import('../../services/busha/busha.config');
-            const settings = await getBushaConfigRow();
-            if (bushaConfig.isConfigured() && settings?.isActive) {
-              const { startBushaKycFromTerescrowProfile } = await import(
-                '../../services/busha/busha.kyc.service'
-              );
-              await startBushaKycFromTerescrowProfile(user.id);
-            }
-          } catch (err: any) {
-            console.warn('[KYC→Busha] auto sync skipped/failed:', err?.message || err);
-          }
-        })();
-      });
-    };
-
-    if (!premblyConfig.isEnabled() || !premblyConfig.isConfigured()) {
-      submission = await prisma.kycStateTwo.update({
-        where: { id: submission.id },
-        data: {
-          state: 'pending',
-          reason: premblyConfig.isEnabled()
-            ? 'Prembly keys missing — awaiting Busha KYC'
-            : 'Prembly disabled — awaiting Busha KYC',
-          premblyVerified: true,
-          premblyVerifiedFirstName: firstName,
-          premblyVerifiedLastName: lastName,
-          premblyPhone: phoneClean,
-        },
-      });
-
-      queueBusha();
-
-      return res.status(200).json(
-        new ApiResponse(
-          200,
-          {
-            submissionId: submission.id,
-            tier: 'tier2',
-            status: 'in_review',
-            premblyConfigured: false,
-            premblyEnabled: premblyConfig.isEnabled(),
-            bushaSyncQueued: true,
-            message:
-              'KYC is under review. You can trade after verification is approved.',
-          },
-          'Tier 2 submitted — awaiting Busha KYC'
-        )
-      );
-    }
-
-    let premblyResult;
-    try {
-      premblyResult = await verifyTier2WithPrembly({
-        firstName,
-        lastName: lastName,
-        nin: ninClean,
-        phone: phoneClean,
-        documentType: documentType as 'drivers_license' | 'international_passport',
-        documentNumber: String(documentNumber).trim(),
-        selfieRelativePath: selfieUrl,
-      });
-    } catch (error: any) {
-      submission = await prisma.kycStateTwo.update({
-        where: { id: submission.id },
-        data: {
-          state: 'rejected',
-          reason: error?.message || 'Prembly verification failed',
-          premblyVerified: false,
-          premblyPayload: { error: error?.message || 'Prembly error', data: error?.data } as any,
-        },
-      });
-      return next(
-        ApiError.badRequest(
-          error?.message || 'Identity verification failed. Please retry with a clear selfie.'
-        )
-      );
-    }
-
-    if (!premblyResult.passed) {
-      const reason = premblyResult.failureReasons.join('; ') || 'Identity verification failed';
-      submission = await prisma.kycStateTwo.update({
-        where: { id: submission.id },
-        data: {
-          state: 'rejected',
-          reason,
-          premblyVerified: false,
-          premblyReference: premblyResult.reference,
-          premblyNinConfidence: premblyResult.ninConfidence,
-          premblyPayload: premblyResult.raw as any,
-        },
-      });
-      return next(ApiError.badRequest(reason));
-    }
-
-    const verified = premblyResult.verified!;
-
-    submission = await prisma.kycStateTwo.update({
-      where: { id: submission.id },
-      data: {
-        state: 'pending',
-        reason: 'Prembly passed; awaiting Busha KYC approval',
-        firtName: verified.firstName,
-        surName: verified.lastName,
-        dob: verified.birthDate,
-        address: verified.residentialAddress || submission.address,
-        premblyVerified: true,
-        premblyReference: premblyResult.reference,
-        premblyNinConfidence: premblyResult.ninConfidence,
-        premblyVerifiedFirstName: verified.firstName,
-        premblyVerifiedLastName: verified.lastName,
-        premblyVerifiedDob: verified.birthDate,
-        premblyPhone: verified.phone || phoneClean,
-        premblyGender: verified.gender || null,
-        premblyPayload: premblyResult.raw as any,
-      },
-    });
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        firstname: verified.firstName,
-        lastname: verified.lastName,
-        phoneNumber: verified.phone || phoneClean,
-      },
-    });
-
-    queueBusha();
+    enqueueTier2PremblyProcessing(submission.id);
+    notifyUserKycSubmitted(user.id, 'tier2').catch(console.error);
 
     return res.status(200).json(
       new ApiResponse(
@@ -246,20 +90,11 @@ export const submitTier2Controller = async (
         {
           submissionId: submission.id,
           tier: 'tier2',
-          status: 'in_review',
-          premblyVerified: true,
-          premblyReference: premblyResult.reference,
-          ninFaceConfidence: premblyResult.ninConfidence,
-          docFaceConfidence: premblyResult.docConfidence,
-          verifiedIdentity: {
-            firstName: verified.firstName,
-            lastName: verified.lastName,
-            dob: verified.birthDate,
-          },
-          bushaSyncQueued: true,
-          message: 'KYC is under review. You can trade after verification is approved.',
+          status: 'submitted',
+          message:
+            'Verification submitted successfully. We will notify you when review is complete.',
         },
-        'Identity verified by Prembly — awaiting Busha KYC'
+        'Tier 2 KYC submitted'
       )
     );
   } catch (error: any) {
@@ -268,10 +103,6 @@ export const submitTier2Controller = async (
   }
 };
 
-/**
- * Get Tier 2 submission status
- * GET /api/v2/kyc/tier2/status
- */
 export const getTier2StatusController = async (
   req: Request,
   res: Response,
@@ -281,10 +112,7 @@ export const getTier2StatusController = async (
     const user = req.body._user;
 
     const submission = await prisma.kycStateTwo.findFirst({
-      where: {
-        userId: user.id,
-        tier: 'tier2',
-      },
+      where: { userId: user.id, tier: 'tier2' },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -292,20 +120,16 @@ export const getTier2StatusController = async (
       return res.status(200).json(
         new ApiResponse(
           200,
-          {
-            tier: 'tier2',
-            status: 'unverified',
-            submission: null,
-          },
+          { tier: 'tier2', status: 'unverified', submission: null },
           'No Tier 2 submission found'
         )
       );
     }
 
-    const displayStatus =
-      submission.state === 'pending' && (submission as any).premblyVerified
-        ? 'in_review'
-        : submission.state;
+    let displayStatus = submission.state;
+    if (submission.state === 'pending') {
+      displayStatus = (submission as any).premblyVerified ? 'in_review' : 'submitted';
+    }
 
     return res.status(200).json(
       new ApiResponse(

@@ -30,22 +30,18 @@ class KycStatusService {
       orderBy: { tier: 'asc' },
     });
 
-    // Get pending submissions for each tier
-    const pendingSubmissions = await prisma.kycStateTwo.findMany({
-      where: {
-        userId,
-        state: 'pending',
-      },
+    // Latest submission per tier (for pending / rejected display)
+    const latestSubmissions = await prisma.kycStateTwo.findMany({
+      where: { userId },
       orderBy: { createdAt: 'desc' },
     });
 
-    // Build tier status array (product uses 3 tiers; tier4 kept in DB but omitted from hub)
     const tiers = ['tier1', 'tier2', 'tier3'] as KycTier[];
     const tierStatuses = tiers.map((tier) => {
       const limit = limits.find((l) => l.tier === tier);
-      const pendingSubmission = pendingSubmissions.find((s) => s.tier === tier);
+      const latest = latestSubmissions.find((s) => s.tier === tier);
 
-      let status: 'verified' | 'pending' | 'unverified' = 'unverified';
+      let status: 'verified' | 'pending' | 'in_review' | 'rejected' | 'unverified' = 'unverified';
       if (tier === 'tier1' && user.kycTier1Verified) {
         status = 'verified';
       } else if (tier === 'tier2' && user.kycTier2Verified) {
@@ -54,13 +50,23 @@ class KycStatusService {
         status = 'verified';
       } else if (tier === 'tier4' && user.kycTier4Verified) {
         status = 'verified';
-      } else if (pendingSubmission) {
-        status = 'pending';
+      } else if (latest?.state === 'rejected') {
+        status = 'rejected';
+      } else if (latest?.state === 'pending') {
+        status = (latest as any).premblyVerified && tier === 'tier2' ? 'in_review' : 'pending';
       }
+
+      const canUpgrade =
+        tier === 'tier2'
+          ? user.kycTier1Verified && !user.kycTier2Verified && latest?.state !== 'pending'
+          : tier === 'tier3'
+            ? user.kycTier2Verified && !user.kycTier3Verified && latest?.state !== 'pending'
+            : this.canUpgradeToTier(user, tier);
 
       return {
         tier,
         status,
+        rejectionReason: latest?.state === 'rejected' ? latest.reason : null,
         limits: {
           deposit: {
             daily: limit?.depositDailyLimit || '0',
@@ -71,7 +77,7 @@ class KycStatusService {
             monthly: limit?.withdrawalMonthlyLimit || '0',
           },
         },
-        canUpgrade: this.canUpgradeToTier(user, tier),
+        canUpgrade,
       };
     });
 

@@ -71,8 +71,7 @@ kycRouter.get('/status', authenticateUser, getKycStatusController);
  *     tags: [V2 - KYC Management]
  *     description: |
  *       **V2 API** - Submit Tier 2 KYC verification.
- *       Uploads: Selfie image. Requires Tier 1 (registration) on file.
- *       Fields: NIN, government ID type/number, selfie.
+ *       Fields: firstName, surName, dob, nin, selfie. Processed asynchronously.
  *     security:
  *       - bearerAuth: []
  *     consumes:
@@ -84,21 +83,22 @@ kycRouter.get('/status', authenticateUser, getKycStatusController);
  *           schema:
  *             type: object
  *             required:
+ *               - firstName
+ *               - surName
+ *               - dob
  *               - nin
- *               - documentType
- *               - documentNumber
  *               - selfie
  *             properties:
+ *               firstName:
+ *                 type: string
+ *               surName:
+ *                 type: string
+ *               dob:
+ *                 type: string
+ *                 example: "1990-01-01"
  *               nin:
  *                 type: string
  *                 example: "12345678901"
- *               documentType:
- *                 type: string
- *                 enum: [drivers_license, international_passport]
- *                 example: "international_passport"
- *               documentNumber:
- *                 type: string
- *                 example: "A12345678"
  *               selfie:
  *                 type: string
  *                 format: binary
@@ -154,9 +154,7 @@ kycRouter.get('/tier2/status', authenticateUser, getTier2StatusController);
  *     summary: Submit Tier 3 KYC verification
  *     tags: [V2 - KYC Management]
  *     description: |
- *       **V2 API** - Submit Tier 3 KYC verification (BVN + proof of residence).
- *       Requires Tier 2 to be verified (Busha-approved) first.
- *       Prembly verifies BVN+face; proof of residence is uploaded for compliance.
+ *       **V2 API** - Submit Tier 3 KYC (BVN + proof of residence). Saved for manual review.
  *     security:
  *       - bearerAuth: []
  *     consumes:
