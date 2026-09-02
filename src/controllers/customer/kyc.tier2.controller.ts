@@ -5,7 +5,6 @@ import { prisma } from '../../utils/prisma';
 import { kycStatusService } from '../../services/kyc/kyc.status.service';
 import { enqueueTier2PremblyProcessing } from '../../services/kyc/kyc.tier2.process.service';
 import { notifyUserKycSubmitted } from '../../services/kyc/kyc.notification.service';
-import { splitFullName } from '../../utils/splitFullName';
 
 /**
  * Submit Tier 2 KYC — async flow.
@@ -24,25 +23,14 @@ export const submitTier2Controller = async (
       return next(ApiError.unauthorized('User not authenticated'));
     }
 
-    const { fullName, firstName, surName, dob, nin } = req.body;
+    const { firstName, surName, dob, nin } = req.body;
 
-    let first: string;
-    let last: string;
-
-    if (fullName && String(fullName).trim()) {
-      const split = splitFullName(String(fullName));
-      first = split.firstName;
-      last = split.lastName;
-    } else if (firstName && surName) {
-      first = String(firstName).trim();
-      last = String(surName).trim();
-    } else {
-      return next(ApiError.badRequest('Full name, date of birth, and NIN are required'));
+    if (!firstName || !surName || !dob || !nin) {
+      return next(ApiError.badRequest('First name, last name, date of birth, and NIN are required'));
     }
 
-    if (!first || !last || !dob || !nin) {
-      return next(ApiError.badRequest('Full name, date of birth, and NIN are required'));
-    }
+    const first = String(firstName).trim();
+    const last = String(surName).trim();
 
     const canUpgrade = await kycStatusService.isTierVerified(user.id, 'tier1');
     if (!canUpgrade) {

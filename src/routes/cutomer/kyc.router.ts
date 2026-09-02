@@ -83,14 +83,16 @@ kycRouter.get('/status', authenticateUser, getKycStatusController);
  *           schema:
  *             type: object
  *             required:
- *               - fullName
+ *               - firstName
+ *               - surName
  *               - dob
  *               - nin
  *               - selfie
  *             properties:
- *               fullName:
+ *               firstName:
  *                 type: string
- *                 example: "John Doe"
+ *               surName:
+ *                 type: string
  *               dob:
  *                 type: string
  *                 example: "1990-01-01"
