@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../../utils/prisma';
 import { settleBushaTradeIfNeeded } from '../../services/busha/busha.settlement.service';
 import { BUSHA_COMPLETED_STATUSES } from '../../services/busha/busha.trade.service';
+import { recordBushaExternalDepositFromWebhook } from '../../services/busha/busha.deposit.webhook.service';
 
 const bushaCustomerModel = (prisma as any).bushaCustomer;
 const bushaTradeLogModel = (prisma as any).bushaTradeLog;
@@ -171,10 +172,29 @@ async function handleTransferLikeEvent(event: string, data: any, rawBody: any) {
 }
 
 async function handleDepositEvent(event: string, data: any, rawBody: any) {
-  // deposit.success often mirrors a transfer — try transfer id fields
-  const transferId = data.transfer_id || data.id || data.reference;
-  if (transferId) {
-    await handleTransferLikeEvent(event, { ...data, id: transferId, status: data.status || 'funds_received' }, rawBody);
+  // Prefer linking to an existing quote/transfer receive (TRF_*) when Busha sends transfer_id
+  const candidates = [data.transfer_id, data.id, data.reference].filter(Boolean);
+  for (const transferId of candidates) {
+    const trade = await bushaTradeLogModel.findFirst({
+      where: { bushaTransferId: String(transferId) },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (trade) {
+      await handleTransferLikeEvent(
+        event,
+        { ...data, id: transferId, status: data.status || 'funds_received' },
+        rawBody
+      );
+      return;
+    }
+  }
+
+  // Static-address / external-wallet deposits: no pre-created trade log — create RECEIVE history
+  const result = await recordBushaExternalDepositFromWebhook(event, data, rawBody);
+  if (!result.created && result.reason && result.reason !== 'already_recorded' && result.reason !== 'not_success') {
+    console.warn(
+      `[Busha webhook] deposit not recorded event=${event} id=${data?.id || '-'} reason=${result.reason}`
+    );
   }
 }
 
