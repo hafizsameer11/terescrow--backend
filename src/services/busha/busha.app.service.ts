@@ -125,7 +125,7 @@ export async function ensureBushaCustomerForUser(userId: number) {
   }
 
   throw ApiError.badRequest(
-    'Complete Busha crypto KYC first (legal name, date of birth, NIN, and selfie) before using crypto.'
+    'Complete identity verification first (legal name, date of birth, NIN, and selfie) before using crypto.'
   );
 }
 
@@ -194,19 +194,19 @@ export async function verifyAppBushaKyc(
 
 async function assertCustomerTradeReady(customerId: string, needPayout = false) {
   const customer = await bushaCustomerModel.findUnique({ where: { id: customerId } });
-  if (!customer) throw ApiError.notFound('Busha customer not found');
+  if (!customer) throw ApiError.notFound('Crypto account not found');
   const status = String(customer.status || '').toLowerCase();
   if (status !== 'active' && status !== 'in_review') {
     // still allow in_review for some ops? Plan says gate until active
   }
   if (status !== 'active') {
     throw ApiError.badRequest(
-      `Busha profile is "${customer.status}". Complete KYC and wait until status is active before trading.`
+      'Complete KYC and wait until your profile is active before using crypto.'
     );
   }
   const remote = (customer.providerData || {}) as any;
   if (needPayout && remote.payout === false) {
-    throw ApiError.badRequest('Busha payout is not enabled on this profile yet.');
+    throw ApiError.badRequest('Payout is not enabled on this profile yet.');
   }
   if (remote.deposit === false && needPayout === false) {
     // deposit flag mainly for receive
@@ -565,7 +565,7 @@ export async function executeAppBushaConvert(
 
   const preview = await previewAppBushaConvert(userId, params);
   if (!preview.hasSufficientBalance) {
-    throw ApiError.badRequest('Insufficient Busha balance for this convert');
+    throw ApiError.badRequest('Insufficient balance for this convert');
   }
 
   const trade = await executeBushaConvert({

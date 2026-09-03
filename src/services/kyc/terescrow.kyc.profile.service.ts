@@ -223,7 +223,7 @@ export async function markTier2ApprovedAfterBusha(userId: number): Promise<void>
     where: { id: submission.id },
     data: {
       state: 'approved',
-      reason: 'Verified via Prembly; Busha KYC approved',
+      reason: 'Verified — crypto KYC approved',
     },
   });
 

@@ -1590,7 +1590,7 @@ export async function getBushaCustomerDepositAddress(
 
   if (!match?.address) {
     throw ApiError.notFound(
-      `No Busha deposit address for ${code} on ${resolvedNetwork}.`
+      `No deposit address for ${code} on ${resolvedNetwork}.`
     );
   }
 

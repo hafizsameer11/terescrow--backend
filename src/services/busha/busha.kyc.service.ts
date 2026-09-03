@@ -478,7 +478,7 @@ export async function processBushaKycApplication(applicationId: string) {
         where: { userId: app.userId, tier: 'tier2', state: 'pending', premblyVerified: true },
         data: {
           state: 'rejected',
-          reason: 'Busha KYC rejected',
+          reason: 'Identity verification was declined',
         },
       });
     }
@@ -487,7 +487,7 @@ export async function processBushaKycApplication(applicationId: string) {
 
     return getBushaKycStatusForUser(app.userId);
   } catch (error: any) {
-    const message = error?.message || 'Busha KYC processing failed';
+    const message = error?.message || 'Identity verification processing failed';
     await bushaKycApplicationModel.update({
       where: { id: applicationId },
       data: {
@@ -530,11 +530,11 @@ async function syncSubmittedBushaKycStatus(limit = 10) {
       } else if (status === 'rejected') {
         await bushaKycApplicationModel.update({
           where: { id: app.id },
-          data: { status: 'rejected', errorMessage: 'Busha KYC rejected' },
+          data: { status: 'rejected', errorMessage: 'Identity verification was declined' },
         });
         await prisma.kycStateTwo.updateMany({
           where: { userId: app.userId, tier: 'tier2', state: 'pending', premblyVerified: true },
-          data: { state: 'rejected', reason: 'Busha KYC rejected' },
+          data: { state: 'rejected', reason: 'Identity verification was declined' },
         });
       }
     } catch (err: any) {

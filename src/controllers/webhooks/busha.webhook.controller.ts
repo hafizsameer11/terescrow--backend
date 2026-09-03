@@ -123,7 +123,7 @@ async function handleCustomerEvent(event: string, data: any) {
       if (appStatus) {
         await bushaKycApplicationModel.updateMany({
           where: { userId: customer.userId },
-          data: { status: appStatus, errorMessage: status === 'rejected' ? 'Rejected by Busha' : null },
+          data: { status: appStatus, errorMessage: status === 'rejected' ? 'Verification was declined' : null },
         });
       }
     }

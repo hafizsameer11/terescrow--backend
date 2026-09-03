@@ -252,14 +252,14 @@ class BushaClient {
       });
       const status = String(response.data?.status || '').toLowerCase();
       if (status !== 'success') {
-        throw ApiError.badRequest(response.data?.message || 'Busha API returned an unexpected response');
+        throw ApiError.badRequest(response.data?.message || 'Request returned an unexpected response');
       }
       // Some endpoints (e.g. POST /v1/addresses/regenerate) return success with no `data`.
       if (response.data.data === undefined || response.data.data === null) {
         if (options?.allowEmptyData) {
           return undefined as T;
         }
-        throw ApiError.badRequest(response.data?.message || 'Busha API returned an unexpected response');
+        throw ApiError.badRequest(response.data?.message || 'Request returned an unexpected response');
       }
       return response.data.data;
     } catch (error) {
@@ -280,7 +280,7 @@ class BushaClient {
           data?.message ||
           (typeof data?.error === 'string' ? data.error : null) ||
           error.message ||
-          'Busha API request failed';
+          'Request failed';
         const message =
           /request validation/i.test(String(rawMessage)) && detailFromData
             ? detailFromData
@@ -298,7 +298,7 @@ class BushaClient {
       if (error instanceof Error) {
         throw ApiError.badRequest(error.message);
       }
-      throw ApiError.internal('Busha API request failed');
+      throw ApiError.internal('Request failed');
     }
   }
 

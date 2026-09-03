@@ -40,9 +40,7 @@ export async function processTier2PremblySubmission(submissionId: number): Promi
       where: { id: submissionId },
       data: {
         premblyVerified: true,
-        reason: premblyConfig.isEnabled()
-          ? 'Prembly keys missing — queued for Busha KYC'
-          : 'Prembly disabled — queued for Busha KYC',
+        reason: 'Queued for crypto KYC',
         premblyVerifiedFirstName: firstName,
         premblyVerifiedLastName: lastName,
         premblyVerifiedDob: dob,
@@ -95,7 +93,7 @@ export async function processTier2PremblySubmission(submissionId: number): Promi
     where: { id: submissionId },
     data: {
       state: 'pending',
-      reason: 'Prembly passed; awaiting Busha KYC approval',
+      reason: 'Identity check passed; awaiting crypto KYC approval',
       firtName: verified.firstName,
       surName: verified.lastName,
       dob: verified.birthDate,

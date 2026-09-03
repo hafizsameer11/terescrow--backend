@@ -66,7 +66,13 @@ class KycStatusService {
       return {
         tier,
         status,
-        rejectionReason: latest?.state === 'rejected' ? latest.reason : null,
+        rejectionReason:
+          latest?.state === 'rejected'
+            ? String(latest.reason || '')
+                .replace(/\bBusha\b/gi, '')
+                .replace(/\s{2,}/g, ' ')
+                .trim() || null
+            : null,
         limits: {
           deposit: {
             daily: limit?.depositDailyLimit || '0',

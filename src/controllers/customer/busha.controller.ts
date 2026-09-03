@@ -191,7 +191,7 @@ export async function getBushaDepositAddressController(req: Request, res: Respon
     return new ApiResponse(200, data, 'Busha deposit address fetched').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
-    return next(ApiError.internal('Failed to fetch Busha deposit address'));
+    return next(ApiError.internal('Failed to fetch deposit address'));
   }
 }
 
