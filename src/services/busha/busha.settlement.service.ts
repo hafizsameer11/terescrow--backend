@@ -112,11 +112,13 @@ async function creditSellToUserWallet(trade: any, remote: any) {
     : bushaNgn;
   if (
     (!Number.isFinite(storedUserCredit) || storedUserCredit <= 0) &&
-    sellMarkupPercent > 0 &&
+    Number.isFinite(sellMarkupPercent) &&
+    sellMarkupPercent !== 0 &&
     Number.isFinite(bushaNgn) &&
     bushaNgn > 0
   ) {
-    amountNgn = Math.round(bushaNgn * (1 - sellMarkupPercent / 100) * 100) / 100;
+    // Signed %: busha × (1 + percent/100). Legacy positive-only markup was stored as user gets less.
+    amountNgn = Math.round(bushaNgn * (1 + sellMarkupPercent / 100) * 100) / 100;
   }
 
   if (!Number.isFinite(amountNgn) || amountNgn <= 0) {

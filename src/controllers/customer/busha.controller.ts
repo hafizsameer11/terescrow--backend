@@ -239,7 +239,7 @@ export async function getBushaAssetDetailController(req: Request, res: Response,
 
 export async function previewBushaSellController(req: Request, res: Response, next: NextFunction) {
   try {
-    const { sourceCurrency, sourceAmount, fundingMethod, network } = req.body ?? {};
+    const { sourceCurrency, sourceAmount, fundingMethod, network, usdAmount } = req.body ?? {};
     if (!sourceCurrency || !sourceAmount) {
       throw ApiError.badRequest('sourceCurrency and sourceAmount are required');
     }
@@ -248,17 +248,18 @@ export async function previewBushaSellController(req: Request, res: Response, ne
       sourceAmount: String(sourceAmount),
       fundingMethod,
       network: network ? String(network) : undefined,
+      usdAmount: usdAmount != null ? String(usdAmount) : undefined,
     });
-    return new ApiResponse(200, data, 'Busha sell preview').send(res);
+    return new ApiResponse(200, data, 'Sell preview').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
-    return next(ApiError.internal('Failed to preview Busha sell'));
+    return next(ApiError.internal('Failed to preview sell'));
   }
 }
 
 export async function executeBushaSellController(req: Request, res: Response, next: NextFunction) {
   try {
-    const { sourceCurrency, sourceAmount, fundingMethod, network } = req.body ?? {};
+    const { sourceCurrency, sourceAmount, fundingMethod, network, usdAmount } = req.body ?? {};
     if (!sourceCurrency || !sourceAmount) {
       throw ApiError.badRequest('sourceCurrency and sourceAmount are required');
     }
@@ -267,17 +268,18 @@ export async function executeBushaSellController(req: Request, res: Response, ne
       sourceAmount: String(sourceAmount),
       fundingMethod,
       network: network ? String(network) : undefined,
+      usdAmount: usdAmount != null ? String(usdAmount) : undefined,
     });
-    return new ApiResponse(200, data, 'Busha sell initiated').send(res);
+    return new ApiResponse(200, data, 'Sell initiated').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
-    return next(ApiError.internal('Failed to execute Busha sell'));
+    return next(ApiError.internal('Failed to execute sell'));
   }
 }
 
 export async function previewBushaBuyController(req: Request, res: Response, next: NextFunction) {
   try {
-    const { sourceAmount, targetCurrency } = req.body ?? {};
+    const { sourceAmount, targetCurrency, usdAmount } = req.body ?? {};
     if (!sourceAmount || !targetCurrency) {
       throw ApiError.badRequest('sourceAmount and targetCurrency are required');
     }
@@ -285,8 +287,9 @@ export async function previewBushaBuyController(req: Request, res: Response, nex
     const data = await previewAppBushaBuy(userId(req), {
       sourceAmount: String(sourceAmount),
       targetCurrency: String(targetCurrency),
+      usdAmount: usdAmount != null ? String(usdAmount) : undefined,
     });
-    return new ApiResponse(200, data, 'Busha buy preview').send(res);
+    return new ApiResponse(200, data, 'Buy preview').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     return next(ApiError.internal('Failed to preview Busha buy'));
@@ -295,18 +298,19 @@ export async function previewBushaBuyController(req: Request, res: Response, nex
 
 export async function executeBushaBuyController(req: Request, res: Response, next: NextFunction) {
   try {
-    const { sourceAmount, targetCurrency } = req.body ?? {};
+    const { sourceAmount, targetCurrency, usdAmount } = req.body ?? {};
     if (!sourceAmount || !targetCurrency) {
       throw ApiError.badRequest('sourceAmount and targetCurrency are required');
     }
     const data = await executeAppBushaBuy(userId(req), {
       sourceAmount: String(sourceAmount),
       targetCurrency,
+      usdAmount: usdAmount != null ? String(usdAmount) : undefined,
     });
-    return new ApiResponse(200, data, 'Busha buy initiated').send(res);
+    return new ApiResponse(200, data, 'Buy initiated').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
-    return next(ApiError.internal('Failed to execute Busha buy'));
+    return next(ApiError.internal('Failed to execute buy'));
   }
 }
 

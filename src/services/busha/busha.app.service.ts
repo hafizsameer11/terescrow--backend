@@ -44,7 +44,7 @@ import {
 import {
   bushaBuySourceNgn,
   formatAmountStr,
-  getBushaMarkupPercents,
+  resolveMarkupForUsdAmount,
   roundNgn,
   userSellCreditNgn,
 } from './busha.markup';
@@ -596,6 +596,8 @@ export async function previewAppBushaSell(
     sourceAmount: string;
     fundingMethod?: 'balance' | 'address';
     network?: string;
+    /** USD notional used to pick amount-range markup */
+    usdAmount?: string | number | null;
   }
 ) {
   await assertBushaAppActive();
@@ -606,7 +608,12 @@ export async function previewAppBushaSell(
   await assertBushaSellCryptoWithinLimits(params.sourceCurrency, cryptoAmount);
 
   const sellPayoutMode = await getSellPayoutMode();
-  const { sellMarkupPercent } = await getBushaMarkupPercents();
+  const usdNotional = parseFloat(String(params.usdAmount ?? '').replace(/,/g, ''));
+  const resolved = await resolveMarkupForUsdAmount(
+    'sell',
+    Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : null
+  );
+  const sellMarkupPercent = resolved.percent;
 
   const quote = await previewBushaQuote({
     customerId: customer.id,
@@ -633,6 +640,11 @@ export async function previewAppBushaSell(
     sellPayoutMode,
     markup: {
       sellMarkupPercent,
+      markupSource: resolved.source,
+      rangeId: resolved.rangeId ?? null,
+      minUsd: resolved.minUsd ?? null,
+      maxUsd: resolved.maxUsd ?? null,
+      usdAmount: Number.isFinite(usdNotional) ? usdNotional : null,
       bushaTargetAmount: formatAmountStr(bushaNgn, 2),
       userTargetAmount: formatAmountStr(userNgn, 2),
       platformSpreadNgn: formatAmountStr(roundNgn(bushaNgn - userNgn), 2),
@@ -651,6 +663,7 @@ export async function executeAppBushaSell(
     sourceAmount: string;
     fundingMethod?: 'balance' | 'address';
     network?: string;
+    usdAmount?: string | number | null;
   }
 ) {
   await assertBushaAppActive();
@@ -704,7 +717,12 @@ export async function executeAppBushaSell(
     palmpayPayoutOrderNo,
   });
 
-  const { sellMarkupPercent } = await getBushaMarkupPercents();
+  const usdNotional = parseFloat(String(params.usdAmount ?? '').replace(/,/g, ''));
+  const resolved = await resolveMarkupForUsdAmount(
+    'sell',
+    Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : null
+  );
+  const sellMarkupPercent = resolved.percent;
   const bushaNgn = parseFloat(String(trade.targetAmount || '0')) || 0;
   const userNgn = roundNgn(userSellCreditNgn(bushaNgn, sellMarkupPercent));
 
@@ -739,6 +757,9 @@ export async function executeAppBushaSell(
         sellPayoutMode,
         markup: {
           sellMarkupPercent,
+          markupSource: resolved.source,
+          rangeId: resolved.rangeId ?? null,
+          usdAmount: Number.isFinite(usdNotional) ? usdNotional : null,
           bushaTargetAmount: formatAmountStr(bushaNgn, 2),
           userCreditNgn: formatAmountStr(userNgn, 2),
           platformSpreadNgn: formatAmountStr(roundNgn(bushaNgn - userNgn), 2),
@@ -762,6 +783,7 @@ export async function executeAppBushaBuy(
   params: {
     sourceAmount: string;
     targetCurrency: string;
+    usdAmount?: string | number | null;
   }
 ) {
   await assertBushaAppActive();
@@ -774,7 +796,12 @@ export async function executeAppBushaBuy(
   }
   await assertBushaBuyNgnWithinLimits(params.targetCurrency, amountNgn);
 
-  const { buyMarkupPercent } = await getBushaMarkupPercents();
+  const usdNotional = parseFloat(String(params.usdAmount ?? '').replace(/,/g, ''));
+  const resolved = await resolveMarkupForUsdAmount(
+    'buy',
+    Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : null
+  );
+  const buyMarkupPercent = resolved.percent;
   const bushaNgn = roundNgn(bushaBuySourceNgn(amountNgn, buyMarkupPercent));
   if (bushaNgn <= 0) {
     throw ApiError.badRequest('Buy amount too small after markup');
@@ -833,6 +860,9 @@ export async function executeAppBushaBuy(
           fiatDebitTransactionId: fiatTxn.id,
           markup: {
             buyMarkupPercent,
+            markupSource: resolved.source,
+            rangeId: resolved.rangeId ?? null,
+            usdAmount: Number.isFinite(usdNotional) ? usdNotional : null,
             userSourceAmount: formatAmountStr(amountNgn, 2),
             bushaSourceAmount: formatAmountStr(bushaNgn, 2),
             platformSpreadNgn: formatAmountStr(platformSpreadNgn, 2),
@@ -858,10 +888,10 @@ export async function executeAppBushaBuy(
   }
 }
 
-/** App buy preview — applies buy markup % on Busha's live rate. */
+/** App buy preview — applies range/flat buy markup % on Busha's live rate. */
 export async function previewAppBushaBuy(
   userId: number,
-  params: { sourceAmount: string; targetCurrency: string }
+  params: { sourceAmount: string; targetCurrency: string; usdAmount?: string | number | null }
 ) {
   await assertBushaAppActive();
   const customer = await ensureBushaCustomerForUser(userId);
@@ -873,7 +903,12 @@ export async function previewAppBushaBuy(
   }
   await assertBushaBuyNgnWithinLimits(params.targetCurrency, userNgn);
 
-  const { buyMarkupPercent } = await getBushaMarkupPercents();
+  const usdNotional = parseFloat(String(params.usdAmount ?? '').replace(/,/g, ''));
+  const resolved = await resolveMarkupForUsdAmount(
+    'buy',
+    Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : null
+  );
+  const buyMarkupPercent = resolved.percent;
   const bushaNgn = roundNgn(bushaBuySourceNgn(userNgn, buyMarkupPercent));
   if (bushaNgn <= 0) {
     throw ApiError.badRequest('Buy amount too small after markup');
@@ -899,6 +934,11 @@ export async function previewAppBushaBuy(
     bushaQuote: data.quote,
     markup: {
       buyMarkupPercent,
+      markupSource: resolved.source,
+      rangeId: resolved.rangeId ?? null,
+      minUsd: resolved.minUsd ?? null,
+      maxUsd: resolved.maxUsd ?? null,
+      usdAmount: Number.isFinite(usdNotional) ? usdNotional : null,
       userSourceAmount: formatAmountStr(userNgn, 2),
       bushaSourceAmount: formatAmountStr(bushaNgn, 2),
       platformSpreadNgn: formatAmountStr(roundNgn(userNgn - bushaNgn), 2),

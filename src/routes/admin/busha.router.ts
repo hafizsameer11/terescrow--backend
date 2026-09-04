@@ -28,6 +28,10 @@ import {
   refreshBushaTradeController,
   listBushaCustomerWalletsController,
   getBushaCustomerWalletOverviewController,
+  listBushaMarkupRangesController,
+  createBushaMarkupRangeController,
+  updateBushaMarkupRangeController,
+  deleteBushaMarkupRangeController,
 } from '../../controllers/admin/busha.controller';
 
 const router = express.Router();
@@ -35,6 +39,10 @@ const adminOnly = [authenticateUser, authenticateAdmin];
 
 router.get('/status', ...adminOnly, getBushaStatusController);
 router.put('/settings', ...adminOnly, putBushaSettingsController);
+router.get('/markup-ranges', ...adminOnly, listBushaMarkupRangesController);
+router.post('/markup-ranges', ...adminOnly, createBushaMarkupRangeController);
+router.put('/markup-ranges/:id', ...adminOnly, updateBushaMarkupRangeController);
+router.delete('/markup-ranges/:id', ...adminOnly, deleteBushaMarkupRangeController);
 router.post('/recipients/sync', ...adminOnly, syncBushaRecipientController);
 
 router.get('/customer-wallets', ...adminOnly, listBushaCustomerWalletsController);

@@ -810,15 +810,34 @@ model BushaConfig {
   payoutRecipientId     String?  @map("payout_recipient_id") @db.VarChar(64)
   /// palmpay_temp | dashboard_bank — where Busha sends NGN on app/admin sells
   sellPayoutMode        String   @default("palmpay_temp") @map("sell_payout_mode") @db.VarChar(30)
-  /// Platform markup on Busha live buy rate (%). User pays more NGN / gets less crypto.
+  /// Fallback flat buy markup % when no USD range matches (legacy).
   buyMarkupPercent      Decimal  @default(0) @map("buy_markup_percent") @db.Decimal(8, 4)
-  /// Platform markup on Busha live sell rate (%). User receives less NGN.
+  /// Fallback flat sell markup % when no USD range matches (legacy; positive = user gets less).
   sellMarkupPercent     Decimal  @default(0) @map("sell_markup_percent") @db.Decimal(8, 4)
   isActive              Boolean  @default(true) @map("is_active")
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
   @@map("busha_config")
+}
+
+/// Amount-range (USD) markup tiers for Busha buy/sell quotes.
+/// percent is signed: +5 = Busha rate × 1.05, -5 = Busha rate × 0.95.
+model BushaMarkupRange {
+  id        Int      @id @default(autoincrement())
+  /// buy | sell
+  side      String   @db.VarChar(10)
+  minUsd    Decimal  @map("min_usd") @db.Decimal(18, 4)
+  maxUsd    Decimal  @map("max_usd") @db.Decimal(18, 4)
+  /// Signed percent applied to Busha rate / payout.
+  percent   Decimal  @db.Decimal(8, 4)
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([side, isActive])
+  @@map("busha_markup_ranges")
 }
 
 /// Busha customer profiles (admin test or linked app users).

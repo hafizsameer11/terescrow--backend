@@ -78,6 +78,14 @@ export async function getBushaStatusForAdmin() {
           isActive: settings.isActive,
         }
       : null,
+    markupRanges: await (async () => {
+      try {
+        const { getBushaMarkupRangesAdmin } = await import('./busha.markup.range.service');
+        return await getBushaMarkupRangesAdmin();
+      } catch {
+        return [];
+      }
+    })(),
     stats: { customerCount, tradeCount },
     recentTrades,
     currencies: getBushaCurrenciesForAdmin(),

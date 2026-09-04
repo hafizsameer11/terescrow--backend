@@ -29,6 +29,12 @@ import {
   listBushaCustomerWallets,
   getBushaCustomerWalletOverview,
 } from '../../services/admin/busha.admin.service';
+import {
+  getBushaMarkupRangesAdmin,
+  createBushaMarkupRangeAdmin,
+  updateBushaMarkupRangeAdmin,
+  deleteBushaMarkupRangeAdmin,
+} from '../../services/admin/busha.markup.range.service';
 
 export async function getBushaStatusController(req: Request, res: Response, next: NextFunction) {
   try {
@@ -442,5 +448,50 @@ export async function getBushaCustomerWalletOverviewController(req: Request, res
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     return next(ApiError.internal('Failed to fetch Busha customer wallet overview'));
+  }
+}
+
+export async function listBushaMarkupRangesController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const side = req.query.side ? String(req.query.side) : undefined;
+    const data = await getBushaMarkupRangesAdmin(side);
+    return new ApiResponse(200, data, 'Markup ranges fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to list markup ranges'));
+  }
+}
+
+export async function createBushaMarkupRangeController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await createBushaMarkupRangeAdmin(req.body ?? {});
+    return new ApiResponse(201, data, 'Markup range created').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to create markup range'));
+  }
+}
+
+export async function updateBushaMarkupRangeController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) throw ApiError.badRequest('Invalid range id');
+    const data = await updateBushaMarkupRangeAdmin(id, req.body ?? {});
+    return new ApiResponse(200, data, 'Markup range updated').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to update markup range'));
+  }
+}
+
+export async function deleteBushaMarkupRangeController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) throw ApiError.badRequest('Invalid range id');
+    const data = await deleteBushaMarkupRangeAdmin(id);
+    return new ApiResponse(200, data, 'Markup range deleted').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to delete markup range'));
   }
 }

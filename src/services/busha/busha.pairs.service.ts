@@ -133,10 +133,12 @@ export async function getBushaPublicNgnRates(): Promise<{
     let buyRate = parseAmount(pair.buy_price?.amount);
     let sellRate = parseAmount(pair.sell_price?.amount);
 
-    if (buyRate != null && buyMarkupPercent > 0) {
+    // Flat fallback markup on browse rates (no amount yet — ranges apply on quote)
+    if (buyRate != null && buyMarkupPercent !== 0) {
       buyRate = roundNgn(buyRate * (1 + buyMarkupPercent / 100), 4);
     }
-    if (sellRate != null && sellMarkupPercent > 0) {
+    if (sellRate != null && sellMarkupPercent !== 0) {
+      // Legacy flat sell % means user gets less → apply as negative signed %
       sellRate = roundNgn(sellRate * (1 - sellMarkupPercent / 100), 4);
     }
 
