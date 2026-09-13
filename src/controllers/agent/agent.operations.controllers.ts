@@ -229,7 +229,7 @@ export const createTransactionCard = async (
           title: walletCredited ? 'Wallet credited' : 'Transaction created',
           description: walletCredited
             ? `₦${creditAmountNgn.toLocaleString('en-NG')} has been credited to your Naira wallet`
-            : 'Your gift card sell transaction has been completed',
+            : 'Your transaction has been created',
           type: InAppNotificationType.customeer
         },
       });
@@ -238,7 +238,7 @@ export const createTransactionCard = async (
           userId: customer.id,
           description: walletCredited
             ? `Gift card sell — ₦${creditAmountNgn} credited to Naira wallet`
-            : 'Gift card sell transaction completed'
+            : 'Create a transaction for customer'
         }
       })
     }
