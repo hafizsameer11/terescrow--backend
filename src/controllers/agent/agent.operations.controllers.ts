@@ -114,6 +114,7 @@ export const createTransactionCard = async (
     )?.user;
 
     let creditAmountNgn = 0;
+    let existingNgnWallet: { id: string; status: string } | null = null;
     if (shouldCreditWallet) {
       if (!customer) {
         return next(ApiError.badRequest('Customer not found for wallet credit'));
@@ -124,6 +125,31 @@ export const createTransactionCard = async (
           : computedAmountNaira;
       if (!Number.isFinite(creditAmountNgn) || creditAmountNgn <= 0) {
         return next(ApiError.badRequest('Enter a valid Naira amount to credit the wallet'));
+      }
+
+      // Old-app users never got a FiatWallet — do not auto-create one.
+      existingNgnWallet = await prisma.fiatWallet.findUnique({
+        where: {
+          userId_currency: {
+            userId: customer.id,
+            currency: 'NGN',
+          },
+        },
+        select: { id: true, status: true },
+      });
+      if (!existingNgnWallet) {
+        return next(
+          ApiError.badRequest(
+            'This customer is on the old app and does not have a Naira wallet. Ask them to update to the new app, or complete the sale without wallet credit.'
+          )
+        );
+      }
+      if (existingNgnWallet.status !== 'active') {
+        return next(
+          ApiError.badRequest(
+            'This customer’s Naira wallet is not active, so it cannot be credited. Complete the sale without wallet credit or ask support to review the wallet.'
+          )
+        );
       }
     }
 
@@ -153,13 +179,12 @@ export const createTransactionCard = async (
     let fiatTransactionId: string | null = null;
     let walletCredited = false;
 
-    if (shouldCreditWallet && customer) {
+    if (shouldCreditWallet && customer && existingNgnWallet) {
       try {
-        const wallet = await fiatWalletService.getOrCreateWallet(customer.id, 'NGN');
         const fiatTxn = await prisma.fiatTransaction.create({
           data: {
             userId: customer.id,
-            walletId: wallet.id,
+            walletId: existingNgnWallet.id,
             type: 'GIFT_CARD_SELL',
             status: 'pending',
             currency: 'NGN',
@@ -180,7 +205,7 @@ export const createTransactionCard = async (
           },
         });
         await fiatWalletService.creditWallet(
-          wallet.id,
+          existingNgnWallet.id,
           creditAmountNgn,
           fiatTxn.id,
           `Gift card sell credit ${transaction.transactionRef || transaction.id}`
