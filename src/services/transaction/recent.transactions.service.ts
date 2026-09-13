@@ -399,6 +399,12 @@ class RecentTransactionsService {
             case 'TRANSFER':
               description = 'Transfer';
               break;
+            case 'GIFT_CARD_SELL':
+              description = tx.description || 'Gift card sell — Naira wallet credit';
+              break;
+            case 'GIFT_CARD_BUY':
+              description = tx.description || 'Gift card purchase';
+              break;
             default:
               description = tx.type;
           }

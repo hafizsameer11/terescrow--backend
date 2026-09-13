@@ -12,8 +12,13 @@ import {
 import { TransactionStatus } from '@prisma/client';
 import { getCustomerSocketId, io } from '../../socketConfig';
 import { hashPassword } from '../../utils/authUtils';
+import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
 
 const prisma = new PrismaClient();
+
+function parseTruthyFlag(value: unknown): boolean {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
 
 export const createTransactionCard = async (
   req: Request,
@@ -42,10 +47,14 @@ export const createTransactionCard = async (
       vendorName,
       vendorRate,
       vendorId,
+      creditWallet,
+      walletCreditAmount,
     } = req.body;
     if (!subCategoryId || !amount || !chatId) {
       return next(ApiError.badRequest('Missing required fields'));
     }
+
+    const shouldCreditWallet = parseTruthyFlag(creditWallet);
 
     const currChat = await prisma.chat.findUnique({
       where: {
@@ -100,6 +109,24 @@ export const createTransactionCard = async (
       resolvedVendorName = vendor?.name ?? null;
     }
 
+    const customer = currChat.participants.find(
+      (participant) => participant.user.id !== agent.id
+    )?.user;
+
+    let creditAmountNgn = 0;
+    if (shouldCreditWallet) {
+      if (!customer) {
+        return next(ApiError.badRequest('Customer not found for wallet credit'));
+      }
+      creditAmountNgn =
+        walletCreditAmount != null && walletCreditAmount !== ''
+          ? parseFloat(String(walletCreditAmount))
+          : computedAmountNaira;
+      if (!Number.isFinite(creditAmountNgn) || creditAmountNgn <= 0) {
+        return next(ApiError.badRequest('Enter a valid Naira amount to credit the wallet'));
+      }
+    }
+
     const transaction = await prisma.transaction.create({
       data: {
         chatId: parseInt(chatId, 10),
@@ -118,50 +145,97 @@ export const createTransactionCard = async (
         profit: computedProfit,
       },
     });
-    //create notification for customer
-    const customer = currChat.participants.find(
-      (participant) => participant.user.id !== agent.id
-    )?.user;
-    if (customer) {
-      const notification = await prisma.inAppNotification.create({
-        data: {
-          userId: customer.id,
-          title: 'Transaction created',
-          description: 'Your transaction has been created',
-          type: InAppNotificationType.customeer
-        },
-      });
-      const customerActivity = await prisma.accountActivity.create({
-        data: {
-          userId: customer.id,
-          description: 'Create a transaction for customer'
-        }
-      })
-    }
-    const accountActivityy = await prisma.accountActivity.create({
-      data: {
-        userId: agent.id,
-        description: 'Create a transaction for customer'
-      }
-    });
-    //create notification for agent
-    const agentNotification = await prisma.inAppNotification.create({
-      data: {
-        userId: agent.id,
-        title: 'Transaction created',
-        description: 'Transaction created successfully',
-        type: InAppNotificationType.customeer
-      },
-    });
-    const accountActivity = await prisma.accountActivity.create({
-      data: {
-        userId: agent.id,
-        description: 'Create a transaction for customer',
-      }
-    })
+
     if (!transaction) {
       return next(ApiError.badRequest('Transaction not created'));
     }
+
+    let fiatTransactionId: string | null = null;
+    let walletCredited = false;
+
+    if (shouldCreditWallet && customer) {
+      try {
+        const wallet = await fiatWalletService.getOrCreateWallet(customer.id, 'NGN');
+        const fiatTxn = await prisma.fiatTransaction.create({
+          data: {
+            userId: customer.id,
+            walletId: wallet.id,
+            type: 'GIFT_CARD_SELL',
+            status: 'pending',
+            currency: 'NGN',
+            amount: creditAmountNgn,
+            fees: 0,
+            totalAmount: creditAmountNgn,
+            description: `Gift card sell credit — ${transaction.transactionRef || transaction.id}`,
+            metadata: JSON.stringify({
+              source: 'agent_gift_card_sell',
+              legacyTransactionId: transaction.id,
+              chatId: parseInt(String(chatId), 10),
+              agentId: agent.id,
+              amountUsd: parsedAmount,
+              exchangeRate: parsedExchangeRate,
+              amountNaira: computedAmountNaira,
+              walletCreditAmount: creditAmountNgn,
+            }),
+          },
+        });
+        await fiatWalletService.creditWallet(
+          wallet.id,
+          creditAmountNgn,
+          fiatTxn.id,
+          `Gift card sell credit ${transaction.transactionRef || transaction.id}`
+        );
+        fiatTransactionId = fiatTxn.id;
+        walletCredited = true;
+      } catch (creditError) {
+        console.error('Gift card sell wallet credit failed:', creditError);
+        await prisma.transaction.delete({ where: { id: transaction.id } }).catch(() => undefined);
+        const msg =
+          creditError instanceof Error ? creditError.message : 'Wallet credit failed';
+        return next(ApiError.badRequest(`Could not credit Naira wallet: ${msg}`));
+      }
+    }
+
+    //create notification for customer
+    if (customer) {
+      await prisma.inAppNotification.create({
+        data: {
+          userId: customer.id,
+          title: walletCredited ? 'Wallet credited' : 'Transaction created',
+          description: walletCredited
+            ? `₦${creditAmountNgn.toLocaleString('en-NG')} has been credited to your Naira wallet`
+            : 'Your gift card sell transaction has been completed',
+          type: InAppNotificationType.customeer
+        },
+      });
+      await prisma.accountActivity.create({
+        data: {
+          userId: customer.id,
+          description: walletCredited
+            ? `Gift card sell — ₦${creditAmountNgn} credited to Naira wallet`
+            : 'Gift card sell transaction completed'
+        }
+      })
+    }
+    await prisma.accountActivity.create({
+      data: {
+        userId: agent.id,
+        description: walletCredited
+          ? `Completed gift card sell and credited ₦${creditAmountNgn} to customer wallet`
+          : 'Create a transaction for customer'
+      }
+    });
+    //create notification for agent
+    await prisma.inAppNotification.create({
+      data: {
+        userId: agent.id,
+        title: 'Transaction created',
+        description: walletCredited
+          ? 'Transaction created and Naira wallet credited'
+          : 'Transaction created successfully',
+        type: InAppNotificationType.customeer
+      },
+    });
 
     const updatedChat = await prisma.chat.update({
       where: {
@@ -180,24 +254,31 @@ export const createTransactionCard = async (
       return next(ApiError.badRequest('Chat not updated'));
     }
 
-    const currCustomer = currChat.participants.find(
-      (participant) => participant.user.id !== agent.id
-    );
-
-    const currCustomerId = currCustomer?.user?.id;
+    const currCustomerId = customer?.id;
 
     //dispatch event to customer
-    const customerSocketId = getCustomerSocketId(currCustomerId!);
-    if (customerSocketId) {
-      io.to(customerSocketId).emit('chat-successful', {
-        chatId: +chatId,
-      });
+    if (currCustomerId) {
+      const customerSocketId = getCustomerSocketId(currCustomerId);
+      if (customerSocketId) {
+        io.to(customerSocketId).emit('chat-successful', {
+          chatId: +chatId,
+          walletCredited,
+          walletCreditAmount: walletCredited ? creditAmountNgn : undefined,
+        });
+      }
     }
 
     return new ApiResponse(
       201,
-      transaction,
-      'Transaction created successfully'
+      {
+        ...transaction,
+        walletCredited,
+        walletCreditAmount: walletCredited ? creditAmountNgn : null,
+        fiatTransactionId,
+      },
+      walletCredited
+        ? 'Transaction created and Naira wallet credited'
+        : 'Transaction created successfully'
     ).send(res);
   } catch (error) {
     console.error(error);

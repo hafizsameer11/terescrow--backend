@@ -12,7 +12,7 @@ class FiatWalletService {
     if (!tx) return;
 
     const type = (tx.type || '').toUpperCase().trim();
-    if (type === 'CRYPTO_BUY' || type === 'CRYPTO_SELL') return;
+    if (type === 'CRYPTO_BUY' || type === 'CRYPTO_SELL' || type === 'GIFT_CARD_SELL') return;
     const map: Record<string, string> = {
       DEPOSIT: 'DEPOSIT',
       WITHDRAW: 'WITHDRAWAL',
@@ -20,6 +20,8 @@ class FiatWalletService {
       BILL_PAYMENT: 'BILL_PAYMENTS',
       BILLPAYMENT: 'BILL_PAYMENTS',
       BILL: 'BILL_PAYMENTS',
+      GIFT_CARD_SELL: 'GIFT_CARD_SELL',
+      GIFT_CARD_BUY: 'GIFT_CARD_BUY',
     };
     const transactionType = map[type] || type || 'DEPOSIT';
 

@@ -200,10 +200,9 @@ function parseAmount(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-// ── Gift Card (Pagocard / Reloadly) ──
+// ── Gift Card buy (Pagocard / Reloadly) + sell (agent chat Transaction) ──
 
-async function queryGiftCards(f: TransactionFilters, take: number, skip: number) {
-  if (f.type === 'sell') return { rows: [] as any[], count: 0 };
+async function queryGiftCardBuys(f: TransactionFilters, take: number, skip: number) {
   const where: any = {};
   const df = buildDateFilter(f.startDate, f.endDate);
   if (df) where.createdAt = df;
@@ -229,10 +228,139 @@ async function queryGiftCards(f: TransactionFilters, take: number, skip: number)
     }),
     prisma.giftCardOrder.count({ where }),
   ]);
-  return { rows, count };
+  return { rows: rows.map((r) => ({ ...r, _kind: 'buy' as const })), count };
 }
 
-function mapGiftCard(o: any): UnifiedTransaction {
+async function queryGiftCardSells(f: TransactionFilters, take: number, skip: number) {
+  const where: any = {
+    OR: [
+      { department: { niche: 'giftCard' } },
+      {
+        AND: [
+          { cardType: { not: null } },
+          { cryptoAmount: null },
+        ],
+      },
+    ],
+  };
+  const df = buildDateFilter(f.startDate, f.endDate);
+  if (df) where.createdAt = df;
+  if (f.status) where.status = { in: statusToDbValues(f.status) };
+  if (f.customerId) {
+    where.chat = {
+      participants: { some: { userId: f.customerId } },
+    };
+  }
+  if (f.search?.trim()) {
+    const q = f.search.trim();
+    where.AND = [
+      ...(where.AND || []),
+      {
+        OR: [
+          { transactionRef: { contains: q } },
+          { cardNumber: { contains: q } },
+          { cardType: { contains: q } },
+          { category: { title: { contains: q } } },
+          { subCategory: { title: { contains: q } } },
+          {
+            chat: {
+              participants: {
+                some: {
+                  user: {
+                    OR: [
+                      { firstname: { contains: q } },
+                      { lastname: { contains: q } },
+                      { username: { contains: q } },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+    ];
+  }
+
+  const [rows, count] = await Promise.all([
+    prisma.transaction.findMany({
+      where,
+      skip,
+      take,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        department: true,
+        category: true,
+        subCategory: true,
+        chat: {
+          select: {
+            participants: {
+              select: {
+                user: { select: { ...USER_SELECT, role: true } },
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.transaction.count({ where }),
+  ]);
+
+  const ids = rows.map((r) => r.id);
+  const fiatCredits =
+    ids.length === 0
+      ? []
+      : await prisma.fiatTransaction.findMany({
+          where: {
+            type: 'GIFT_CARD_SELL',
+            OR: ids.map((id) => ({
+              metadata: { contains: `"legacyTransactionId":${id}` },
+            })),
+          },
+          select: { id: true, status: true, amount: true, totalAmount: true, metadata: true },
+        });
+
+  const creditByLegacyId = new Map<number, (typeof fiatCredits)[0]>();
+  for (const ft of fiatCredits) {
+    try {
+      const meta = parseGiftCardMetadata(ft.metadata);
+      const lid = Number(meta.legacyTransactionId);
+      if (Number.isFinite(lid)) creditByLegacyId.set(lid, ft);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return {
+    rows: rows.map((r) => ({
+      ...r,
+      _kind: 'sell' as const,
+      _walletCredit: creditByLegacyId.get(r.id) || null,
+    })),
+    count,
+  };
+}
+
+async function queryGiftCards(f: TransactionFilters, take: number, skip: number) {
+  if (f.type === 'sell') return queryGiftCardSells(f, take, skip);
+  if (f.type === 'buy') return queryGiftCardBuys(f, take, skip);
+
+  // type unset: merge buy orders + agent sell logs (for Gift Cards "All")
+  const fetchLimit = skip + take;
+  const [buys, sells] = await Promise.all([
+    queryGiftCardBuys(f, fetchLimit, 0),
+    queryGiftCardSells(f, fetchLimit, 0),
+  ]);
+  const merged = [...buys.rows, ...sells.rows].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  return {
+    rows: merged.slice(skip, skip + take),
+    count: buys.count + sells.count,
+  };
+}
+
+function mapGiftCardBuy(o: any): UnifiedTransaction {
   const amt = Number(o.totalAmount || 0);
   const rate = Number(o.exchangeRate || 0);
   const provider = giftCardProviderFromOrder(o);
@@ -262,6 +390,66 @@ function mapGiftCard(o: any): UnifiedTransaction {
     provider,
     exchangeRate: rate || null,
   };
+}
+
+function mapGiftCardSell(o: any): UnifiedTransaction {
+  const participants = o.chat?.participants || [];
+  const customer = participants.find((p: any) => p.user?.role === 'customer')?.user || null;
+  const agent = participants.find((p: any) => p.user?.role === 'agent')?.user || null;
+  const walletCredit = o._walletCredit;
+  const credited =
+    walletCredit &&
+    ['completed', 'successful'].includes(String(walletCredit.status || '').toLowerCase());
+  return {
+    id: o.id,
+    transactionId: o.transactionRef || String(o.id),
+    status: normalizeStatus(o.status),
+    amount: Number(o.amount || 0),
+    amountNaira: Number(o.amountNaira || 0),
+    createdAt: o.createdAt.toISOString(),
+    updatedAt: o.updatedAt.toISOString(),
+    profit: Number(o.profit || 0),
+    department: {
+      id: o.department?.id ?? 0,
+      title: o.department?.title ?? 'Sell Gift Card',
+      niche: 'giftcard',
+      Type: 'sell',
+    },
+    category: {
+      id: o.category?.id ?? 0,
+      title: o.category?.title ?? 'Gift Card',
+      subTitle: o.subCategory?.title ?? null,
+      image: o.category?.image ?? null,
+    },
+    subCategory: o.subCategory
+      ? { id: o.subCategory.id, title: o.subCategory.title }
+      : null,
+    customer: mapUser(customer),
+    agent: agent
+      ? {
+          id: agent.id,
+          username: agent.username,
+          firstname: agent.firstname,
+          lastname: agent.lastname,
+          profilePicture: agent.profilePicture ?? null,
+        }
+      : null,
+    ...NULL_TYPE_FIELDS,
+    cardType: o.cardType ?? null,
+    cardNumber: o.cardNumber ?? null,
+    giftCardProvider: 'agent_chat',
+    provider: 'agent_chat',
+    exchangeRate: o.exchangeRate ?? null,
+    nairaType: credited ? 'GIFT_CARD_SELL' : null,
+    nairaChannel: credited ? 'Naira wallet credited' : 'Logged (no wallet credit)',
+    nairaReference: credited ? walletCredit.id : null,
+    targetAmount: credited ? Number(walletCredit.totalAmount || walletCredit.amount || 0) : null,
+  };
+}
+
+function mapGiftCard(o: any): UnifiedTransaction {
+  if (o._kind === 'sell') return mapGiftCardSell(o);
+  return mapGiftCardBuy(o);
 }
 
 // ── Crypto (BushaTradeLog) ──
@@ -498,6 +686,7 @@ function nairaWhereBase(): any {
     billType: null,
     NOT: [
       { type: { startsWith: 'CRYPTO_' } },
+      { type: { startsWith: 'GIFT_CARD_' } },
       { type: { in: ['BILL_PAYMENT', 'BILLPAYMENT', 'BILL'] } },
     ],
   };
@@ -580,7 +769,13 @@ export async function getAdminTransactions(filters: TransactionFilters): Promise
   const skip = (page - 1) * limit;
 
   if (filters.niche) {
-    const queryMap: Record<NicheType, { query: typeof queryGiftCards; map: typeof mapGiftCard }> = {
+    const queryMap: Record<
+      NicheType,
+      {
+        query: (f: TransactionFilters, take: number, skip: number) => Promise<{ rows: any[]; count: number }>;
+        map: (row: any) => UnifiedTransaction;
+      }
+    > = {
       giftcard: { query: queryGiftCards, map: mapGiftCard },
       crypto: { query: queryCrypto, map: mapCrypto },
       billpayment: { query: queryBillPayments, map: mapBillPayment },
