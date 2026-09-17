@@ -81,6 +81,8 @@ model User {
   bushaTradesInitiated             BushaTradeLog[]
   bushaTradesAsUser                BushaTradeLog[]     @relation("BushaTradeUser")
   bushaKycApplications             BushaKycApplication[]
+  bushaUserAssets                  BushaUserAsset[]
+  bushaFeeLedgers                  BushaFeeLedger[]
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
@@ -838,6 +840,64 @@ model BushaMarkupRange {
 
   @@index([side, isActive])
   @@map("busha_markup_ranges")
+}
+
+/// Per-coin deposit/withdraw service fee % (Terescrow ledger on top of Busha).
+model BushaCoinFeeConfig {
+  id                  Int      @id @default(autoincrement())
+  currency            String   @unique @db.VarChar(20)
+  depositFeePercent   Decimal  @default(0) @map("deposit_fee_percent") @db.Decimal(8, 4)
+  withdrawFeePercent  Decimal  @default(0) @map("withdraw_fee_percent") @db.Decimal(8, 4)
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("busha_coin_fee_configs")
+}
+
+/// Shadow ledger per user+currency: spendable balance vs held service fees.
+model BushaUserAsset {
+  id                String   @id @default(uuid())
+  userId            Int      @map("user_id")
+  currency          String   @db.VarChar(20)
+  userAvailable     Decimal  @default(0) @map("user_available") @db.Decimal(28, 12)
+  feeHeld           Decimal  @default(0) @map("fee_held") @db.Decimal(28, 12)
+  lastBushaBalance  Decimal? @map("last_busha_balance") @db.Decimal(28, 12)
+  lastReconciledAt  DateTime? @map("last_reconciled_at")
+  reconcileMismatch Boolean  @default(false) @map("reconcile_mismatch")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, currency])
+  @@index([userId])
+  @@index([currency])
+  @@map("busha_user_assets")
+}
+
+/// Audit of deposit/withdraw fees held on Busha and sold into NGN.
+model BushaFeeLedger {
+  id            String    @id @default(uuid())
+  userId        Int       @map("user_id")
+  currency      String    @db.VarChar(20)
+  /// DEPOSIT_FEE | WITHDRAW_FEE
+  type          String    @db.VarChar(30)
+  amountCrypto  Decimal   @map("amount_crypto") @db.Decimal(28, 12)
+  /// held | sold
+  status        String    @default("held") @db.VarChar(20)
+  sourceTradeId String?   @map("source_trade_id") @db.VarChar(64)
+  soldTradeId   String?   @map("sold_trade_id") @db.VarChar(64)
+  soldAmountNgn Decimal?  @map("sold_amount_ngn") @db.Decimal(18, 2)
+  soldAt        DateTime? @map("sold_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, currency, status])
+  @@index([status])
+  @@index([sourceTradeId])
+  @@index([soldTradeId])
+  @@map("busha_fee_ledgers")
 }
 
 /// Busha customer profiles (admin test or linked app users).

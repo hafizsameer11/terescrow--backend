@@ -162,6 +162,29 @@ export async function recordBushaExternalDepositFromWebhook(
     },
   });
 
+  if (!isFiat && customer.userId) {
+    try {
+      const { applyDepositFee } = await import('./busha.ledger.service');
+      const feeResult = await applyDepositFee({
+        userId: customer.userId,
+        currency,
+        grossAmount: amount,
+        sourceTradeId: trade.id,
+      });
+      await bushaTradeLogModel.update({
+        where: { id: trade.id },
+        data: {
+          providerResponse: {
+            ...(trade.providerResponse as object),
+            ledger: feeResult,
+          } as any,
+        },
+      });
+    } catch (err: any) {
+      console.warn(`[Busha deposit] ledger fee apply failed trade=${trade.id}`, err?.message || err);
+    }
+  }
+
   console.log(
     `[Busha deposit] recorded external receive trade=${trade.id} ` +
       `${amount} ${currency} profile=${profileId} deposit=${depositId || reference}`

@@ -35,6 +35,12 @@ import {
   updateBushaMarkupRangeAdmin,
   deleteBushaMarkupRangeAdmin,
 } from '../../services/admin/busha.markup.range.service';
+import {
+  listCoinFeeConfigs,
+  upsertCoinFeeConfigs,
+  listFeeLedgerAdmin,
+} from '../../services/busha/busha.ledger.service';
+import { BUSHA_CRYPTO_ASSETS } from '../../services/busha/busha.currencies';
 
 export async function getBushaStatusController(req: Request, res: Response, next: NextFunction) {
   try {
@@ -493,5 +499,58 @@ export async function deleteBushaMarkupRangeController(req: Request, res: Respon
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     return next(ApiError.internal('Failed to delete markup range'));
+  }
+}
+
+export async function listBushaCoinFeeConfigsController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const saved = await listCoinFeeConfigs();
+    const byCurrency = new Map<string, any>(
+      saved.map((r: any) => [String(r.currency).toUpperCase(), r])
+    );
+    const rows = BUSHA_CRYPTO_ASSETS.map((a) => {
+      const row: any = byCurrency.get(a.code);
+      return {
+        currency: a.code,
+        name: a.name,
+        defaultNetwork: a.defaultNetwork,
+        depositFeePercent: row ? Number(row.depositFeePercent?.toString?.() ?? row.depositFeePercent ?? 0) : 0,
+        withdrawFeePercent: row ? Number(row.withdrawFeePercent?.toString?.() ?? row.withdrawFeePercent ?? 0) : 0,
+        isActive: row ? !!row.isActive : true,
+        configured: !!row,
+      };
+    });
+    return new ApiResponse(200, { rows, saved }, 'Coin fee configs fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to list coin fee configs'));
+  }
+}
+
+export async function putBushaCoinFeeConfigsController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const rules = Array.isArray(req.body?.rules) ? req.body.rules : req.body;
+    if (!Array.isArray(rules)) throw ApiError.badRequest('rules array is required');
+    const data = await upsertCoinFeeConfigs(rules);
+    return new ApiResponse(200, data, 'Coin fee configs saved').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to save coin fee configs'));
+  }
+}
+
+export async function listBushaFeeLedgerController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await listFeeLedgerAdmin({
+      status: req.query.status ? String(req.query.status) : undefined,
+      currency: req.query.currency ? String(req.query.currency) : undefined,
+      search: req.query.search ? String(req.query.search) : undefined,
+      page: req.query.page ? parseInt(String(req.query.page), 10) : 1,
+      limit: req.query.limit ? parseInt(String(req.query.limit), 10) : 20,
+    });
+    return new ApiResponse(200, data, 'Fee ledger fetched').send(res);
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    return next(ApiError.internal('Failed to list fee ledger'));
   }
 }

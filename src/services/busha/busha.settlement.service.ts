@@ -85,6 +85,40 @@ export async function settleBushaTradeIfNeeded(tradeId: string) {
       where: { id: trade.fiatTransactionId },
       data: { status: 'completed', completedAt: new Date() },
     }).catch(() => undefined);
+    if (trade.userId) {
+      try {
+        const { creditBuyToLedger } = await import('./busha.ledger.service');
+        const credited =
+          remote.target_amount || trade.targetAmount || '0';
+        await creditBuyToLedger({
+          userId: trade.userId,
+          currency: trade.targetCurrency,
+          amount: credited,
+          sourceTradeId: trade.id,
+        });
+      } catch (err: any) {
+        console.warn('[Busha settle] buy ledger sync failed', err?.message || err);
+      }
+    }
+  }
+
+  if (
+    (trade.side === 'receive' || trade.side === 'cryptoRecv') &&
+    trade.userId &&
+    !(trade.providerResponse as any)?.ledger
+  ) {
+    try {
+      const { applyDepositFee } = await import('./busha.ledger.service');
+      const gross = remote.source_amount || remote.target_amount || trade.sourceAmount || '0';
+      await applyDepositFee({
+        userId: trade.userId,
+        currency: trade.sourceCurrency || trade.targetCurrency,
+        grossAmount: gross,
+        sourceTradeId: trade.id,
+      });
+    } catch (err: any) {
+      console.warn('[Busha settle] receive ledger fee failed', err?.message || err);
+    }
   }
 
   return bushaTradeLogModel.update({
@@ -148,12 +182,26 @@ async function creditSellToUserWallet(trade: any, remote: any) {
   }
 
   if (fiatTxn.status !== 'completed') {
+    const markupFees =
+      Number.isFinite(storedUserCredit) && storedUserCredit > 0
+        ? Math.max(
+            0,
+            Math.round(
+              ((parseFloat(String(markup?.userShareBushaNgn || markup?.bushaTargetAmount || bushaNgn)) ||
+                bushaNgn) -
+                amountNgn) *
+                100
+            ) / 100
+          )
+        : Number.isFinite(bushaNgn)
+          ? Math.max(0, Math.round((bushaNgn - amountNgn) * 100) / 100)
+          : fiatTxn.fees;
     await prisma.fiatTransaction.update({
       where: { id: fiatTxn.id },
       data: {
         amount: amountNgn,
         totalAmount: amountNgn,
-        fees: Number.isFinite(bushaNgn) ? Math.max(0, Math.round((bushaNgn - amountNgn) * 100) / 100) : fiatTxn.fees,
+        fees: markupFees,
         status: 'pending',
       },
     });
@@ -161,8 +209,26 @@ async function creditSellToUserWallet(trade: any, remote: any) {
       fiatTxn.walletId,
       amountNgn,
       fiatTxn.id,
-      `Busha sell credit ${trade.sourceAmount} ${trade.sourceCurrency}`
+      `Sell credit ${trade.sourceAmount} ${trade.sourceCurrency}`
     );
+  }
+
+  let feeSettle: any = null;
+  if (trade.userId) {
+    try {
+      const { settleSellWithHeldFees } = await import('./busha.ledger.service');
+      const userSellAmount =
+        markup?.userSourceAmount || trade.sourceAmount || '0';
+      feeSettle = await settleSellWithHeldFees({
+        userId: trade.userId,
+        currency: trade.sourceCurrency,
+        userSellAmount,
+        bushaTotalNgn: bushaNgn,
+        soldTradeId: trade.id,
+      });
+    } catch (err: any) {
+      console.warn('[Busha settle] fee ledger liquidation failed', err?.message || err);
+    }
   }
 
   return bushaTradeLogModel.update({
@@ -177,6 +243,7 @@ async function creditSellToUserWallet(trade: any, remote: any) {
         transfer: remote,
         walletCredited: true,
         userCreditNgn: amountNgn,
+        feeLiquidation: feeSettle,
       },
     },
   });

@@ -32,6 +32,9 @@ import {
   createBushaMarkupRangeController,
   updateBushaMarkupRangeController,
   deleteBushaMarkupRangeController,
+  listBushaCoinFeeConfigsController,
+  putBushaCoinFeeConfigsController,
+  listBushaFeeLedgerController,
 } from '../../controllers/admin/busha.controller';
 
 const router = express.Router();
@@ -43,6 +46,9 @@ router.get('/markup-ranges', ...adminOnly, listBushaMarkupRangesController);
 router.post('/markup-ranges', ...adminOnly, createBushaMarkupRangeController);
 router.put('/markup-ranges/:id', ...adminOnly, updateBushaMarkupRangeController);
 router.delete('/markup-ranges/:id', ...adminOnly, deleteBushaMarkupRangeController);
+router.get('/fee-configs', ...adminOnly, listBushaCoinFeeConfigsController);
+router.put('/fee-configs', ...adminOnly, putBushaCoinFeeConfigsController);
+router.get('/fee-ledger', ...adminOnly, listBushaFeeLedgerController);
 router.post('/recipients/sync', ...adminOnly, syncBushaRecipientController);
 
 router.get('/customer-wallets', ...adminOnly, listBushaCustomerWalletsController);

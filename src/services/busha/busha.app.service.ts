@@ -48,6 +48,15 @@ import {
   roundNgn,
   userSellCreditNgn,
 } from './busha.markup';
+import {
+  applyWithdrawFee,
+  computeWithdrawFeeAmount,
+  formatDepositFeeNote,
+  getCoinFeePercents,
+  getDisplayBalance,
+  getHeldFeeAmount,
+  reconcileAgainstBusha,
+} from './busha.ledger.service';
 
 const bushaCustomerModel = (prisma as any).bushaCustomer;
 const bushaTradeLogModel = (prisma as any).bushaTradeLog;
@@ -217,7 +226,38 @@ async function assertCustomerTradeReady(customerId: string, needPayout = false) 
 export async function getAppBushaWallet(userId: number, currency?: string) {
   await assertBushaAppActive();
   const customer = await ensureBushaCustomerForUser(userId);
-  return getBushaCustomerWallet(customer.id, currency);
+  const wallet = await getBushaCustomerWallet(customer.id, currency);
+  const balances = Array.isArray(wallet.balances) ? wallet.balances : [];
+  const adjusted = [];
+  for (const b of balances) {
+    const code = String(b.currency || '').toUpperCase();
+    const type = String(b.type || '').toLowerCase();
+    if (!code || type === 'fiat') {
+      adjusted.push(b);
+      continue;
+    }
+    const raw =
+      b?.available?.amount ?? b?.available ?? b?.total?.amount ?? b?.total ?? '0';
+    const rawStr =
+      typeof raw === 'object' && raw != null && 'amount' in (raw as any)
+        ? String((raw as any).amount ?? '0')
+        : String(raw ?? '0');
+    const disp = await getDisplayBalance(userId, code, rawStr);
+    await reconcileAgainstBusha(userId, code, rawStr);
+    const next = { ...b };
+    if (disp.useLedger) {
+      if (next.available && typeof next.available === 'object') {
+        next.available = { ...next.available, amount: disp.display };
+      } else {
+        next.available = { amount: disp.display, currency: code };
+      }
+      if (next.total && typeof next.total === 'object') {
+        next.total = { ...next.total, amount: disp.display };
+      }
+    }
+    adjusted.push(next);
+  }
+  return { ...wallet, balances: adjusted };
 }
 
 /** Reusable deposit address — preferred receive path (no amount). */
@@ -229,7 +269,14 @@ export async function getAppBushaDepositAddress(
   await assertBushaAppActive();
   const customer = await ensureBushaCustomerForUser(userId);
   await assertCustomerTradeReady(customer.id, false);
-  return getBushaCustomerDepositAddress(customer.id, currency, network);
+  const addr = await getBushaCustomerDepositAddress(customer.id, currency, network);
+  const { depositFeePercent } = await getCoinFeePercents(currency);
+  const note = formatDepositFeeNote(depositFeePercent);
+  return {
+    ...addr,
+    depositFeePercent: depositFeePercent > 0 ? depositFeePercent : 0,
+    depositFeeNote: note,
+  };
 }
 
 export async function regenerateAppBushaDepositAddress(
@@ -327,6 +374,17 @@ export async function getAppBushaAssets(userId: number) {
       defaultNetwork: code,
       source: 'busha' as const,
     }, code));
+  }
+
+  // Apply ledger display balances when fees are held
+  for (const a of assets) {
+    const bushaAmt = a.balance;
+    const disp = await getDisplayBalance(userId, a.currency, bushaAmt);
+    await reconcileAgainstBusha(userId, a.currency, bushaAmt);
+    if (disp.useLedger) {
+      a.balance = disp.display;
+      a.availableBalance = disp.display;
+    }
   }
 
   let totalUsd = 0;
@@ -607,6 +665,14 @@ export async function previewAppBushaSell(
   const cryptoAmount = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
   await assertBushaSellCryptoWithinLimits(params.sourceCurrency, cryptoAmount);
 
+  const currency = params.sourceCurrency.toUpperCase();
+  const heldFee = await getHeldFeeAmount(userId, currency);
+  const heldFeeNum = parseFloat(heldFee.toString()) || 0;
+  const bushaSourceAmount =
+    heldFeeNum > 0
+      ? formatAmountStr(cryptoAmount + heldFeeNum, 8)
+      : params.sourceAmount;
+
   const sellPayoutMode = await getSellPayoutMode();
   const usdNotional = parseFloat(String(params.usdAmount ?? '').replace(/,/g, ''));
   const resolved = await resolveMarkupForUsdAmount(
@@ -620,16 +686,23 @@ export async function previewAppBushaSell(
     side: 'sell',
     sourceCurrency: params.sourceCurrency,
     targetCurrency: 'NGN',
-    amount: params.sourceAmount,
+    amount: bushaSourceAmount,
     fundingMethod: params.fundingMethod || 'balance',
     network: params.network,
     payoutToBalance: true,
   });
 
-  const bushaNgn = parseFloat(String(quote.quote?.target_amount || '0').replace(/,/g, '')) || 0;
-  const userNgn = roundNgn(userSellCreditNgn(bushaNgn, sellMarkupPercent));
+  const bushaNgnTotal = parseFloat(String(quote.quote?.target_amount || '0').replace(/,/g, '')) || 0;
+  const denom = cryptoAmount + heldFeeNum;
+  const userShareBushaNgn =
+    heldFeeNum > 0 && denom > 0
+      ? roundNgn(bushaNgnTotal * (cryptoAmount / denom))
+      : bushaNgnTotal;
+  const feeShareBushaNgn = roundNgn(bushaNgnTotal - userShareBushaNgn);
+  const userNgn = roundNgn(userSellCreditNgn(userShareBushaNgn, sellMarkupPercent));
   const userFacingQuote = {
     ...quote.quote,
+    source_amount: formatAmountStr(cryptoAmount, 8),
     target_amount: formatAmountStr(userNgn, 2),
   };
 
@@ -645,14 +718,18 @@ export async function previewAppBushaSell(
       minUsd: resolved.minUsd ?? null,
       maxUsd: resolved.maxUsd ?? null,
       usdAmount: Number.isFinite(usdNotional) ? usdNotional : null,
-      bushaTargetAmount: formatAmountStr(bushaNgn, 2),
+      bushaTargetAmount: formatAmountStr(bushaNgnTotal, 2),
       userTargetAmount: formatAmountStr(userNgn, 2),
-      platformSpreadNgn: formatAmountStr(roundNgn(bushaNgn - userNgn), 2),
+      platformSpreadNgn: formatAmountStr(roundNgn(userShareBushaNgn - userNgn), 2),
+      heldFeeCrypto: formatAmountStr(heldFeeNum, 8),
+      feeShareNgn: formatAmountStr(feeShareBushaNgn, 2),
+      bushaSourceAmount,
+      userSourceAmount: formatAmountStr(cryptoAmount, 8),
     },
     note:
       sellPayoutMode === 'palmpay_temp'
-        ? 'NGN settles to PalmPay temp account; your Terescrow NGN wallet is credited when Busha completes.'
-        : 'NGN settles to the admin dashboard bank; your Terescrow NGN wallet is credited when Busha completes.',
+        ? 'NGN settles to a temporary account; your Naira wallet is credited when the sale completes.'
+        : 'NGN settles to the payout bank; your Naira wallet is credited when the sale completes.',
   };
 }
 
@@ -673,6 +750,14 @@ export async function executeAppBushaSell(
   const cryptoAmount = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
   await assertBushaSellCryptoWithinLimits(params.sourceCurrency, cryptoAmount);
 
+  const currency = params.sourceCurrency.toUpperCase();
+  const heldFee = await getHeldFeeAmount(userId, currency);
+  const heldFeeNum = parseFloat(heldFee.toString()) || 0;
+  const bushaSourceAmount =
+    heldFeeNum > 0
+      ? formatAmountStr(cryptoAmount + heldFeeNum, 8)
+      : params.sourceAmount;
+
   const sellPayoutMode = await getSellPayoutMode();
   const settings = await getBushaConfigRow();
 
@@ -687,7 +772,7 @@ export async function executeAppBushaSell(
       customerId: customer.id,
       sourceCurrency: params.sourceCurrency,
       targetCurrency: 'NGN',
-      sourceAmount: params.sourceAmount,
+      sourceAmount: bushaSourceAmount,
       fundingMethod: params.fundingMethod || 'balance',
       network: params.network,
     });
@@ -709,7 +794,7 @@ export async function executeAppBushaSell(
     customerId: customer.id,
     sourceCurrency: params.sourceCurrency,
     targetCurrency: 'NGN',
-    sourceAmount: params.sourceAmount,
+    sourceAmount: bushaSourceAmount,
     fundingMethod: params.fundingMethod || 'balance',
     network: params.network,
     payoutRecipientId,
@@ -723,8 +808,14 @@ export async function executeAppBushaSell(
     Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : null
   );
   const sellMarkupPercent = resolved.percent;
-  const bushaNgn = parseFloat(String(trade.targetAmount || '0')) || 0;
-  const userNgn = roundNgn(userSellCreditNgn(bushaNgn, sellMarkupPercent));
+  const bushaNgnTotal = parseFloat(String(trade.targetAmount || '0')) || 0;
+  const denom = cryptoAmount + heldFeeNum;
+  const userShareBushaNgn =
+    heldFeeNum > 0 && denom > 0
+      ? roundNgn(bushaNgnTotal * (cryptoAmount / denom))
+      : bushaNgnTotal;
+  const feeShareBushaNgn = roundNgn(bushaNgnTotal - userShareBushaNgn);
+  const userNgn = roundNgn(userSellCreditNgn(userShareBushaNgn, sellMarkupPercent));
 
   const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
   const fiatTxn = await prisma.fiatTransaction.create({
@@ -736,9 +827,9 @@ export async function executeAppBushaSell(
       status: 'pending',
       currency: 'NGN',
       amount: userNgn,
-      fees: roundNgn(bushaNgn - userNgn),
+      fees: roundNgn(userShareBushaNgn - userNgn),
       totalAmount: userNgn,
-      description: `Busha sell ${params.sourceAmount} ${params.sourceCurrency.toUpperCase()}`,
+      description: `Sell ${params.sourceAmount} ${params.sourceCurrency.toUpperCase()}`,
       palmpayOrderId: palmpayPayoutOrderId || null,
       palmpayOrderNo: palmpayPayoutOrderNo || null,
     },
@@ -750,6 +841,8 @@ export async function executeAppBushaSell(
       userId,
       payoutMode: sellPayoutMode,
       fiatTransactionId: fiatTxn.id,
+      // Keep user-facing source amount on the trade log for history
+      sourceAmount: formatAmountStr(cryptoAmount, 8),
       status: trade.status === 'awaiting_crypto_deposit' ? 'awaiting_crypto_deposit' : 'settling',
       providerResponse: {
         ...(trade.providerResponse as object),
@@ -760,9 +853,14 @@ export async function executeAppBushaSell(
           markupSource: resolved.source,
           rangeId: resolved.rangeId ?? null,
           usdAmount: Number.isFinite(usdNotional) ? usdNotional : null,
-          bushaTargetAmount: formatAmountStr(bushaNgn, 2),
+          bushaTargetAmount: formatAmountStr(bushaNgnTotal, 2),
           userCreditNgn: formatAmountStr(userNgn, 2),
-          platformSpreadNgn: formatAmountStr(roundNgn(bushaNgn - userNgn), 2),
+          platformSpreadNgn: formatAmountStr(roundNgn(userShareBushaNgn - userNgn), 2),
+          heldFeeCrypto: formatAmountStr(heldFeeNum, 8),
+          feeShareNgn: formatAmountStr(feeShareBushaNgn, 2),
+          bushaSourceAmount,
+          userSourceAmount: formatAmountStr(cryptoAmount, 8),
+          userShareBushaNgn: formatAmountStr(userShareBushaNgn, 2),
         },
       } as any,
     },
@@ -1016,10 +1114,12 @@ export async function executeAppBushaSend(
     throw ApiError.badRequest(error?.message || 'Unsupported network');
   }
 
+  const currency = params.currency.toUpperCase();
+  const amount = parseFloat(String(params.amount).replace(/,/g, ''));
+
   try {
     const limits = await getBushaCurrencyNetworkLimits(params.currency, network);
     const min = limits.minWithdraw != null ? parseFloat(String(limits.minWithdraw)) : NaN;
-    const amount = parseFloat(String(params.amount).replace(/,/g, ''));
     if (Number.isFinite(min) && min > 0 && Number.isFinite(amount) && amount < min) {
       throw ApiError.badRequest(
         `Minimum send on ${network} is ${limits.minWithdraw} ${params.currency.toUpperCase()}.`
@@ -1027,6 +1127,27 @@ export async function executeAppBushaSend(
     }
   } catch (error) {
     if (error instanceof ApiError) throw error;
+  }
+
+  const wallet = await getBushaCustomerWallet(customer.id, currency);
+  const bal = wallet.balances.find((b: any) => b.currency?.toUpperCase() === currency);
+  const bushaAvailable = parseFloat(bal?.available?.amount || '0');
+  const disp = await getDisplayBalance(userId, currency, bushaAvailable);
+  const ourFeeDec = await computeWithdrawFeeAmount(currency, amount);
+
+  const sendPreview = await previewBushaCryptoSend({
+    customerId: customer.id,
+    currency,
+    amount: String(params.amount),
+    destinationAddress: params.destinationAddress,
+    destinationNetwork: params.destinationNetwork,
+  });
+  const networkFeeNum = parseFloat(String(sendPreview.networkFee || '0').replace(/,/g, '')) || 0;
+  const ourFeeNum = parseFloat(ourFeeDec.toString());
+  const totalNeed = amount + ourFeeNum + networkFeeNum;
+  const displayAvail = parseFloat(disp.display);
+  if (!(Number.isFinite(amount) && amount > 0 && displayAvail + 1e-12 >= totalNeed)) {
+    throw ApiError.badRequest('Insufficient balance for this send including fees');
   }
 
   const trade = await executeBushaCryptoSend({
@@ -1039,14 +1160,39 @@ export async function executeAppBushaSend(
     memo: params.memo,
   });
 
-  return bushaTradeLogModel.update({
+  const updated = await bushaTradeLogModel.update({
     where: { id: trade.id },
-    data: { userId },
+    data: {
+      userId,
+      providerResponse: {
+        ...(trade.providerResponse as object),
+        ledger: {
+          ourFee: ourFeeDec.toString(),
+          networkFee: String(networkFeeNum),
+          combinedFee: String(ourFeeNum + networkFeeNum),
+        },
+      } as any,
+    },
     include: {
       customer: true,
       initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
     },
   });
+
+  try {
+    await applyWithdrawFee({
+      userId,
+      currency,
+      sendAmount: amount,
+      ourFee: ourFeeDec.toString(),
+      networkFee: networkFeeNum,
+      sourceTradeId: updated.id,
+    });
+  } catch (err: any) {
+    console.warn('[Busha send] ledger withdraw fee failed', err?.message || err);
+  }
+
+  return updated;
 }
 
 export async function previewAppBushaSend(
@@ -1065,8 +1211,9 @@ export async function previewAppBushaSend(
 
   const wallet = await getBushaCustomerWallet(customer.id, currency);
   const bal = wallet.balances.find((b: any) => b.currency?.toUpperCase() === currency);
-  const available = parseFloat(bal?.available?.amount || '0');
-  const sufficient = Number.isFinite(amount) && amount > 0 && available >= amount;
+  const bushaAvailable = parseFloat(bal?.available?.amount || '0');
+  const disp = await getDisplayBalance(userId, currency, bushaAvailable);
+  const displayAvailable = parseFloat(disp.display);
 
   const sendPreview = await previewBushaCryptoSend({
     customerId: customer.id,
@@ -1075,6 +1222,20 @@ export async function previewAppBushaSend(
     destinationAddress: params.destinationAddress,
     destinationNetwork: params.destinationNetwork,
   });
+
+  const ourFeeDec = await computeWithdrawFeeAmount(currency, amount);
+  const ourFeeNum = parseFloat(ourFeeDec.toString()) || 0;
+  const networkFeeNum = parseFloat(String(sendPreview.networkFee || '0').replace(/,/g, '')) || 0;
+  const combinedFee = ourFeeNum + networkFeeNum;
+  const combinedFeeStr = Number.isFinite(combinedFee) ? String(combinedFee) : String(networkFeeNum);
+
+  const totalNeed =
+    Number.isFinite(amount) && amount > 0 ? amount + ourFeeNum + networkFeeNum : NaN;
+  const sufficient =
+    Number.isFinite(amount) &&
+    amount > 0 &&
+    Number.isFinite(displayAvailable) &&
+    displayAvailable + 1e-12 >= totalNeed;
 
   const belowMin =
     sendPreview.belowMinimum ||
@@ -1089,20 +1250,42 @@ export async function previewAppBushaSend(
     !sendPreview.quoteError &&
     !!String(params.destinationAddress || '').trim();
 
+  const fees = Array.isArray(sendPreview.fees) ? [...sendPreview.fees] : [];
+  if (combinedFee > 0) {
+    const feeCurrency = sendPreview.networkFeeCurrency || currency;
+    if (fees.length > 0 && fees[0]?.amount) {
+      fees[0] = {
+        ...fees[0],
+        amount: {
+          ...(typeof fees[0].amount === 'object' ? fees[0].amount : {}),
+          amount: combinedFeeStr,
+          currency: feeCurrency,
+        },
+        name: fees[0].name || 'fee',
+      };
+    } else {
+      fees.unshift({
+        name: 'fee',
+        type: 'FIXED',
+        amount: { amount: combinedFeeStr, currency: feeCurrency },
+      });
+    }
+  }
+
   return {
     currency,
     network: sendPreview.network,
     amount: params.amount,
-    available: String(available),
+    available: disp.display,
     sufficient,
     hasSufficientBalance: sufficient,
     canProceed,
     fromAddress: sendPreview.fromAddress,
     toAddress: sendPreview.toAddress || String(params.destinationAddress || '').trim() || null,
-    fees: sendPreview.fees,
-    networkFee: sendPreview.networkFee,
-    networkFeeCurrency: sendPreview.networkFeeCurrency,
-    withdrawalFee: (sendPreview as any).withdrawalFee || sendPreview.networkFee || null,
+    fees,
+    networkFee: combinedFeeStr,
+    networkFeeCurrency: sendPreview.networkFeeCurrency || currency,
+    withdrawalFee: combinedFeeStr,
     minWithdraw: sendPreview.minWithdraw,
     belowMinimum: belowMin,
     quoteError: sendPreview.quoteError,
