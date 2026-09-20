@@ -282,8 +282,23 @@ export const getAllCustomerWithAgentsChats = async (
     const category = (req.query.category as string) || 'All';
     const q = (req.query.q as string) || '';
     const customerId = req.query.customerId ? Number(req.query.customerId) : undefined;
-    const start = req.query.start ? new Date(String(req.query.start)) : undefined;
-    const end = req.query.end ? new Date(String(req.query.end)) : undefined;
+    const start = req.query.start
+      ? new Date(
+          String(req.query.start).includes('T')
+            ? String(req.query.start)
+            : `${String(req.query.start)}T00:00:00`
+        )
+      : undefined;
+    let end = req.query.end
+      ? new Date(
+          String(req.query.end).includes('T')
+            ? String(req.query.end)
+            : `${String(req.query.end)}T00:00:00`
+        )
+      : undefined;
+    if (end && req.query.end && !String(req.query.end).includes('T')) {
+      end.setHours(23, 59, 59, 999);
+    }
 
     // base + role filters
     const where: any = {

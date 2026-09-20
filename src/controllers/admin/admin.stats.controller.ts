@@ -16,8 +16,17 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
         let createdAtFilter: { gte?: Date; lte?: Date } | undefined;
         if (startParam || endParam) {
             createdAtFilter = {};
-            if (startParam) createdAtFilter.gte = new Date(startParam);
-            if (endParam) createdAtFilter.lte = new Date(endParam);
+            if (startParam) {
+                const start = new Date(startParam.includes('T') ? startParam : `${startParam}T00:00:00`);
+                createdAtFilter.gte = start;
+            }
+            if (endParam) {
+                const end = new Date(endParam.includes('T') ? endParam : `${endParam}T00:00:00`);
+                if (!endParam.includes('T')) {
+                    end.setHours(23, 59, 59, 999);
+                }
+                createdAtFilter.lte = end;
+            }
         } else {
             const window = resolveStatsTimeWindow(timeWindow);
             if (window.gte || window.lte) createdAtFilter = window;
