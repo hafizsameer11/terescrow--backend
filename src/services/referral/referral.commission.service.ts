@@ -161,10 +161,13 @@ export async function creditReferralCommission(
  * Credit signup bonus to the NEW USER who signed up with a referral code.
  * The bonus goes into the new user's referral wallet (not the referrer's).
  * They cannot withdraw until balance reaches the minimum threshold (temporarily 100 NGN for testing).
+ *
+ * Push is attempted here; if the device has no FCM token yet (typical at register),
+ * {@link deliverPendingReferralSignupBonusPush} sends it when the token is first saved.
  */
 export async function creditSignupBonus(newUserId: number, referrerId: number) {
   try {
-    const { signupBonus: bonusAmount } = await getReferralSignupRules();
+    const { signupBonus: bonusAmount, signupBonusNgn } = await getReferralSignupRules();
 
     if (bonusAmount.lte(0)) return;
 
@@ -192,29 +195,86 @@ export async function creditSignupBonus(newUserId: number, referrerId: number) {
       });
     });
 
-    const amountLabel = Number(bonusAmount.toString()).toLocaleString('en-NG', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    });
-    const title = 'Referral bonus credited';
-    const description = `NGN ${amountLabel} has been added to your referral wallet.`;
-    await prisma.inAppNotification.create({
-      data: {
-        userId: newUserId,
-        title,
-        description,
-        type: InAppNotificationType.customeer,
-      },
-    });
-    await sendPushNotification({
-      userId: newUserId,
-      title,
-      body: description,
-      sound: 'default',
-      priority: 'high',
-      data: { type: 'referral_signup_bonus' },
-    });
+    await notifyReferralSignupBonus(newUserId, signupBonusNgn);
   } catch (error) {
     console.error('[ReferralCommission] Failed to credit signup bonus:', error);
+  }
+}
+
+function referralSignupBonusCopy(amountNgn: number) {
+  const amountLabel = Number(amountNgn).toLocaleString('en-NG', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+  return {
+    title: `You earned ₦${amountLabel}`,
+    description: `Your referral signup bonus of ₦${amountLabel} has been added to your referral wallet.`,
+  };
+}
+
+/** In-app + push for the user who received the referral signup bonus (e.g. ₦10,000). */
+export async function notifyReferralSignupBonus(
+  userId: number,
+  amountNgn: number,
+  opts?: { skipInApp?: boolean },
+): Promise<boolean> {
+  const { title, description } = referralSignupBonusCopy(amountNgn);
+
+  if (!opts?.skipInApp) {
+    const existing = await prisma.inAppNotification.findFirst({
+      where: { userId, title, description },
+      select: { id: true },
+    });
+    if (!existing) {
+      await prisma.inAppNotification.create({
+        data: {
+          userId,
+          title,
+          description,
+          type: InAppNotificationType.customeer,
+        },
+      });
+    }
+  }
+
+  return sendPushNotification({
+    userId,
+    title,
+    body: description,
+    sound: 'default',
+    priority: 'high',
+    data: { type: 'referral_signup_bonus', amount: String(amountNgn) },
+  });
+}
+
+/**
+ * Call when FCM/Expo token is first saved — signup push usually fails at register
+ * because the token does not exist yet.
+ */
+export async function deliverPendingReferralSignupBonusPush(userId: number): Promise<void> {
+  try {
+    const earning = await prisma.referralEarning.findFirst({
+      where: { userId, earningType: ReferralEarningType.SIGNUP_BONUS },
+      orderBy: { createdAt: 'desc' },
+      select: { earnedAmount: true, createdAt: true },
+    });
+    if (!earning) return;
+
+    // Only within 7 days of bonus credit
+    const ageMs = Date.now() - earning.createdAt.getTime();
+    if (ageMs > 7 * 24 * 60 * 60 * 1000) return;
+
+    const amountNgn = Number(earning.earnedAmount.toString());
+    const { title } = referralSignupBonusCopy(amountNgn);
+
+    // Avoid duplicate in-app rows; only push (in-app already created at credit time)
+    const hasInApp = await prisma.inAppNotification.findFirst({
+      where: { userId, title },
+      select: { id: true },
+    });
+
+    await notifyReferralSignupBonus(userId, amountNgn, { skipInApp: !!hasInApp });
+  } catch (error) {
+    console.error('[ReferralCommission] Deferred signup bonus push failed:', error);
   }
 }

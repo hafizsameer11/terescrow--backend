@@ -14,6 +14,7 @@ interface PushNotificationPayload {
     priority?: 'default' | 'high';
 }
 
+/** @returns true if Expo accepted the push (token present and request succeeded). */
 export async function sendPushNotification({
     userId,
     title,
@@ -22,7 +23,7 @@ export async function sendPushNotification({
     data = {},
 
     priority = 'high',
-}: PushNotificationPayload): Promise<void> {
+}: PushNotificationPayload): Promise<boolean> {
     try {
         // 1. Fetch user's expoPushToken from database
         const user = await prisma.user.findUnique({
@@ -32,7 +33,7 @@ export async function sendPushNotification({
 
         if (!user?.fcmToken) {
             console.log(`❌ No Expo Push Token found for user ID ${userId}`);
-            return;
+            return false;
         }
         const unreadMessagesCount = await prisma.message.count({
             where: {
@@ -58,7 +59,9 @@ export async function sendPushNotification({
         });
 
         console.log('🚀 Push Sent to User:', userId, JSON.stringify(response.data, null, 2));
+        return true;
     } catch (error: any) {
         console.error('❌ Push Notification Error:', error.response?.data || error.message);
+        return false;
     }
 }

@@ -398,10 +398,26 @@ export const saveFcmTokenController = async (
       return next(ApiError.badRequest('Please provide a valid FCM token'));
     }
 
+    const existing = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { fcmToken: true },
+    });
+    const hadToken = !!existing?.fcmToken?.trim();
+
     const updatedUser = await prisma.user.update({
       where: { id: user.id },
       data: { fcmToken },
     });
+
+    // Signup-bonus push usually fails at register (no token yet). Deliver once on first token save.
+    if (!hadToken) {
+      const { deliverPendingReferralSignupBonusPush } = await import(
+        '../services/referral/referral.commission.service'
+      );
+      deliverPendingReferralSignupBonusPush(user.id).catch((err) =>
+        console.error('[FCM] referral signup bonus push:', err)
+      );
+    }
 
     return new ApiResponse(200, updatedUser, 'FCM token saved successfully').send(res);
   } catch (error: any) {
