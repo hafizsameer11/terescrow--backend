@@ -58,6 +58,20 @@ async function notifyVaStatus(
   });
 }
 
+/** PalmPay label VAs settle on PalmPay — API create/query do not return bankName. */
+const DEFAULT_BANK_NAME = process.env.PALMPAY_VA_BANK_NAME || 'PalmPay';
+const DEFAULT_BANK_CODE = process.env.PALMPAY_VA_BANK_CODE || '100033';
+
+export function resolvePermanentVaBankName(bankName?: string | null): string {
+  const s = String(bankName || '').trim();
+  return s || DEFAULT_BANK_NAME;
+}
+
+export function resolvePermanentVaBankCode(bankCode?: string | null): string {
+  const s = String(bankCode || '').trim();
+  return s || DEFAULT_BANK_CODE;
+}
+
 export function serializePermanentVa(row: any) {
   if (!row) return null;
   return {
@@ -65,8 +79,8 @@ export function serializePermanentVa(row: any) {
     status: row.status,
     accountNumber: row.accountNumber,
     accountName: row.accountName,
-    bankName: row.bankName,
-    bankCode: row.bankCode,
+    bankName: resolvePermanentVaBankName(row.bankName),
+    bankCode: resolvePermanentVaBankCode(row.bankCode),
     virtualAccountId: row.virtualAccountId,
     errorMessage: row.errorMessage,
     approvedAt: row.approvedAt,
@@ -133,8 +147,8 @@ export async function applyPermanentVaRemoteStatus(
     lastQueriedAt: new Date(),
     ...(remote.accountNumber ? { accountNumber: remote.accountNumber } : {}),
     ...(remote.accountName ? { accountName: remote.accountName } : {}),
-    ...(remote.bankName ? { bankName: remote.bankName } : {}),
-    ...(remote.bankCode ? { bankCode: remote.bankCode } : {}),
+    bankName: resolvePermanentVaBankName(remote.bankName || row.bankName),
+    bankCode: resolvePermanentVaBankCode(remote.bankCode || row.bankCode),
     ...(remote.virtualAccountId ? { virtualAccountId: remote.virtualAccountId } : {}),
     ...(remote.raw ? { providerPayload: JSON.stringify(remote.raw) } : {}),
   };
@@ -241,8 +255,8 @@ export async function createPersonalPermanentVa(opts: {
         data: {
           accountNumber: remote.accountNumber,
           accountName: remote.accountName || fullName,
-          bankName: remote.bankName,
-          bankCode: remote.bankCode,
+          bankName: resolvePermanentVaBankName(remote.bankName),
+          bankCode: resolvePermanentVaBankCode(remote.bankCode),
           virtualAccountId: remote.virtualAccountId,
           providerPayload: JSON.stringify(remote.raw),
         },
