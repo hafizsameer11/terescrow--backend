@@ -1,7 +1,8 @@
 import { prisma } from '../../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
-import { ReferralService, ReferralCommissionType, ReferralEarningType } from '@prisma/client';
+import { ReferralService, ReferralCommissionType, ReferralEarningType, InAppNotificationType } from '@prisma/client';
 import { getReferralSignupRules } from './referral.signup.rules';
+import { sendPushNotification } from '../../utils/pushService';
 
 export { ReferralService } from '@prisma/client';
 
@@ -189,6 +190,29 @@ export async function creditSignupBonus(newUserId: number, referrerId: number) {
           earnedAmount: bonusAmount,
         },
       });
+    });
+
+    const amountLabel = Number(bonusAmount.toString()).toLocaleString('en-NG', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+    const title = 'Referral bonus credited';
+    const description = `NGN ${amountLabel} has been added to your referral wallet.`;
+    await prisma.inAppNotification.create({
+      data: {
+        userId: newUserId,
+        title,
+        description,
+        type: InAppNotificationType.customeer,
+      },
+    });
+    await sendPushNotification({
+      userId: newUserId,
+      title,
+      body: description,
+      sound: 'default',
+      priority: 'high',
+      data: { type: 'referral_signup_bonus' },
     });
   } catch (error) {
     console.error('[ReferralCommission] Failed to credit signup bonus:', error);
