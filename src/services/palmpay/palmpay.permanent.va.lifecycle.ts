@@ -268,11 +268,14 @@ export async function createPersonalPermanentVa(opts: {
 export async function refreshPermanentVaFromPalmPay(userId: number) {
   const row = await getFundVirtualAccountForUser(userId);
   if (!row) throw ApiError.notFound('No funding account found');
+  if (!row.accountNumber) {
+    throw ApiError.badRequest(
+      'Funding account is still pending approval. Account number is not available yet.'
+    );
+  }
 
   const remote = await palmpayPermanentVaClient.query({
-    accountReference: row.merchantRequestId,
-    virtualAccountNo: row.accountNumber || undefined,
-    virtualAccountId: row.virtualAccountId || undefined,
+    virtualAccountNo: row.accountNumber,
   });
 
   return applyPermanentVaRemoteStatus(row, remote);
@@ -343,10 +346,9 @@ export async function pollPendingPermanentVirtualAccounts(limit = 10) {
   let synced = 0;
   for (const row of pending) {
     try {
+      if (!row.accountNumber) continue;
       const remote = await palmpayPermanentVaClient.query({
-        accountReference: row.merchantRequestId,
-        virtualAccountNo: row.accountNumber || undefined,
-        virtualAccountId: row.virtualAccountId || undefined,
+        virtualAccountNo: row.accountNumber,
       });
       await applyPermanentVaRemoteStatus(row, remote);
       synced += 1;
