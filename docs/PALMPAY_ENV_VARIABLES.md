@@ -78,7 +78,18 @@ PALMPAY_COUNTRY_CODE=NG
 PALMPAY_WEBHOOK_URL=https://api.terescrow.com/api/v2/webhooks/palmpay
 # Default: "https://api.terescrow.com/api/v2/webhooks/palmpay"
 # This is the URL where PalmPay will send payment notifications
+
+# Permanent (label) virtual account API paths — official PalmPay VAS routes
+# Defaults already use /label/... ; set these only to override
+PALMPAY_VA_CREATE_PATH=/api/v2/virtual/account/label/create
+PALMPAY_VA_QUERY_PATH=/api/v2/virtual/account/label/queryOne
+PALMPAY_VA_UPDATE_PATH=/api/v2/virtual/account/label/update
+PALMPAY_VA_ORDER_QUERY_PATH=/api/v2/virtual/order/detail
+PALMPAY_VA_PERSONAL_IDENTITY_TYPE=personal
+# PALMPAY_VA_POLL_MS=30000
 ```
+
+**Do not use** `/api/v2/virtual/account/create` (no `/label/`) — PalmPay prod returns `OPEN_GW_000022` / `invalid url router`.
 
 ---
 
@@ -124,6 +135,12 @@ PALMPAY_ENVIRONMENT=sandbox                    # or "production"
 PALMPAY_VERSION=V1.1                          # API version
 PALMPAY_COUNTRY_CODE=NG                       # Country code
 PALMPAY_WEBHOOK_URL=https://api.terescrow.com/api/v2/webhooks/palmpay
+
+# Permanent VA (label) — defaults in code; optional explicit overrides
+PALMPAY_VA_CREATE_PATH=/api/v2/virtual/account/label/create
+PALMPAY_VA_QUERY_PATH=/api/v2/virtual/account/label/queryOne
+PALMPAY_VA_UPDATE_PATH=/api/v2/virtual/account/label/update
+PALMPAY_VA_ORDER_QUERY_PATH=/api/v2/virtual/order/detail
 
 # OPTIONAL - Can be left empty
 PALMPAY_MERCHANT_ID=your_merchant_id          # Optional
