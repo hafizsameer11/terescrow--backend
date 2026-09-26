@@ -63,7 +63,6 @@ export function serializePermanentVa(row: any) {
   return {
     id: row.id,
     status: row.status,
-    accountType: row.accountType || 'personal',
     accountNumber: row.accountNumber,
     accountName: row.accountName,
     bankName: row.bankName,
@@ -73,7 +72,6 @@ export function serializePermanentVa(row: any) {
     approvedAt: row.approvedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    // Prefill helper for mobile — never expose full BVN after approve; last4 only
     bvnLast4: row.bvn ? String(row.bvn).slice(-4) : null,
   };
 }
