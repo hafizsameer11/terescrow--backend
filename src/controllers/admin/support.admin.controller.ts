@@ -3,6 +3,8 @@ import { validationResult } from 'express-validator';
 import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
+import { sendPushNotification } from '../../utils/pushService';
+import { InAppNotificationType } from '@prisma/client';
 
 export async function getAdminSupportChatsController(req: Request, res: Response, next: NextFunction) {
   try {
@@ -138,7 +140,12 @@ export async function postAdminSupportChatMessageController(req: Request, res: R
     const imageUrl = (req as any).file?.path ? `/${(req as any).file.path}` : undefined;
     if (!text && !imageUrl) return next(ApiError.badRequest('Message or image required'));
 
-    const chat = await prisma.supportChat.findUnique({ where: { id: chatId } });
+    const chat = await prisma.supportChat.findUnique({
+      where: { id: chatId },
+      include: {
+        user: { select: { id: true, firstname: true } },
+      },
+    });
     if (!chat) return next(ApiError.notFound('Chat not found'));
     if (chat.status === 'completed') return next(ApiError.badRequest('Cannot send message to closed chat'));
 
@@ -156,6 +163,38 @@ export async function postAdminSupportChatMessageController(req: Request, res: R
       where: { id: chatId },
       data: { lastMessageAt: new Date(), status: 'processing' },
     });
+
+    const preview =
+      (text && String(text).trim()) ||
+      (imageUrl ? 'Sent you an image' : 'New support reply');
+    const title = 'Support reply';
+    const body =
+      preview.length > 120 ? `${preview.slice(0, 117)}...` : preview;
+
+    prisma.inAppNotification
+      .create({
+        data: {
+          userId: chat.userId,
+          title,
+          description: body,
+          type: InAppNotificationType.customeer,
+        },
+      })
+      .catch((err) => console.error('[Support] in-app notify failed:', err));
+
+    sendPushNotification({
+      userId: chat.userId,
+      title,
+      body,
+      sound: 'default',
+      priority: 'high',
+      data: {
+        type: 'support_chat_reply',
+        chatId: String(chatId),
+        messageId: String(message.id),
+      },
+    }).catch((err) => console.error('[Support] push notify failed:', err));
+
     return new ApiResponse(201, {
       id: message.id,
       sender: 'agent',
