@@ -11,14 +11,33 @@ const permanentVaModel = () => (prisma as any).palmPayPermanentVirtualAccount;
 function mapRemoteStatus(raw?: string | null): 'pending' | 'approved' | 'rejected' | 'failed' | null {
   if (raw === null || raw === undefined || raw === '') return null;
   const s = String(raw).toLowerCase().trim();
-  if (['approved', 'active', 'success', 'successful', 'enabled', '2'].includes(s)) return 'approved';
-  if (['pending', 'processing', 'in_review', 'submitted', '0', '1'].includes(s)) return 'pending';
-  if (['rejected', 'declined', '3'].includes(s)) return 'rejected';
-  if (['failed', 'disabled', '4'].includes(s)) return 'failed';
-  if (s.includes('approv') || s.includes('active') || s.includes('success')) return 'approved';
+  // PalmPay label VA statuses (Enabled / Disabled / Deleted) — never pay-in orderStatus ints
+  if (['approved', 'active', 'enabled'].includes(s)) return 'approved';
+  if (['pending', 'processing', 'in_review', 'submitted'].includes(s)) return 'pending';
+  if (['rejected', 'declined'].includes(s)) return 'rejected';
+  if (['failed', 'disabled', 'deleted'].includes(s)) return 'failed';
+  if (s.includes('approv') || s.includes('active') || s.includes('enable')) return 'approved';
   if (s.includes('reject') || s.includes('declin')) return 'rejected';
-  if (s.includes('fail') || s.includes('disable')) return 'failed';
+  if (s.includes('fail') || s.includes('disable') || s.includes('delet')) return 'failed';
   if (s.includes('pend') || s.includes('process') || s.includes('review')) return 'pending';
+  return null;
+}
+
+/** VA lifecycle status only — never pay-in orderStatus (1 = payment success). */
+function extractVaLifecycleStatusFromWebhook(payload: any): string | null {
+  const candidates = [payload?.accountStatus, payload?.vaStatus];
+  const status = payload?.status;
+  if (status != null && status !== '' && !/^\d+$/.test(String(status).trim())) {
+    candidates.push(status);
+  }
+  for (const c of candidates) {
+    if (c == null || c === '') continue;
+    const mapped = mapRemoteStatus(String(c));
+    if (mapped) return String(c);
+  }
+  const event = payload?.event != null ? String(payload.event).toLowerCase() : '';
+  if (event.includes('reject')) return 'rejected';
+  if (event.includes('approv') || event.includes('enable')) return 'approved';
   return null;
 }
 
@@ -64,8 +83,14 @@ const DEFAULT_BANK_CODE = process.env.PALMPAY_VA_BANK_CODE || '100033';
 
 export function resolvePermanentVaBankName(bankName?: string | null): string {
   const s = String(bankName || '').trim();
-  // Older rows / fallbacks may still say PalmPay — show the bank users must select
-  if (!s || /^palmpay$/i.test(s) || /^bank transfer$/i.test(s)) {
+  // Ignore empty / PalmPay branding / sender banks wrongly stored from pay-in webhooks
+  if (
+    !s ||
+    /^palmpay$/i.test(s) ||
+    /^bank transfer$/i.test(s) ||
+    /^opay$/i.test(s) ||
+    /^o\s*pay$/i.test(s)
+  ) {
     return DEFAULT_BANK_NAME;
   }
   return s;
@@ -299,7 +324,7 @@ export async function refreshPermanentVaFromPalmPay(userId: number) {
   return applyPermanentVaRemoteStatus(row, remote);
 }
 
-/** Mark approved/rejected from webhook lifecycle payload. */
+/** Sync VA metadata from webhook if present — never treat pay-in orderStatus as VA status. */
 export async function syncPermanentVaFromWebhook(payload: any): Promise<boolean> {
   const accountNumber = String(
     payload?.virtualAccountNo ||
@@ -309,10 +334,10 @@ export async function syncPermanentVaFromWebhook(payload: any): Promise<boolean>
       ''
   ).trim();
   const accountReference = String(
-    payload?.accountReference || payload?.merchantRequestId || payload?.orderId || ''
+    payload?.accountReference || payload?.merchantRequestId || ''
   ).trim();
   const virtualAccountId = String(
-    payload?.virtualAccountId || payload?.accountId || payload?.payerAccountId || ''
+    payload?.virtualAccountId || payload?.accountId || ''
   ).trim();
 
   let row =
@@ -333,22 +358,27 @@ export async function syncPermanentVaFromWebhook(payload: any): Promise<boolean>
 
   if (!row) return false;
 
-  const statusHint =
-    payload?.accountStatus ||
-    payload?.vaStatus ||
-    payload?.status ||
-    payload?.orderStatus ||
-    (payload?.event && String(payload.event).includes('reject') ? 'rejected' : null) ||
-    (payload?.event && String(payload.event).includes('approv') ? 'approved' : null);
+  const statusHint = extractVaLifecycleStatusFromWebhook(payload);
+  // Pay-in callbacks include payerBankName / payerAccountName (sender) — never use those for VA
+  const vaBankName =
+    payload?.vaBankName ||
+    payload?.virtualAccountBankName ||
+    (payload?.bankName && !payload?.payerBankName ? payload.bankName : null) ||
+    (payload?.bankName &&
+    payload?.payerBankName &&
+    String(payload.bankName).trim().toLowerCase() !==
+      String(payload.payerBankName).trim().toLowerCase()
+      ? payload.bankName
+      : null);
 
   await applyPermanentVaRemoteStatus(row, {
-    status: statusHint != null ? String(statusHint) : null,
+    status: statusHint,
     accountNumber: accountNumber || row.accountNumber,
-    accountName: payload?.accountName || payload?.payerAccountName || payload?.virtualAccountName,
-    bankName: payload?.bankName || payload?.payerBankName,
-    bankCode: payload?.bankCode,
+    accountName: payload?.virtualAccountName || null,
+    bankName: vaBankName,
+    bankCode: payload?.vaBankCode || payload?.virtualAccountBankCode || null,
     virtualAccountId: virtualAccountId || row.virtualAccountId,
-    message: payload?.respMsg || payload?.message || payload?.errorMessage,
+    message: null,
     raw: payload,
   });
   return true;

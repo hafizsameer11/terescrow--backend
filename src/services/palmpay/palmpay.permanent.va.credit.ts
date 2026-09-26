@@ -4,6 +4,7 @@ import { prisma } from '../../utils/prisma';
 import { fiatWalletService } from '../fiat/fiat.wallet.service';
 import { sendPushNotification } from '../../utils/pushService';
 import palmpayLogger from '../../utils/palmpay.logger';
+import { resolvePermanentVaBankName } from './palmpay.permanent.va.lifecycle';
 
 const permanentVaModel = () => (prisma as any).palmPayPermanentVirtualAccount;
 
@@ -23,11 +24,31 @@ export async function creditPermanentVaDeposit(payload: any): Promise<boolean> {
 
   if (!accountNumber) return false;
 
-  const row = await permanentVaModel().findFirst({
+  // Prefer approved; still credit pending so a bad lifecycle sync cannot block pay-ins
+  let row = await permanentVaModel().findFirst({
     where: { accountNumber, status: 'approved' },
     orderBy: { createdAt: 'desc' },
   });
+  if (!row) {
+    row = await permanentVaModel().findFirst({
+      where: { accountNumber, status: { in: ['pending', 'approved'] } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
   if (!row) return false;
+
+  // Heal: receiving funds proves the VA is live
+  if (row.status !== 'approved') {
+    row = await permanentVaModel().update({
+      where: { id: row.id },
+      data: {
+        status: 'approved',
+        approvedAt: row.approvedAt || new Date(),
+        errorMessage: null,
+        bankName: resolvePermanentVaBankName(row.bankName),
+      },
+    });
+  }
 
   const amountRaw = payload?.amount ?? payload?.orderAmount ?? payload?.transAmount;
   const amountCents = Number(amountRaw);
