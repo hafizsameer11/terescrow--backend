@@ -67,13 +67,15 @@ export async function creditPermanentVaDeposit(payload: any): Promise<boolean> {
 
   const orderStatus = Number(payload?.orderStatus);
   const statusStr = String(payload?.status || '').toLowerCase();
+  // Checkout/deposit success = 2; permanent VA pay-in success = 1 (PalmPay VA order status)
   const isSuccess =
+    orderStatus === 1 ||
     orderStatus === 2 ||
     statusStr === 'success' ||
     statusStr === 'successful' ||
     statusStr === 'completed' ||
-    statusStr === '2' ||
-    (!orderStatus && !statusStr && amountCents > 0);
+    statusStr === '1' ||
+    statusStr === '2';
   if (!isSuccess) {
     return false;
   }
