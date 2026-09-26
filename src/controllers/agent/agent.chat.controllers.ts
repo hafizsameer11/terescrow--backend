@@ -154,12 +154,15 @@ export const sendToCustomerController = async (
       });
       console.log('sent to customer');
     }
-    const receiverNotification = sendPushNotification({
-      userId: chat?.participants[0].userId || sender.id, // receiver
-      title: 'New Message',
-      body: `You have a new message from ${sender.firstname} ${sender.lastname} :  ${message}`,
-      sound: 'default',
-    });
+    const receiverId = chat?.participants[0]?.userId;
+    if (receiverId && receiverId !== sender.id) {
+      sendPushNotification({
+        userId: receiverId,
+        title: 'New Message',
+        body: `You have a new message from ${sender.firstname} ${sender.lastname} :  ${message}`,
+        sound: 'default',
+      });
+    }
     return new ApiResponse(201, newMessage, 'Message sent successfully').send(
       res
     );

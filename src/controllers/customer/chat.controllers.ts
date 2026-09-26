@@ -86,20 +86,13 @@ const sendMessageController = async (
       },
     });
     const receveNotication = await sendPushNotification({
-      userId: chat.participants[0].userId, // receiver
+      userId: chat.participants[0].userId, // receiver only — never notify sender
       title: 'New Message',
       body: req.file
         ? `You have received an image from ${sender.firstname} ${sender.lastname}`
         : `You have a new message from ${sender.firstname} ${sender.lastname}: "${message}"`, sound: 'default',
     });
     console.log(receveNotication);
-    const senderNotification = await sendPushNotification({
-      userId: sender.id, // sender (himself)
-      title: 'Message Sent',
-      body: `You sent a message: "${message}"`,
-      sound: 'default',
-    });
-    console.log(senderNotification)
     await prisma.chat.update({
       where: {
         id: chat.id,
