@@ -58,13 +58,17 @@ async function notifyVaStatus(
   });
 }
 
-/** PalmPay label VAs settle on PalmPay — API create/query do not return bankName. */
-const DEFAULT_BANK_NAME = process.env.PALMPAY_VA_BANK_NAME || 'PalmPay';
+/** Permanent VA pay-ins settle via Boost MFB (PalmPay label API does not return bankName). */
+const DEFAULT_BANK_NAME = process.env.PALMPAY_VA_BANK_NAME || 'Boost MFB';
 const DEFAULT_BANK_CODE = process.env.PALMPAY_VA_BANK_CODE || '100033';
 
 export function resolvePermanentVaBankName(bankName?: string | null): string {
   const s = String(bankName || '').trim();
-  return s || DEFAULT_BANK_NAME;
+  // Older rows / fallbacks may still say PalmPay — show the bank users must select
+  if (!s || /^palmpay$/i.test(s) || /^bank transfer$/i.test(s)) {
+    return DEFAULT_BANK_NAME;
+  }
+  return s;
 }
 
 export function resolvePermanentVaBankCode(bankCode?: string | null): string {
