@@ -35,7 +35,7 @@ async function notifyVaStatus(
         : 'Funding account submitted';
   const description =
     kind === 'approved'
-      ? 'Your permanent bank account is ready. Open Fund Wallet to copy your account details.'
+      ? 'Your wallet funding account is ready. Open Fund Wallet to copy your account details.'
       : kind === 'rejected'
         ? (reason || 'Verification was declined. Please try again with a valid BVN.').slice(0, 500)
         : 'We received your request. You will be notified when your funding account is approved.';
