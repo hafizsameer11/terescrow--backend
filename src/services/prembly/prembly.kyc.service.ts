@@ -417,6 +417,24 @@ export function namesAreTotallyDifferent(
   return !appNameCompatibleWithBvnName(appFirstName, appLastName, bvnFullName);
 }
 
+/** Compare two full names (user-typed BVN name vs Prembly BVN name). */
+export function fullNamesCompatible(enteredFullName: string, bvnFullName: string): boolean {
+  const entered = tokenizePersonName(enteredFullName);
+  const official = tokenizePersonName(bvnFullName);
+  if (!entered.length || !official.length) return false;
+
+  const tokenHits = (a: string, b: string) =>
+    a === b || (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a)));
+
+  const shorter = entered.length <= official.length ? entered : official;
+  const longer = entered.length <= official.length ? official : entered;
+  let hits = 0;
+  for (const t of shorter) {
+    if (longer.some((o) => tokenHits(t, o))) hits += 1;
+  }
+  return hits >= Math.max(1, Math.ceil(shorter.length / 2));
+}
+
 function mapBvnNameToProfileFields(
   firstName: string,
   middleName: string | null,

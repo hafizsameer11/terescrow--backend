@@ -15,6 +15,7 @@ import {
   serializePermanentVa,
 } from '../../services/palmpay/palmpay.permanent.va.lifecycle';
 import {
+  fullNamesCompatible,
   namesAreTotallyDifferent,
   verifyBvnBasicOnly,
 } from '../../services/prembly/prembly.kyc.service';
@@ -39,7 +40,6 @@ export const getPermanentVirtualAccountController = async (
       200,
       {
         virtualAccount: serializePermanentVa(row),
-        /** Prefill for create form only — full BVN when we already have one from KYC / prior attempt */
         bvnPrefill: row?.status === 'approved' ? null : bvnHint,
       },
       row ? 'Funding account retrieved' : 'No funding account yet'
@@ -51,12 +51,13 @@ export const getPermanentVirtualAccountController = async (
 
 /**
  * POST /api/v2/payments/palmpay/deposit/virtual-account
- * Body: { bvn, acceptBvnName?: boolean }
+ * Body: { bvn, bvnFullName }
  *
- * 1) Prembly BVN basic check (valid BVN only — no Prembly name match required)
- * 2) Always use BVN name for PalmPay VA
- * 3) If BVN name is totally different from app profile → return needsNameUpdate
- *    (client can resubmit with acceptBvnName: true to update profile + create)
+ * 1) User enters BVN + full name as on BVN
+ * 2) Prembly validates BVN exists
+ * 3) Entered name must match Prembly BVN name (smooth)
+ * 4) Prembly BVN name must match app profile (else: use your own BVN — never rewrite profile)
+ * 5) Always create PalmPay VA with Prembly BVN name as account name
  */
 export const createPermanentVirtualAccountController = async (
   req: Request,
@@ -80,11 +81,16 @@ export const createPermanentVirtualAccountController = async (
       return next(ApiError.badRequest('BVN must be exactly 11 digits'));
     }
 
-    const acceptBvnName =
-      req.body?.acceptBvnName === true ||
-      req.body?.acceptBvnName === 'true' ||
-      req.body?.acceptBvnName === 1 ||
-      req.body?.acceptBvnName === '1';
+    const enteredBvnName = String(
+      req.body?.bvnFullName || req.body?.fullName || req.body?.accountName || ''
+    )
+      .trim()
+      .replace(/\s+/g, ' ');
+    if (enteredBvnName.length < 3) {
+      return next(
+        ApiError.badRequest('Enter the full name exactly as it appears on your BVN')
+      );
+    }
 
     const profile = await prisma.user.findUnique({
       where: { id: user.id },
@@ -98,41 +104,28 @@ export const createPermanentVirtualAccountController = async (
 
     const appFirst = String(profile?.firstname || user.firstname || '').trim();
     const appLast = String(profile?.lastname || user.lastname || '').trim();
-    const appFullName = `${appFirst} ${appLast}`.trim();
 
     const verified = await verifyBvnBasicOnly(bvn);
-    const nameMismatch = namesAreTotallyDifferent(
-      appFirst,
-      appLast,
-      verified.fullName
-    );
 
-    if (nameMismatch && !acceptBvnName) {
-      return new ApiResponse(
-        200,
-        {
-          needsNameUpdate: true,
-          bvnFullName: verified.fullName,
-          suggestedFirstName: verified.suggestedFirstName,
-          suggestedLastName: verified.suggestedLastName,
-          appFullName: appFullName || null,
-          virtualAccount: null,
-        },
-        'BVN verified. Your profile name does not match your BVN name. Please update your name to continue.'
-      ).send(res);
+    // Entered name must match Prembly record for this BVN
+    if (!fullNamesCompatible(enteredBvnName, verified.fullName)) {
+      return next(
+        ApiError.badRequest(
+          'The name you entered does not match this BVN. Enter the full name on your BVN and try again.'
+        )
+      );
     }
 
-    if (nameMismatch && acceptBvnName) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          firstname: verified.suggestedFirstName,
-          lastname: verified.suggestedLastName,
-        },
-      });
+    // Profile name must belong to the same person — block borrowed BVNs
+    if (namesAreTotallyDifferent(appFirst, appLast, verified.fullName)) {
+      return next(
+        ApiError.badRequest(
+          'This BVN does not match the name on your Tercescrow profile. Please use your own BVN.'
+        )
+      );
     }
 
-    // Always send BVN-verified name to PalmPay
+    // Always use official BVN name as PalmPay account name
     const row = await createPersonalPermanentVa({
       userId: user.id,
       bvn,
@@ -145,7 +138,6 @@ export const createPermanentVirtualAccountController = async (
     return new ApiResponse(
       200,
       {
-        needsNameUpdate: false,
         virtualAccount: serializePermanentVa(row),
         bvnFullName: verified.fullName,
         message:
