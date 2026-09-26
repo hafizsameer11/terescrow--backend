@@ -44,8 +44,24 @@ export async function putStroWalletConfigController(
   next: NextFunction
 ) {
   try {
-    const { topupBankCode, topupBankName, topupAccountNumber, topupAccountName, isActive } =
-      req.body ?? {};
+    const {
+      topupBankCode,
+      topupBankName,
+      topupAccountNumber,
+      topupAccountName,
+      isActive,
+      autoTopupEnabled,
+      autoTopupThresholdNgn,
+      autoTopupAmountNgn,
+      autoTopupCooldownMinutes,
+    } = req.body ?? {};
+
+    const parseOptionalNgn = (v: unknown): number | null | undefined => {
+      if (v === undefined) return undefined;
+      if (v === null || v === '') return null;
+      const n = typeof v === 'number' ? v : parseFloat(String(v));
+      return Number.isFinite(n) ? n : null;
+    };
 
     const saved = await upsertStroWalletTopupSettings({
       topupBankCode,
@@ -53,6 +69,13 @@ export async function putStroWalletConfigController(
       topupAccountNumber,
       topupAccountName,
       isActive,
+      autoTopupEnabled,
+      autoTopupThresholdNgn: parseOptionalNgn(autoTopupThresholdNgn),
+      autoTopupAmountNgn: parseOptionalNgn(autoTopupAmountNgn),
+      autoTopupCooldownMinutes:
+        autoTopupCooldownMinutes === undefined
+          ? undefined
+          : parseInt(String(autoTopupCooldownMinutes), 10),
     });
 
     return new ApiResponse(
@@ -63,6 +86,14 @@ export async function putStroWalletConfigController(
         topupAccountNumber: saved.topupAccountNumber,
         topupAccountName: saved.topupAccountName,
         isActive: saved.isActive,
+        autoTopupEnabled: saved.autoTopupEnabled,
+        autoTopupThresholdNgn:
+          saved.autoTopupThresholdNgn != null
+            ? Number(saved.autoTopupThresholdNgn)
+            : null,
+        autoTopupAmountNgn:
+          saved.autoTopupAmountNgn != null ? Number(saved.autoTopupAmountNgn) : null,
+        autoTopupCooldownMinutes: saved.autoTopupCooldownMinutes,
       },
       'StroWallet top-up settings saved'
     ).send(res);
@@ -88,6 +119,7 @@ export async function topUpStroWalletController(
       accountNumber,
       accountName,
       bankName,
+      trigger: 'manual',
     });
 
     return new ApiResponse(200, result, 'StroWallet top-up initiated').send(res);

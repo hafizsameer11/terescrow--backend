@@ -11,20 +11,121 @@ import { strowalletConfig } from '../strowallet/strowallet.config';
 const strowalletConfigModel = (prisma as any).stroWalletConfig;
 const merchantTopupLogModel = (prisma as any).merchantTopupLog;
 
-/** Admin-editable top-up bank only; API keys are in .env */
+export type TopupTrigger = 'manual' | 'auto';
+
+/** Admin-editable top-up bank + auto-refill settings; API keys are in .env */
 export type StroWalletTopupSettingsInput = {
   topupBankCode?: string | null;
   topupBankName?: string | null;
   topupAccountNumber?: string | null;
   topupAccountName?: string | null;
   isActive?: boolean;
+  autoTopupEnabled?: boolean;
+  autoTopupThresholdNgn?: number | null;
+  autoTopupAmountNgn?: number | null;
+  autoTopupCooldownMinutes?: number;
 };
+
+function mapTopupLog(t: any) {
+  return {
+    id: t.id,
+    amount: t.amount?.toString?.() ?? String(t.amount),
+    currency: t.currency,
+    status: t.status,
+    trigger: t.trigger || 'manual',
+    balanceBeforeNgn:
+      t.balanceBeforeNgn != null
+        ? Number(t.balanceBeforeNgn.toString?.() ?? t.balanceBeforeNgn)
+        : null,
+    palmpayOrderId: t.palmpayOrderId,
+    palmpayOrderNo: t.palmpayOrderNo,
+    bankCode: t.bankCode,
+    bankName: t.bankName,
+    accountNumber: t.accountNumber,
+    accountName: t.accountName,
+    errorMessage: t.errorMessage,
+    createdAt: t.createdAt,
+    completedAt: t.completedAt,
+    initiatedBy: t.initiatedBy,
+  };
+}
+
+function autoSettingsFromRow(row: any) {
+  return {
+    autoTopupEnabled: !!row?.autoTopupEnabled,
+    autoTopupThresholdNgn:
+      row?.autoTopupThresholdNgn != null
+        ? Number(row.autoTopupThresholdNgn.toString?.() ?? row.autoTopupThresholdNgn)
+        : null,
+    autoTopupAmountNgn:
+      row?.autoTopupAmountNgn != null
+        ? Number(row.autoTopupAmountNgn.toString?.() ?? row.autoTopupAmountNgn)
+        : null,
+    autoTopupCooldownMinutes: row?.autoTopupCooldownMinutes ?? 30,
+  };
+}
 
 export async function getStroWalletTopupSettingsRow() {
   return strowalletConfigModel.findUnique({ where: { id: 1 } });
 }
 
 export async function upsertStroWalletTopupSettings(input: StroWalletTopupSettingsInput) {
+  const parseOptionalAmount = (v: number | null | undefined) => {
+    if (v === undefined) return undefined;
+    if (v === null || v === ('' as any)) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) {
+      throw ApiError.badRequest('Auto top-up amounts must be non-negative numbers');
+    }
+    return n;
+  };
+
+  const threshold =
+    input.autoTopupThresholdNgn !== undefined
+      ? parseOptionalAmount(input.autoTopupThresholdNgn)
+      : undefined;
+  const amount =
+    input.autoTopupAmountNgn !== undefined
+      ? parseOptionalAmount(input.autoTopupAmountNgn)
+      : undefined;
+
+  let cooldown: number | undefined;
+  if (input.autoTopupCooldownMinutes !== undefined) {
+    const c = Math.floor(Number(input.autoTopupCooldownMinutes));
+    if (!Number.isFinite(c) || c < 1 || c > 24 * 60) {
+      throw ApiError.badRequest('Cooldown minutes must be between 1 and 1440');
+    }
+    cooldown = c;
+  }
+
+  if (input.autoTopupEnabled === true) {
+    const existing = await getStroWalletTopupSettingsRow();
+    const effectiveThreshold =
+      threshold !== undefined ? threshold : existing?.autoTopupThresholdNgn != null
+        ? Number(existing.autoTopupThresholdNgn)
+        : null;
+    const effectiveAmount =
+      amount !== undefined ? amount : existing?.autoTopupAmountNgn != null
+        ? Number(existing.autoTopupAmountNgn)
+        : null;
+    const bankOk =
+      (input.topupBankCode !== undefined
+        ? !!input.topupBankCode?.trim()
+        : !!existing?.topupBankCode) &&
+      (input.topupAccountNumber !== undefined
+        ? !!input.topupAccountNumber?.trim()
+        : !!existing?.topupAccountNumber);
+
+    if (!bankOk) {
+      throw ApiError.badRequest('Configure top-up bank account before enabling auto top-up');
+    }
+    if (effectiveThreshold == null || effectiveAmount == null || effectiveAmount <= 0) {
+      throw ApiError.badRequest(
+        'Set threshold and transfer amount (> 0) before enabling auto top-up'
+      );
+    }
+  }
+
   return strowalletConfigModel.upsert({
     where: { id: 1 },
     create: {
@@ -34,6 +135,10 @@ export async function upsertStroWalletTopupSettings(input: StroWalletTopupSettin
       topupAccountNumber: input.topupAccountNumber?.trim() || null,
       topupAccountName: input.topupAccountName?.trim() || null,
       isActive: input.isActive ?? true,
+      autoTopupEnabled: input.autoTopupEnabled ?? false,
+      autoTopupThresholdNgn: threshold ?? null,
+      autoTopupAmountNgn: amount ?? null,
+      autoTopupCooldownMinutes: cooldown ?? 30,
     },
     update: {
       ...(input.topupBankCode !== undefined ? { topupBankCode: input.topupBankCode?.trim() || null } : {}),
@@ -45,6 +150,10 @@ export async function upsertStroWalletTopupSettings(input: StroWalletTopupSettin
         ? { topupAccountName: input.topupAccountName?.trim() || null }
         : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      ...(input.autoTopupEnabled !== undefined ? { autoTopupEnabled: input.autoTopupEnabled } : {}),
+      ...(threshold !== undefined ? { autoTopupThresholdNgn: threshold } : {}),
+      ...(amount !== undefined ? { autoTopupAmountNgn: amount } : {}),
+      ...(cooldown !== undefined ? { autoTopupCooldownMinutes: cooldown } : {}),
     },
   });
 }
@@ -81,11 +190,13 @@ export async function getMerchantsOverview() {
   const recentTopups = await merchantTopupLogModel.findMany({
     where: { merchant: 'strowallet' },
     orderBy: { createdAt: 'desc' },
-    take: 10,
+    take: 50,
     include: {
       initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
     },
   });
+
+  const auto = autoSettingsFromRow(strowalletTopup);
 
   return {
     palmpay: {
@@ -120,25 +231,11 @@ export async function getMerchantsOverview() {
             accountName: strowalletTopup.topupAccountName,
           }
         : null,
+      ...auto,
       balanceNgn: strowalletBalanceNgn,
       balanceUsd: strowalletBalanceUsd,
       balanceError: strowalletBalanceError,
-      recentTopups: recentTopups.map((t: any) => ({
-        id: t.id,
-        amount: t.amount?.toString?.() ?? String(t.amount),
-        currency: t.currency,
-        status: t.status,
-        palmpayOrderId: t.palmpayOrderId,
-        palmpayOrderNo: t.palmpayOrderNo,
-        bankCode: t.bankCode,
-        bankName: t.bankName,
-        accountNumber: t.accountNumber,
-        accountName: t.accountName,
-        errorMessage: t.errorMessage,
-        createdAt: t.createdAt,
-        completedAt: t.completedAt,
-        initiatedBy: t.initiatedBy,
-      })),
+      recentTopups: recentTopups.map(mapTopupLog),
     },
   };
 }
@@ -153,6 +250,7 @@ export async function getStroWalletSettingsForAdmin() {
     topupAccountNumber: row?.topupAccountNumber ?? '',
     topupAccountName: row?.topupAccountName ?? '',
     isActive: row?.isActive ?? true,
+    ...autoSettingsFromRow(row),
     envKeys: {
       publicKey: 'STROWALLET_PUBLIC_KEY',
       secretKey: 'STROWALLET_SECRET_KEY',
@@ -164,8 +262,10 @@ export async function getStroWalletSettingsForAdmin() {
 }
 
 export async function topUpStroWalletViaPalmpay(params: {
-  adminUserId: number;
   amount: number;
+  adminUserId?: number | null;
+  trigger?: TopupTrigger;
+  balanceBeforeNgn?: number | null;
   bankCode?: string;
   accountNumber?: string;
   accountName?: string;
@@ -182,6 +282,7 @@ export async function topUpStroWalletViaPalmpay(params: {
     throw ApiError.badRequest('StroWallet top-up is disabled in settings.');
   }
 
+  const trigger: TopupTrigger = params.trigger === 'auto' ? 'auto' : 'manual';
   const bankCode = (params.bankCode || config?.topupBankCode || '').trim();
   const accountNumber = (params.accountNumber || config?.topupAccountNumber || '').trim();
   const accountName = (params.accountName || config?.topupAccountName || 'StroWallet').trim();
@@ -203,6 +304,10 @@ export async function topUpStroWalletViaPalmpay(params: {
     throw ApiError.badRequest('Minimum top-up amount is ₦1.00');
   }
 
+  if (trigger === 'manual' && !params.adminUserId) {
+    throw ApiError.badRequest('Admin user required for manual top-up');
+  }
+
   const orderId = `stw_topup_${uuidv4().replace(/-/g, '')}`.substring(0, 32);
 
   const log = await merchantTopupLogModel.create({
@@ -217,7 +322,12 @@ export async function topUpStroWalletViaPalmpay(params: {
       accountName: accountName || null,
       palmpayOrderId: orderId,
       status: 'pending',
-      initiatedById: params.adminUserId,
+      trigger,
+      balanceBeforeNgn:
+        params.balanceBeforeNgn != null && Number.isFinite(params.balanceBeforeNgn)
+          ? params.balanceBeforeNgn
+          : null,
+      initiatedById: params.adminUserId ?? null,
     },
     include: {
       initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
@@ -227,15 +337,18 @@ export async function topUpStroWalletViaPalmpay(params: {
   try {
     const payout = await palmpayPayout.initiatePayout({
       orderId,
-      title: 'StroWallet top-up',
-      description: `Admin top-up to StroWallet (${accountNumber})`,
+      title: trigger === 'auto' ? 'StroWallet auto top-up' : 'StroWallet top-up',
+      description: `Top-up to StroWallet (${accountNumber})`,
       payeeName: accountName,
       payeeBankCode: bankCode,
       payeeBankAccNo: accountNumber,
       currency: 'NGN',
       amount: amountInCents,
       notifyUrl: palmpayConfig.getWebhookUrl(),
-      remark: `StroWallet merchant top-up by admin ${params.adminUserId}`,
+      remark:
+        trigger === 'auto'
+          ? 'StroWallet merchant auto top-up'
+          : `StroWallet merchant top-up by admin ${params.adminUserId}`,
     });
 
     const status =
@@ -249,6 +362,9 @@ export async function topUpStroWalletViaPalmpay(params: {
         status,
         providerResponse: payout as any,
         ...(status === 'completed' ? { completedAt: new Date() } : {}),
+        ...(status === 'failed'
+          ? { errorMessage: 'PalmPay reported failed payout status' }
+          : {}),
       },
       include: {
         initiatedBy: { select: { id: true, firstname: true, lastname: true, email: true } },
@@ -265,6 +381,100 @@ export async function topUpStroWalletViaPalmpay(params: {
       },
     });
     throw ApiError.internal(error?.message || 'PalmPay payout failed');
+  }
+}
+
+/**
+ * Poller entry: if auto top-up enabled and StroWallet NGN ≤ threshold,
+ * transfer fixed amount from PalmPay (with cooldown + PalmPay balance guard).
+ */
+export async function runStroWalletAutoTopupCheck(): Promise<{
+  skipped: boolean;
+  reason?: string;
+  logId?: string;
+}> {
+  const config = await getStroWalletTopupSettingsRow();
+  if (!config?.autoTopupEnabled) {
+    return { skipped: true, reason: 'disabled' };
+  }
+  if (!config.isActive) {
+    return { skipped: true, reason: 'strowallet_inactive' };
+  }
+  if (!strowalletConfig.isConfigured()) {
+    return { skipped: true, reason: 'not_configured' };
+  }
+
+  const threshold =
+    config.autoTopupThresholdNgn != null ? Number(config.autoTopupThresholdNgn) : NaN;
+  const amount =
+    config.autoTopupAmountNgn != null ? Number(config.autoTopupAmountNgn) : NaN;
+  const cooldownMinutes = Math.max(1, Number(config.autoTopupCooldownMinutes) || 30);
+
+  if (!Number.isFinite(threshold) || !Number.isFinite(amount) || amount <= 0) {
+    return { skipped: true, reason: 'invalid_settings' };
+  }
+  if (!config.topupBankCode || !config.topupAccountNumber) {
+    return { skipped: true, reason: 'missing_bank' };
+  }
+
+  let balanceNgn: number;
+  try {
+    const bal = await strowalletBalanceService.queryBalance(undefined, 'NGN');
+    balanceNgn = Number(bal?.balance);
+    if (!Number.isFinite(balanceNgn)) {
+      return { skipped: true, reason: 'balance_unavailable' };
+    }
+  } catch (e: any) {
+    console.error('[StroWallet auto top-up] balance fetch failed:', e?.message || e);
+    return { skipped: true, reason: 'balance_error' };
+  }
+
+  if (balanceNgn > threshold) {
+    return { skipped: true, reason: 'above_threshold' };
+  }
+
+  const cooldownSince = new Date(Date.now() - cooldownMinutes * 60 * 1000);
+  const recent = await merchantTopupLogModel.findFirst({
+    where: {
+      merchant: 'strowallet',
+      trigger: 'auto',
+      status: { in: ['pending', 'completed'] },
+      createdAt: { gte: cooldownSince },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (recent) {
+    return { skipped: true, reason: 'cooldown' };
+  }
+
+  try {
+    const palmpayBalance = await palmpayMerchantService.queryMerchantBalance();
+    const available = Number(palmpayBalance?.availableBalanceNgn);
+    if (!Number.isFinite(available) || available < amount) {
+      console.warn(
+        `[StroWallet auto top-up] PalmPay available ₦${available} < needed ₦${amount}`
+      );
+      return { skipped: true, reason: 'palmpay_insufficient' };
+    }
+  } catch (e: any) {
+    console.error('[StroWallet auto top-up] PalmPay balance failed:', e?.message || e);
+    return { skipped: true, reason: 'palmpay_balance_error' };
+  }
+
+  try {
+    const log = await topUpStroWalletViaPalmpay({
+      amount,
+      trigger: 'auto',
+      adminUserId: null,
+      balanceBeforeNgn: balanceNgn,
+    });
+    console.log(
+      `[StroWallet auto top-up] Initiated ₦${amount} (balance was ₦${balanceNgn}, threshold ₦${threshold}) log=${log.id}`
+    );
+    return { skipped: false, logId: log.id };
+  } catch (e: any) {
+    console.error('[StroWallet auto top-up] payout failed:', e?.message || e);
+    return { skipped: true, reason: 'payout_failed' };
   }
 }
 

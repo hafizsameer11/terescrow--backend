@@ -125,6 +125,7 @@ const bodyParser = require('body-parser')
 // ============================================
 import { startReloadlyUtilityStatusScheduler } from './schedulers/reloadly.utility.status.scheduler';
 import { startChangeNowSwapStatusScheduler } from './schedulers/changenow.swap.status.scheduler';
+import { startStroWalletAutoTopupScheduler } from './schedulers/strowallet.auto.topup.scheduler';
 import rejectBannedCustomer from './middlewares/reject.banned.customer';
 
 const port = process.env.PORT || 5000;
@@ -536,6 +537,7 @@ httpServer.listen(port, () => {
   // Start schedulers
   startReloadlyUtilityStatusScheduler();
   startChangeNowSwapStatusScheduler();
+  startStroWalletAutoTopupScheduler();
   startBushaSettlementPoller();
   startBushaKycPoller();
   startPalmPayPermanentVaPoller();
