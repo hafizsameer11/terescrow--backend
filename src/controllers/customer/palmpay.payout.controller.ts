@@ -164,11 +164,17 @@ export const initiatePayoutController = async (
         },
       });
 
-      // Set limits based on KYC tier
-      // Tier 2 verified: 3,000 daily / 30,000 monthly
-      // Default (Tier 1 or unverified): 1,000 daily / 10,000 monthly
-      const DAILY_WITHDRAWAL_LIMIT = userWithKyc?.kycTier2Verified ? 3000 : 1000;
-      const MONTHLY_WITHDRAWAL_LIMIT = userWithKyc?.kycTier2Verified ? 30000 : 10000;
+      // APP sheet #6: max ₦20,000 until Tier 2 verified; higher limits after Tier 2
+      const DAILY_WITHDRAWAL_LIMIT = userWithKyc?.kycTier2Verified ? 50000 : 20000;
+      const MONTHLY_WITHDRAWAL_LIMIT = userWithKyc?.kycTier2Verified ? 150000 : 20000;
+
+      if (!userWithKyc?.kycTier2Verified && amountDecimal > 20000) {
+        return next(
+          ApiError.badRequest(
+            'Withdrawal limit is ₦20,000 until Tier 2 verification is completed. Please reduce the amount or complete verification.'
+          )
+        );
+      }
       
       const now = new Date();
       
