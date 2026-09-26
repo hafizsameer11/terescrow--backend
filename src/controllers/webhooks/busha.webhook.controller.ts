@@ -96,10 +96,11 @@ async function handleCustomerEvent(event: string, data: any) {
   const bushaProfileId = data.id || data.customer_id;
   if (!bushaProfileId) return;
 
-  const status =
+  const status = String(
     data.status ||
-    (event.includes('verification.') ? event.split('.').pop() : undefined) ||
-    undefined;
+      (event.includes('verification.') ? event.split('.').pop() : undefined) ||
+      ''
+  ).toLowerCase();
 
   const updated = await bushaCustomerModel.updateMany({
     where: { bushaProfileId },
@@ -109,24 +110,49 @@ async function handleCustomerEvent(event: string, data: any) {
     },
   });
 
-  if (updated.count > 0 && status) {
-    const customer = await bushaCustomerModel.findFirst({ where: { bushaProfileId } });
-    if (customer?.userId) {
-      const appStatus =
-        status === 'active'
-          ? 'active'
-          : status === 'rejected'
-            ? 'rejected'
-            : status === 'in_review'
-              ? 'in_review'
-              : undefined;
-      if (appStatus) {
-        await bushaKycApplicationModel.updateMany({
-          where: { userId: customer.userId },
-          data: { status: appStatus, errorMessage: status === 'rejected' ? 'Verification was declined' : null },
-        });
-      }
+  if (updated.count === 0 || !status) return;
+
+  const customer = await bushaCustomerModel.findFirst({ where: { bushaProfileId } });
+  if (!customer?.userId) return;
+
+  const appStatus =
+    status === 'active'
+      ? 'active'
+      : status === 'rejected'
+        ? 'rejected'
+        : status === 'in_review'
+          ? 'in_review'
+          : undefined;
+
+  if (appStatus) {
+    await bushaKycApplicationModel.updateMany({
+      where: { userId: customer.userId },
+      data: {
+        status: appStatus,
+        errorMessage: status === 'rejected' ? 'Verification was declined' : null,
+      },
+    });
+  }
+
+  // Keep local Tier 2 in sync — webhook previously only updated Busha tables,
+  // so rejected apps never flipped KycStateTwo and poll skipped them forever.
+  try {
+    if (status === 'active') {
+      const { markTier2ApprovedAfterBusha } = await import(
+        '../../services/kyc/terescrow.kyc.profile.service'
+      );
+      await markTier2ApprovedAfterBusha(customer.userId);
+    } else if (status === 'rejected') {
+      const { markTier2RejectedAfterBusha } = await import(
+        '../../services/kyc/terescrow.kyc.profile.service'
+      );
+      await markTier2RejectedAfterBusha(customer.userId, 'Identity verification was declined');
     }
+  } catch (err: any) {
+    console.error(
+      `[Busha webhook] Tier 2 sync failed for user ${customer.userId}:`,
+      err?.message || err
+    );
   }
 }
 

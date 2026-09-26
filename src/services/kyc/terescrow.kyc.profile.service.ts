@@ -233,6 +233,29 @@ export async function markTier2ApprovedAfterBusha(userId: number): Promise<void>
   notifyUserKycApproved(userId, 'tier2').catch(console.error);
 }
 
+/**
+ * After Busha customer verification is rejected — flip pending Tier 2 and notify.
+ * Idempotent: no-op if there is no pending Tier 2 row.
+ */
+export async function markTier2RejectedAfterBusha(
+  userId: number,
+  reason = 'Identity verification was declined'
+): Promise<boolean> {
+  const updated = await prisma.kycStateTwo.updateMany({
+    where: { userId, tier: 'tier2', state: 'pending' },
+    data: {
+      state: 'rejected',
+      reason,
+    },
+  });
+
+  if (updated.count === 0) return false;
+
+  const { notifyUserKycRejected } = await import('./kyc.notification.service');
+  await notifyUserKycRejected(userId, 'tier2', reason);
+  return true;
+}
+
 /** Split a free-text address into Busha address fields (best-effort). */
 export function splitAddressForBusha(address: string | null | undefined): {
   city: string;
