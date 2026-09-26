@@ -360,3 +360,146 @@ export async function verifyTier3WithPrembly(input: PremblyTier3Input): Promise<
     raw: { bvnFace },
   };
 }
+
+export type BvnBasicVerification = {
+  firstName: string;
+  middleName: string | null;
+  lastName: string;
+  fullName: string;
+  /** Mapped into User.firstname */
+  suggestedFirstName: string;
+  /** Mapped into User.lastname (may include middle + last) */
+  suggestedLastName: string;
+  reference: string | null;
+};
+
+export function tokenizePersonName(value: string): string[] {
+  return normalizeName(value)
+    .split(' ')
+    .map((t) => t.trim())
+    .filter((t) => t.length > 1); // ignore initials like "A"
+}
+
+/**
+ * Smooth match: app stores first+last; BVN often returns 2–3 tokens.
+ * Compatible when enough app tokens appear in the BVN full name (order-independent).
+ */
+export function appNameCompatibleWithBvnName(
+  appFirstName: string,
+  appLastName: string,
+  bvnFullName: string
+): boolean {
+  const appTokens = [
+    ...tokenizePersonName(appFirstName),
+    ...tokenizePersonName(appLastName),
+  ];
+  const bvnTokens = tokenizePersonName(bvnFullName);
+  if (!appTokens.length || !bvnTokens.length) return false;
+
+  const tokenHits = (a: string, b: string) =>
+    a === b || (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a)));
+
+  let hits = 0;
+  for (const appTok of appTokens) {
+    if (bvnTokens.some((bvnTok) => tokenHits(appTok, bvnTok))) hits += 1;
+  }
+
+  // 1 app token → must hit; 2+ → at least half (ceil), e.g. 2→1, 3→2
+  const needed = Math.max(1, Math.ceil(appTokens.length / 2));
+  return hits >= needed;
+}
+
+export function namesAreTotallyDifferent(
+  appFirstName: string,
+  appLastName: string,
+  bvnFullName: string
+): boolean {
+  return !appNameCompatibleWithBvnName(appFirstName, appLastName, bvnFullName);
+}
+
+function mapBvnNameToProfileFields(
+  firstName: string,
+  middleName: string | null,
+  lastName: string,
+  fullName: string
+): { suggestedFirstName: string; suggestedLastName: string } {
+  let first = firstName.trim();
+  let middle = (middleName || '').trim();
+  let last = lastName.trim();
+
+  if (!first && !last) {
+    const tokens = fullName.trim().split(/\s+/).filter(Boolean);
+    first = tokens[0] || '';
+    last = tokens.length > 1 ? tokens[tokens.length - 1] : '';
+    middle = tokens.length > 2 ? tokens.slice(1, -1).join(' ') : '';
+  }
+
+  const suggestedFirstName = first || fullName.trim().split(/\s+/)[0] || 'User';
+  const suggestedLastName =
+    [middle, last].filter(Boolean).join(' ') ||
+    last ||
+    fullName.trim().split(/\s+/).slice(1).join(' ') ||
+    suggestedFirstName;
+
+  return { suggestedFirstName, suggestedLastName };
+}
+
+/**
+ * Fund Wallet: Prembly BVN basic validation only (no face, no name match gate).
+ * Returns the official BVN name for PalmPay + optional profile update.
+ */
+export async function verifyBvnBasicOnly(bvnRaw: string): Promise<BvnBasicVerification> {
+  const bvn = String(bvnRaw || '').replace(/\s+/g, '');
+  if (!/^\d{11}$/.test(bvn)) {
+    throw ApiError.badRequest('BVN must be exactly 11 digits');
+  }
+  if (!premblyConfig.getApiKey()) {
+    throw ApiError.badRequest('BVN verification is not configured on the server');
+  }
+
+  const envelope = await premblyClient.verifyBvnBasic(bvn);
+  if (!isApiSuccess(envelope)) {
+    throw ApiError.badRequest(
+      envelope.detail || envelope.message || 'BVN could not be verified. Please check and try again.'
+    );
+  }
+
+  const root = pickBvnPayload(envelope) || {};
+  const data = root.bvn_data || root.bvnData || root.data || root;
+
+  const firstName = String(
+    data.firstName || data.first_name || data.firstname || ''
+  ).trim();
+  const middleNameRaw = String(
+    data.middleName || data.middle_name || data.middlename || ''
+  ).trim();
+  const lastName = String(
+    data.lastName || data.last_name || data.surname || data.lastname || ''
+  ).trim();
+  let fullName = String(
+    data.fullName || data.full_name || data.name || ''
+  ).trim();
+  if (!fullName) {
+    fullName = [firstName, middleNameRaw, lastName].filter(Boolean).join(' ');
+  }
+
+  if (!fullName || fullName.replace(/\s+/g, '').length < 2) {
+    throw ApiError.badRequest('BVN is invalid or could not be verified');
+  }
+
+  const middleName = middleNameRaw || null;
+  const mapped = mapBvnNameToProfileFields(firstName, middleName, lastName, fullName);
+
+  return {
+    firstName: firstName || mapped.suggestedFirstName,
+    middleName,
+    lastName: lastName || mapped.suggestedLastName,
+    fullName,
+    suggestedFirstName: mapped.suggestedFirstName,
+    suggestedLastName: mapped.suggestedLastName,
+    reference:
+      envelope.verification?.reference != null
+        ? String(envelope.verification.reference)
+        : null,
+  };
+}
