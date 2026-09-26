@@ -33,11 +33,14 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
         }
 
         // Conditions for filtering based on the user's role
-        const userFilter = user.role == UserRoles.customer ? {
-            participants: { some: { userId: user.id } }
-        } : {};
+        // Agents only see their own chats (same as chat list); admins see all.
+        const userFilter =
+            user.role === UserRoles.customer || user.role === UserRoles.agent
+                ? { participants: { some: { userId: user.id } } }
+                : {};
 
-        const chatTimeFilter = createdAtFilter ? { updatedAt: createdAtFilter } : {};
+        // Match chat list: filter by chatDetails.createdAt (not chat.updatedAt).
+        const chatDetailsTime = createdAtFilter ? { createdAt: createdAtFilter } : {};
 
         // Date calculations for the current and previous month
         const currentMonthStart = new Date();
@@ -45,20 +48,35 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
         const previousMonthStart = new Date(currentMonthStart);
         previousMonthStart.setMonth(previousMonthStart.getMonth() - 1);
 
-        // Fetch current month data
-        const totalChats = await prisma.chat.count({ where: { chatType: ChatType.customer_to_agent, ...userFilter, ...chatTimeFilter } });
+        // Fetch current period data
+        const totalChats = await prisma.chat.count({
+            where: {
+                chatType: ChatType.customer_to_agent,
+                ...userFilter,
+                ...(createdAtFilter ? { chatDetails: { ...chatDetailsTime } } : {}),
+            },
+        });
+
+        const successfulChats = await prisma.chat.count({
+            where: {
+                chatType: ChatType.customer_to_agent,
+                chatDetails: { status: ChatStatus.successful, ...chatDetailsTime },
+                ...userFilter,
+            },
+        });
 
         const successfulTransactions = await prisma.transaction.count({
             where: {
                 status: TransactionStatus.successful,
-                chat: { ...userFilter, ...chatTimeFilter },
+                chat: { chatType: ChatType.customer_to_agent, ...userFilter },
                 ...(createdAtFilter ? { createdAt: createdAtFilter } : {}),
             },
         });
 
         const pendingChats = await prisma.chat.count({
             where: {
-                chatDetails: { status: ChatStatus.pending },
+                chatType: ChatType.customer_to_agent,
+                chatDetails: { status: ChatStatus.pending, ...chatDetailsTime },
                 participants: {
                     some: {
                         user: {
@@ -67,39 +85,58 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
                     },
                 },
                 ...userFilter,
-                ...chatTimeFilter,
             },
         });
 
-
         const declinedChats = await prisma.chat.count({
             where: {
-                chatDetails: { status: ChatStatus.declined },
+                chatType: ChatType.customer_to_agent,
+                chatDetails: { status: ChatStatus.declined, ...chatDetailsTime },
                 ...userFilter,
-                ...chatTimeFilter,
             },
         });
 
         const unsuccessfulChats = await prisma.chat.count({
             where: {
-                chatDetails: { status: ChatStatus.unsucessful },
+                chatType: ChatType.customer_to_agent,
+                chatDetails: { status: ChatStatus.unsucessful, ...chatDetailsTime },
                 ...userFilter,
-                ...chatTimeFilter,
             },
         });
 
         // Previous month data for comparison
+        const prevMonthChatDetails = {
+            createdAt: { lt: currentMonthStart, gte: previousMonthStart },
+        };
+
         const prevTotalChats = await prisma.chat.count({
-            where: { chatType: ChatType.customer_to_agent, createdAt: { lt: currentMonthStart, gte: previousMonthStart }, ...userFilter },
+            where: {
+                chatType: ChatType.customer_to_agent,
+                chatDetails: prevMonthChatDetails,
+                ...userFilter,
+            },
+        });
+
+        const prevSuccessfulChats = await prisma.chat.count({
+            where: {
+                chatType: ChatType.customer_to_agent,
+                chatDetails: { status: ChatStatus.successful, ...prevMonthChatDetails },
+                ...userFilter,
+            },
         });
 
         const prevSuccessfulTransactions = await prisma.transaction.count({
-            where: { status: TransactionStatus.successful, createdAt: { lt: currentMonthStart, gte: previousMonthStart }, chat: { ...userFilter } },
+            where: {
+                status: TransactionStatus.successful,
+                createdAt: { lt: currentMonthStart, gte: previousMonthStart },
+                chat: { chatType: ChatType.customer_to_agent, ...userFilter },
+            },
         });
 
         const prevPendingChats = await prisma.chat.count({
             where: {
-                chatDetails: { status: ChatStatus.pending },
+                chatType: ChatType.customer_to_agent,
+                chatDetails: { status: ChatStatus.pending, ...prevMonthChatDetails },
                 participants: {
                     some: {
                         user: {
@@ -107,21 +144,24 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
                         },
                     },
                 },
-                createdAt: {
-                    lt: currentMonthStart,
-                    gte: previousMonthStart,
-                },
                 ...userFilter,
             },
         });
 
-
         const prevDeclinedChats = await prisma.chat.count({
-            where: { chatDetails: { status: ChatStatus.declined }, createdAt: { lt: currentMonthStart, gte: previousMonthStart }, ...userFilter },
+            where: {
+                chatType: ChatType.customer_to_agent,
+                chatDetails: { status: ChatStatus.declined, ...prevMonthChatDetails },
+                ...userFilter,
+            },
         });
 
         const prevUnsuccessfulChats = await prisma.chat.count({
-            where: { chatDetails: { status: ChatStatus.unsucessful }, createdAt: { lt: currentMonthStart, gte: previousMonthStart }, ...userFilter },
+            where: {
+                chatType: ChatType.customer_to_agent,
+                chatDetails: { status: ChatStatus.unsucessful, ...prevMonthChatDetails },
+                ...userFilter,
+            },
         });
 
         // Function to calculate percentage change
@@ -140,6 +180,10 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
             totalChats: {
                 count: totalChats,
                 ...calculateChange(totalChats, prevTotalChats),
+            },
+            successfulChats: {
+                count: successfulChats,
+                ...calculateChange(successfulChats, prevSuccessfulChats),
             },
             successfulTransactions: {
                 count: successfulTransactions,
