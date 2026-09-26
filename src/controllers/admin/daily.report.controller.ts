@@ -140,7 +140,8 @@ export async function patchReportController(req: Request, res: Response, next: N
     const reportId = parseInt(req.params.reportId, 10);
     if (isNaN(reportId)) return next(ApiError.badRequest('Invalid report id'));
     const user = (req as any).user || req.body._user;
-    const isAdminOrAuditor = user?.role === UserRoles.admin;
+    const role = String(user?.role || '').toLowerCase();
+    const isAdminOrAuditor = role === UserRoles.admin || role === 'auditor';
     const { status, auditorsReport, myReport } = req.body;
     const updated = await dailyReportService.updateReport(
       reportId,

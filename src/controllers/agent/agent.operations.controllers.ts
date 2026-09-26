@@ -289,6 +289,7 @@ export const createTransactionCard = async (
           chatId: +chatId,
           walletCredited,
           walletCreditAmount: walletCredited ? creditAmountNgn : undefined,
+          fiatTransactionId: fiatTransactionId ?? undefined,
         });
       }
     }

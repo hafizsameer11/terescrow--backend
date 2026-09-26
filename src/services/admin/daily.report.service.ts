@@ -120,6 +120,139 @@ export async function getDailyReportLogs(filters: {
   }));
 }
 
+function moneyLabel(n: number, prefix = '₦'): string {
+  return `${prefix}${Math.round(n).toLocaleString('en-NG')}`;
+}
+
+async function aggregateAgentDayStats(userId: number, day: Date, checkIn?: Date | null, checkOut?: Date | null) {
+  const dayStart = new Date(day);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(day);
+  dayEnd.setHours(23, 59, 59, 999);
+  const rangeStart = checkIn && checkIn >= dayStart ? checkIn : dayStart;
+  const rangeEnd = checkOut && checkOut <= dayEnd ? checkOut : dayEnd;
+
+  const agentInChat = { chat: { participants: { some: { userId } } } };
+
+  const [transactions, chatDetails] = await Promise.all([
+    prisma.transaction.findMany({
+      where: {
+        ...agentInChat,
+        createdAt: { gte: rangeStart, lte: rangeEnd },
+      },
+      select: {
+        amount: true,
+        amountNaira: true,
+        profit: true,
+        department: { select: { niche: true, title: true, Type: true } },
+      },
+    }),
+    prisma.chatDetails.findMany({
+      where: {
+        ...agentInChat,
+        OR: [
+          { createdAt: { gte: rangeStart, lte: rangeEnd } },
+          { updatedAt: { gte: rangeStart, lte: rangeEnd } },
+        ],
+      },
+      select: { status: true, department: { select: { niche: true, title: true } } },
+    }),
+  ]);
+
+  let gcSalesAmt = 0;
+  let gcPurchaseAmt = 0;
+  let gcProfit = 0;
+  let gcCount = 0;
+  let cryptoAmt = 0;
+  let cryptoProfit = 0;
+  let cryptoCount = 0;
+  let billAmt = 0;
+  let billProfit = 0;
+  let billCount = 0;
+  let totalProfit = 0;
+
+  for (const tx of transactions) {
+    const niche = String(tx.department?.niche || '').toLowerCase();
+    const title = String(tx.department?.title || '').toLowerCase();
+    const type = String(tx.department?.Type || '').toLowerCase();
+    const naira = Number(tx.amountNaira || 0) || 0;
+    const usd = Number(tx.amount || 0) || 0;
+    const profit = Number(tx.profit || 0) || 0;
+    totalProfit += profit;
+
+    const isBill =
+      title.includes('bill') || title.includes('utility') || title.includes('airtime') || title.includes('data');
+    if (isBill) {
+      billCount += 1;
+      billAmt += naira || usd;
+      billProfit += profit;
+    } else if (niche === 'giftcard' || niche === 'gift_card') {
+      gcCount += 1;
+      gcProfit += profit;
+      if (type === 'buy') gcPurchaseAmt += naira || usd;
+      else gcSalesAmt += naira || usd;
+    } else {
+      cryptoCount += 1;
+      cryptoAmt += naira || usd;
+      cryptoProfit += profit;
+    }
+  }
+
+  let successful = 0;
+  let pending = 0;
+  let unsuccessful = 0;
+  for (const c of chatDetails) {
+    const s = String(c.status || '').toLowerCase();
+    if (s === 'successful') successful += 1;
+    else if (s === 'pending' || s === 'processing') pending += 1;
+    else if (s === 'declined' || s === 'unsucessful' || s === 'unsuccessful') unsuccessful += 1;
+  }
+
+  const amountMade = logAmount(totalProfit);
+  return {
+    totalChatSessions: chatDetails.length,
+    avgResponseTimeSec: 0,
+    giftCard: {
+      count: gcCount,
+      amount: gcSalesAmt + gcPurchaseAmt,
+      purchaseAmt: moneyLabel(gcPurchaseAmt),
+      salesAmt: moneyLabel(gcSalesAmt),
+      profit: moneyLabel(gcProfit),
+    },
+    crypto: {
+      count: cryptoCount,
+      amount: cryptoAmt,
+      openingBalance: '—',
+      closingBalance: moneyLabel(cryptoAmt),
+      profit: moneyLabel(cryptoProfit),
+    },
+    billPayments: {
+      count: billCount,
+      amount: billAmt,
+      openingBalance: '—',
+      closingBalance: moneyLabel(billAmt),
+      profit: moneyLabel(billProfit),
+    },
+    chat: {
+      successful,
+      pending,
+      unsuccessful,
+      totalProfit: moneyLabel(totalProfit),
+    },
+    financials: {
+      amountMade,
+      earnPayout: moneyLabel(totalProfit),
+      openingBalance: '—',
+      closingBalance: moneyLabel(totalProfit),
+      totalProfit: moneyLabel(totalProfit),
+    },
+  };
+}
+
+function logAmount(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 export async function getReportById(reportId: number) {
   const log = await attendanceModel.findUnique({
     where: { id: reportId },
@@ -132,22 +265,45 @@ export async function getReportById(reportId: number) {
   if (checkIn && checkOut) {
     activeHours = Math.round(((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60)) * 100) / 100;
   }
+
+  let aggregates;
+  try {
+    aggregates = await aggregateAgentDayStats(log.userId, log.date, checkIn, checkOut);
+  } catch (err) {
+    console.error('daily report aggregates failed:', err);
+    aggregates = {
+      totalChatSessions: 0,
+      avgResponseTimeSec: 0,
+      giftCard: { count: 0, amount: 0, purchaseAmt: '₦0', salesAmt: '₦0', profit: '₦0' },
+      crypto: { count: 0, amount: 0, openingBalance: '—', closingBalance: '₦0', profit: '₦0' },
+      billPayments: { count: 0, amount: 0, openingBalance: '—', closingBalance: '₦0', profit: '₦0' },
+      chat: { successful: 0, pending: 0, unsuccessful: 0, totalProfit: '₦0' },
+      financials: {
+        amountMade: log.amountMade ? Number(log.amountMade) : 0,
+        earnPayout: '—',
+        openingBalance: '—',
+        closingBalance: '—',
+        totalProfit: '—',
+      },
+    };
+  }
+
+  const storedAmount = log.amountMade ? Number(log.amountMade) : 0;
+  if (storedAmount && aggregates.financials) {
+    aggregates.financials.amountMade = storedAmount;
+  }
+
   return {
     id: log.id,
     date: log.date.toISOString().slice(0, 10),
     agentName: log.user ? `${log.user.firstname} ${log.user.lastname}`.trim() : '',
     position: 'Agent',
     shift: log.shift,
+    auditorName: null,
     clockInTime: checkIn?.toISOString() ?? null,
     clockOutTime: checkOut?.toISOString() ?? null,
     activeHours,
-    totalChatSessions: 0,
-    avgResponseTimeSec: 0,
-    giftCard: { count: 0, amount: 0 },
-    crypto: { count: 0, amount: 0 },
-    billPayments: { count: 0, amount: 0 },
-    chat: {},
-    financials: { amountMade: log.amountMade ? Number(log.amountMade) : 0 },
+    ...aggregates,
     status: log.reportStatus,
     myReport: log.myReport,
     auditorsReport: log.auditorsReport,
