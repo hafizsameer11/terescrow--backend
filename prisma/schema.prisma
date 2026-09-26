@@ -61,6 +61,7 @@ model User {
   referrer             User?               @relation("UserReferrals", fields: [referredBy], references: [id])
   customRole           CustomRole?         @relation(fields: [customRoleId], references: [id])
   palmpayUserVirtualAccounts PalmPayUserVirtualAccount[]
+  palmpayPermanentVirtualAccounts PalmPayPermanentVirtualAccount[]
   means                WaysOfHearing?      @relation(fields: [meansId], references: [id])
   otps                 UserOTP?
   featureFreezes       UserFeatureFreeze[]
@@ -1037,6 +1038,37 @@ model PalmPayUserVirtualAccount {
   @@index([orderStatus])
   @@index([createdAt])
   @@map("PalmPayUserVirtualAccount")
+}
+
+/// Permanent (static) personal PalmPay virtual account for recurring wallet funding.
+model PalmPayPermanentVirtualAccount {
+  id                 Int       @id @default(autoincrement())
+  userId             Int       @map("user_id")
+  accountType        String    @default("personal") @map("account_type") @db.VarChar(20)
+  bvn                String    @db.VarChar(11)
+  status             String    @default("pending") @db.VarChar(20) // pending | approved | rejected | failed
+  merchantRequestId  String    @unique @map("merchant_request_id") @db.VarChar(64)
+  virtualAccountId   String?   @map("virtual_account_id") @db.VarChar(100)
+  accountNumber      String?   @map("account_number") @db.VarChar(30)
+  accountName        String?   @map("account_name") @db.VarChar(200)
+  bankName           String?   @map("bank_name") @db.VarChar(200)
+  bankCode           String?   @map("bank_code") @db.VarChar(20)
+  errorMessage       String?   @map("error_message") @db.Text
+  providerPayload    String?   @map("provider_payload") @db.LongText
+  notifyUrl          String?   @map("notify_url") @db.VarChar(300)
+  approvedAt         DateTime? @map("approved_at")
+  rejectedAt         DateTime? @map("rejected_at")
+  lastQueriedAt      DateTime? @map("last_queried_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([accountNumber])
+  @@index([virtualAccountId])
+  @@index([createdAt])
+  @@map("palm_pay_permanent_virtual_accounts")
 }
 
 model SupportChat {

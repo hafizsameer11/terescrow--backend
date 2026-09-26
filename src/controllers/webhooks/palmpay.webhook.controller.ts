@@ -84,6 +84,32 @@ export const palmpayWebhookController = async (
       rawWebhookId,
     });
 
+    // Permanent VA lifecycle / inbound credits (account number based)
+    try {
+      const { syncPermanentVaFromWebhook } = await import(
+        '../../services/palmpay/palmpay.permanent.va.lifecycle'
+      );
+      const { creditPermanentVaDeposit } = await import(
+        '../../services/palmpay/palmpay.permanent.va.credit'
+      );
+      await syncPermanentVaFromWebhook(webhookData);
+      const credited = await creditPermanentVaDeposit(webhookData);
+      if (credited) {
+        if (rawWebhookId) {
+          await prisma.palmPayRawWebhook.update({
+            where: { id: rawWebhookId },
+            data: { processed: true, processedAt: new Date() },
+          });
+        }
+        return res.status(200).send('success');
+      }
+    } catch (permErr: any) {
+      palmpayLogger.error('Permanent VA webhook handling error', permErr, {
+        orderId,
+        orderNo,
+      });
+    }
+
     // Check if this is a deposit webhook (has orderId that starts with "deposit_")
     if (orderId && orderId.startsWith('deposit_')) {
       // Find the PalmPayUserVirtualAccount by merchantOrderId

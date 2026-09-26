@@ -1,0 +1,31 @@
+-- Permanent personal PalmPay virtual accounts for wallet funding
+CREATE TABLE IF NOT EXISTS `palm_pay_permanent_virtual_accounts` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `user_id` INT NOT NULL,
+  `account_type` VARCHAR(20) NOT NULL DEFAULT 'personal',
+  `bvn` VARCHAR(11) NOT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'pending',
+  `merchant_request_id` VARCHAR(64) NOT NULL,
+  `virtual_account_id` VARCHAR(100) NULL,
+  `account_number` VARCHAR(30) NULL,
+  `account_name` VARCHAR(200) NULL,
+  `bank_name` VARCHAR(200) NULL,
+  `bank_code` VARCHAR(20) NULL,
+  `error_message` TEXT NULL,
+  `provider_payload` LONGTEXT NULL,
+  `notify_url` VARCHAR(300) NULL,
+  `approved_at` DATETIME(3) NULL,
+  `rejected_at` DATETIME(3) NULL,
+  `last_queried_at` DATETIME(3) NULL,
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `palm_pay_permanent_virtual_accounts_merchant_request_id_key` (`merchant_request_id`),
+  INDEX `palm_pay_permanent_virtual_accounts_user_id_idx` (`user_id`),
+  INDEX `palm_pay_permanent_virtual_accounts_status_idx` (`status`),
+  INDEX `palm_pay_permanent_virtual_accounts_account_number_idx` (`account_number`),
+  INDEX `palm_pay_permanent_virtual_accounts_virtual_account_id_idx` (`virtual_account_id`),
+  INDEX `palm_pay_permanent_virtual_accounts_created_at_idx` (`created_at`),
+  CONSTRAINT `palm_pay_permanent_virtual_accounts_user_id_fkey`
+    FOREIGN KEY (`user_id`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

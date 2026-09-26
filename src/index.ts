@@ -88,6 +88,7 @@ import bushaRouter from './routes/admin/busha.router';
 import bushaCustomerRouter from './routes/cutomer/busha.router';
 import { startBushaSettlementPoller } from './jobs/busha/busha.settlement.poller';
 import { startBushaKycPoller } from './jobs/busha/busha.kyc.poller';
+import { startPalmPayPermanentVaPoller } from './jobs/palmpay/palmpay.permanent.va.poller';
 
 // ============================================
 // V1 API Routes (Legacy - if any)
@@ -537,6 +538,7 @@ httpServer.listen(port, () => {
   startChangeNowSwapStatusScheduler();
   startBushaSettlementPoller();
   startBushaKycPoller();
+  startPalmPayPermanentVaPoller();
 });
 
 app.get('/.well-known/pki-validation/E9D0BCFADE508ECB66F1A9236CF3AB96.txt', (req, res) => {
