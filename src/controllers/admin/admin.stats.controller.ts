@@ -3,7 +3,7 @@ import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { io } from '../../socketConfig';
 import { Chat, ChatStatus, ChatType, PrismaClient, TransactionStatus, User, UserRoles } from '@prisma/client';
-import { resolveStatsTimeWindow } from '../../utils/statsTimeWindow';
+import { resolveStatsTimeWindow, statsTimeWindowToIsoRange } from '../../utils/statsTimeWindow';
 import { getAdminTransactionStats } from '../../services/admin/transactions.admin.service';
 const prisma = new PrismaClient();
 export const getChatStats = async (req: Request, res: Response, next: NextFunction) => {
@@ -173,6 +173,9 @@ export const getChatStats = async (req: Request, res: Response, next: NextFuncti
 
 export const getDashBoardStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
+        const timeWindow = (req.query.timeWindow as string) || 'all';
+        const { startDate: twStart, endDate: twEnd } = statsTimeWindowToIsoRange(timeWindow);
+
         const currentMonthStart = new Date();
         currentMonthStart.setDate(1);
         const previousMonthStart = new Date(currentMonthStart);
@@ -199,7 +202,9 @@ export const getDashBoardStats = async (req: Request, res: Response, next: NextF
         });
 
         // Money metrics from live providers (Busha / Pagocard / StroWallet / PalmPay)
-        const providerStats = await getAdminTransactionStats({});
+        const providerStats = await getAdminTransactionStats({
+            ...(twStart || twEnd ? { startDate: twStart, endDate: twEnd } : {}),
+        });
         const nairaIn = Number(providerStats.nairaTransactions?._sum?.amountNaira || 0);
         const billOut = Number(providerStats.billPaymentTransactions?._sum?.amountNaira || 0);
         const cryptoNaira = Number(providerStats.cryptoTransactions?._sum?.amountNaira || 0);

@@ -135,11 +135,26 @@ export async function getMarkupProfitOverview(params?: {
   };
   if (where.createdAt) billFeeWhere.createdAt = where.createdAt;
 
-  const billAgg = await prisma.fiatTransaction.aggregate({
-    where: billFeeWhere,
-    _sum: { fees: true },
-    _count: true,
-  });
+  // Gift card sell profit from agent Transaction.profit (giftCard sell department)
+  const [billAgg, gcAgg] = await Promise.all([
+    prisma.fiatTransaction.aggregate({
+      where: billFeeWhere,
+      _sum: { fees: true },
+      _count: true,
+    }),
+    prisma.transaction.aggregate({
+      where: {
+        profit: { gt: 0 },
+        department: { niche: 'giftCard', Type: 'sell' },
+        ...(where.createdAt ? { createdAt: where.createdAt } : {}),
+      },
+      _sum: { profit: true },
+      _count: true,
+    }),
+  ]);
+
+  const giftCardSellProfitNgn = Math.round(parseAmt(gcAgg._sum.profit) * 100) / 100;
+  const billPaymentFeeNgn = Math.round(parseAmt(billAgg._sum.fees) * 100) / 100;
 
   const [bushaMarkup, platform] = await Promise.all([
     getBushaMarkupPercents(),
@@ -152,10 +167,12 @@ export async function getMarkupProfitOverview(params?: {
       buyMarkupNgn: Math.round(buyMarkupNgn * 100) / 100,
       sellMarkupNgn: Math.round(sellMarkupNgn * 100) / 100,
       tradesWithMarkup,
-      billPaymentFeeNgn: Math.round(parseAmt(billAgg._sum.fees) * 100) / 100,
+      billPaymentFeeNgn,
       billPaymentsWithFee: billAgg._count || 0,
+      giftCardSellProfitNgn,
+      giftCardSellsWithProfit: gcAgg._count || 0,
       totalProfitNgn:
-        Math.round((totalMarkupNgn + parseAmt(billAgg._sum.fees)) * 100) / 100,
+        Math.round((totalMarkupNgn + billPaymentFeeNgn + giftCardSellProfitNgn) * 100) / 100,
     },
     settings: {
       buyMarkupPercent: bushaMarkup.buyMarkupPercent,

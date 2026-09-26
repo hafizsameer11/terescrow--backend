@@ -20,6 +20,15 @@ function assertSide(side: unknown): BushaMarkupSide {
   return s;
 }
 
+/** USD range tiers are sell-only; flat buyMarkupPercent covers non-tier buy quotes. */
+function assertSellOnlySide(side: unknown): 'sell' {
+  const s = assertSide(side);
+  if (s === 'buy') {
+    throw ApiError.badRequest('Buy USD range tiers are not supported; use sell ranges or flat buy markup %');
+  }
+  return 'sell';
+}
+
 export async function getBushaMarkupRangesAdmin(side?: string) {
   const s = side ? assertSide(side) : undefined;
   const rows = await listBushaMarkupRanges(s);
@@ -44,7 +53,7 @@ export async function createBushaMarkupRangeAdmin(input: {
   isActive?: boolean;
   sortOrder?: number;
 }) {
-  const side = assertSide(input.side);
+  const side = assertSellOnlySide(input.side);
   const minUsd = parseUsdBound(input.minUsd, 'minUsd');
   const maxUsd = parseUsdBound(input.maxUsd, 'maxUsd');
   if (maxUsd < minUsd) {
@@ -88,7 +97,8 @@ export async function updateBushaMarkupRangeAdmin(
   const existing = await rangeModel().findUnique({ where: { id } });
   if (!existing) throw ApiError.notFound('Markup range not found');
 
-  const side = input.side !== undefined ? assertSide(input.side) : existing.side;
+  const side =
+    input.side !== undefined ? assertSellOnlySide(input.side) : assertSellOnlySide(existing.side);
   const minUsd =
     input.minUsd !== undefined ? parseUsdBound(input.minUsd, 'minUsd') : Number(existing.minUsd);
   const maxUsd =
