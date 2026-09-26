@@ -18,6 +18,35 @@ const bushaKycApplicationModel = (prisma as any).bushaKycApplication;
 
 const SELFIE_DIR = path.join(process.cwd(), 'uploads', 'busha-kyc');
 
+const GENERIC_BUSHA_REJECT_REASONS = new Set([
+  'verification was declined',
+  'identity verification was declined',
+]);
+
+/** Prefer Busha's concrete rejection reason over a generic fallback. */
+export function extractBushaRejectionReason(
+  payload: any,
+  fallback = 'Identity verification was declined'
+): string {
+  const candidates = [
+    payload?.reason,
+    payload?.rejection_reason,
+    payload?.status_reason,
+    payload?.message,
+    payload?.error_message,
+    payload?.error,
+  ];
+  for (const c of candidates) {
+    const s = String(c || '').trim();
+    if (s) return s.slice(0, 500);
+  }
+  return fallback;
+}
+
+function isGenericBushaRejectReason(reason?: string | null): boolean {
+  return GENERIC_BUSHA_REJECT_REASONS.has(String(reason || '').trim().toLowerCase());
+}
+
 /** Legacy manual payload — prefer startBushaKycFromTerescrowProfile. */
 export type StartBushaKycInput = {
   firstName: string;
@@ -461,6 +490,8 @@ export async function processBushaKycApplication(applicationId: string) {
 
     const verified = await verifyBushaCustomer(customer.id);
     const status = String(verified.status || 'in_review').toLowerCase();
+    const rejectReason =
+      status === 'rejected' ? extractBushaRejectionReason(verified) : null;
 
     await bushaKycApplicationModel.update({
       where: { id: applicationId },
@@ -468,14 +499,14 @@ export async function processBushaKycApplication(applicationId: string) {
         bushaCustomerId: customer.id,
         status: status === 'active' ? 'active' : status === 'rejected' ? 'rejected' : 'submitted',
         submittedAt: new Date(),
-        errorMessage: null,
+        errorMessage: rejectReason,
       },
     });
 
     if (status === 'active') {
       await markTier2ApprovedAfterBusha(app.userId);
     } else if (status === 'rejected') {
-      await markTier2RejectedAfterBusha(app.userId, 'Identity verification was declined');
+      await markTier2RejectedAfterBusha(app.userId, rejectReason!);
     }
 
     deleteTempSelfieCopy(app.selfiePath);
@@ -523,11 +554,12 @@ async function syncSubmittedBushaKycStatus(limit = 10) {
         });
         await markTier2ApprovedAfterBusha(app.userId);
       } else if (status === 'rejected') {
+        const rejectReason = extractBushaRejectionReason(remote);
         await bushaKycApplicationModel.update({
           where: { id: app.id },
-          data: { status: 'rejected', errorMessage: 'Identity verification was declined' },
+          data: { status: 'rejected', errorMessage: rejectReason },
         });
-        await markTier2RejectedAfterBusha(app.userId, 'Identity verification was declined');
+        await markTier2RejectedAfterBusha(app.userId, rejectReason);
       }
     } catch (err: any) {
       console.error(`[Busha KYC] status sync failed for ${app.id}:`, err?.message || err);
@@ -545,15 +577,42 @@ async function healOrphanedBushaKycOutcomes(limit = 20) {
 
   for (const app of rejectedApps) {
     try {
-      const pending = await prisma.kycStateTwo.findFirst({
-        where: { userId: app.userId, tier: 'tier2', state: 'pending' },
-        select: { id: true },
+      const customer = await bushaCustomerModel.findFirst({
+        where: { userId: app.userId },
+        select: { providerData: true },
       });
-      if (!pending) continue;
-      await markTier2RejectedAfterBusha(
-        app.userId,
+      const rejectReason = extractBushaRejectionReason(
+        customer?.providerData,
         app.errorMessage || 'Identity verification was declined'
       );
+
+      if (app.errorMessage !== rejectReason) {
+        await bushaKycApplicationModel.update({
+          where: { id: app.id },
+          data: { errorMessage: rejectReason },
+        });
+      }
+
+      const tier2 = await prisma.kycStateTwo.findFirst({
+        where: { userId: app.userId, tier: 'tier2' },
+        orderBy: { id: 'desc' },
+        select: { id: true, state: true, reason: true },
+      });
+      if (!tier2) continue;
+
+      if (tier2.state === 'pending') {
+        await markTier2RejectedAfterBusha(app.userId, rejectReason);
+      } else if (
+        tier2.state === 'rejected' &&
+        isGenericBushaRejectReason(tier2.reason) &&
+        !isGenericBushaRejectReason(rejectReason)
+      ) {
+        // Backfill concrete Busha reason without re-notifying.
+        await prisma.kycStateTwo.update({
+          where: { id: tier2.id },
+          data: { reason: rejectReason },
+        });
+      }
     } catch (err: any) {
       console.error(`[Busha KYC] reject heal failed for user ${app.userId}:`, err?.message || err);
     }
