@@ -475,7 +475,7 @@ export async function processBushaKycApplication(applicationId: string) {
       await markTier2ApprovedAfterBusha(app.userId);
     } else if (status === 'rejected') {
       await prisma.kycStateTwo.updateMany({
-        where: { userId: app.userId, tier: 'tier2', state: 'pending', premblyVerified: true },
+        where: { userId: app.userId, tier: 'tier2', state: 'pending' },
         data: {
           state: 'rejected',
           reason: 'Identity verification was declined',
@@ -535,7 +535,7 @@ async function syncSubmittedBushaKycStatus(limit = 10) {
           data: { status: 'rejected', errorMessage: 'Identity verification was declined' },
         });
         await prisma.kycStateTwo.updateMany({
-          where: { userId: app.userId, tier: 'tier2', state: 'pending', premblyVerified: true },
+          where: { userId: app.userId, tier: 'tier2', state: 'pending' },
           data: { state: 'rejected', reason: 'Identity verification was declined' },
         });
         const { notifyUserKycRejected } = await import('../kyc/kyc.notification.service');

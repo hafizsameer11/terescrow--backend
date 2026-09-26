@@ -53,18 +53,18 @@ export const submitTier3Controller = async (
     });
 
     const firstName = (
-      (tier2 as any)?.premblyVerifiedFirstName ||
       tier2?.firtName ||
+      (tier2 as any)?.premblyVerifiedFirstName ||
       user.firstname ||
       ''
     ).trim();
     const lastName = (
-      (tier2 as any)?.premblyVerifiedLastName ||
       tier2?.surName ||
+      (tier2 as any)?.premblyVerifiedLastName ||
       user.lastname ||
       ''
     ).trim();
-    const dob = ((tier2 as any)?.premblyVerifiedDob || tier2?.dob || '').trim();
+    const dob = (tier2?.dob || (tier2 as any)?.premblyVerifiedDob || '').trim();
 
     const submission = await prisma.kycStateTwo.create({
       data: {

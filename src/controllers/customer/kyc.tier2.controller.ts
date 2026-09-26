@@ -3,13 +3,13 @@ import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { prisma } from '../../utils/prisma';
 import { kycStatusService } from '../../services/kyc/kyc.status.service';
-import { enqueueTier2PremblyProcessing } from '../../services/kyc/kyc.tier2.process.service';
+import { enqueueTier2BushaProcessing } from '../../services/kyc/kyc.tier2.process.service';
 import { notifyUserKycSubmitted } from '../../services/kyc/kyc.notification.service';
 
 /**
  * Submit Tier 2 KYC — async flow.
- * User submits name, DOB, NIN, selfie → immediate "submitted" response.
- * Prembly runs in background; Busha only after Prembly pass.
+ * App sends name, DOB, NIN, selfie → immediate "submitted" response,
+ * then NIN + selfie are forwarded to Busha (no Prembly middle step).
  */
 export const submitTier2Controller = async (
   req: Request,
@@ -77,12 +77,12 @@ export const submitTier2Controller = async (
         selfieUrl,
         status: 'tier2',
         state: 'pending',
-        premblyVerified: false,
-        reason: 'Submitted — awaiting verification',
+        premblyVerified: true,
+        reason: 'Submitted — awaiting crypto KYC approval',
       },
     });
 
-    enqueueTier2PremblyProcessing(submission.id);
+    enqueueTier2BushaProcessing(submission.id);
     notifyUserKycSubmitted(user.id, 'tier2').catch(console.error);
 
     return res.status(200).json(
@@ -127,10 +127,7 @@ export const getTier2StatusController = async (
       );
     }
 
-    let displayStatus = submission.state;
-    if (submission.state === 'pending') {
-      displayStatus = (submission as any).premblyVerified ? 'in_review' : 'submitted';
-    }
+    const displayStatus = submission.state === 'pending' ? 'in_review' : submission.state;
 
     return res.status(200).json(
       new ApiResponse(
@@ -142,8 +139,6 @@ export const getTier2StatusController = async (
             id: submission.id,
             state: submission.state,
             reason: submission.reason,
-            premblyVerified: (submission as any).premblyVerified ?? false,
-            premblyReference: (submission as any).premblyReference ?? null,
             createdAt: submission.createdAt,
             updatedAt: submission.updatedAt,
           },

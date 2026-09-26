@@ -53,7 +53,8 @@ class KycStatusService {
       } else if (latest?.state === 'rejected') {
         status = 'rejected';
       } else if (latest?.state === 'pending') {
-        status = (latest as any).premblyVerified && tier === 'tier2' ? 'in_review' : 'pending';
+        // Submitted to Busha (or awaiting submit) — show in review
+        status = tier === 'tier2' || tier === 'tier3' ? 'in_review' : 'pending';
       }
 
       const canUpgrade =

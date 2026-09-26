@@ -1,14 +1,10 @@
 import { prisma } from '../../utils/prisma';
-import { premblyConfig } from '../prembly/prembly.config';
-import { verifyTier2WithPrembly } from '../prembly/prembly.kyc.service';
-import {
-  notifyUserKycRejected,
-} from './kyc.notification.service';
+import { notifyUserKycRejected } from './kyc.notification.service';
 
 /**
- * Async Tier 2 verification: Prembly NIN+face, then Busha (only after Prembly pass).
+ * Async Tier 2 verification: submit NIN + selfie straight to Busha (no Prembly).
  */
-export async function processTier2PremblySubmission(submissionId: number): Promise<void> {
+export async function processTier2BushaSubmission(submissionId: number): Promise<void> {
   const submission = await prisma.kycStateTwo.findUnique({ where: { id: submissionId } });
   if (!submission || submission.tier !== 'tier2') return;
   if (submission.state !== 'pending') return;
@@ -35,91 +31,29 @@ export async function processTier2PremblySubmission(submissionId: number): Promi
     return;
   }
 
-  if (!premblyConfig.isEnabled() || !premblyConfig.isConfigured()) {
-    await prisma.kycStateTwo.update({
-      where: { id: submissionId },
-      data: {
-        premblyVerified: true,
-        reason: 'Queued for crypto KYC',
-        premblyVerifiedFirstName: firstName,
-        premblyVerifiedLastName: lastName,
-        premblyVerifiedDob: dob,
-        premblyPhone: phone,
-      },
-    });
-    await queueBushaAfterPremblyPass(user.id);
-    return;
-  }
-
-  let premblyResult;
-  try {
-    premblyResult = await verifyTier2WithPrembly({
-      firstName,
-      lastName,
-      dob,
-      nin,
-      phone,
-      selfieRelativePath: selfieUrl,
-    });
-  } catch (error: any) {
-    await rejectTier2Submission(
-      submissionId,
-      user.id,
-      error?.message || 'Identity verification failed'
-    );
-    return;
-  }
-
-  if (!premblyResult.passed) {
-    const reason = premblyResult.failureReasons.join('; ') || 'Identity verification failed';
-    await prisma.kycStateTwo.update({
-      where: { id: submissionId },
-      data: {
-        state: 'rejected',
-        reason,
-        premblyVerified: false,
-        premblyReference: premblyResult.reference,
-        premblyNinConfidence: premblyResult.ninConfidence,
-        premblyPayload: premblyResult.raw as any,
-      },
-    });
-    await notifyUserKycRejected(user.id, 'tier2', reason);
-    return;
-  }
-
-  const verified = premblyResult.verified!;
-
+  // Mark ready for Busha (legacy column kept for older readers; no Prembly call).
   await prisma.kycStateTwo.update({
     where: { id: submissionId },
     data: {
-      state: 'pending',
-      reason: 'Identity check passed; awaiting crypto KYC approval',
-      firtName: verified.firstName,
-      surName: verified.lastName,
-      dob: verified.birthDate,
-      address: verified.residentialAddress || submission.address,
       premblyVerified: true,
-      premblyReference: premblyResult.reference,
-      premblyNinConfidence: premblyResult.ninConfidence,
-      premblyVerifiedFirstName: verified.firstName,
-      premblyVerifiedLastName: verified.lastName,
-      premblyVerifiedDob: verified.birthDate,
-      premblyPhone: verified.phone || phone,
-      premblyGender: verified.gender || null,
-      premblyPayload: premblyResult.raw as any,
+      reason: 'Submitted — awaiting crypto KYC approval',
+      premblyVerifiedFirstName: firstName,
+      premblyVerifiedLastName: lastName,
+      premblyVerifiedDob: dob,
+      premblyPhone: phone,
     },
   });
 
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      firstname: verified.firstName,
-      lastname: verified.lastName,
-      phoneNumber: verified.phone || phone || undefined,
+      firstname: firstName,
+      lastname: lastName,
+      ...(phone ? { phoneNumber: phone } : {}),
     },
   });
 
-  await queueBushaAfterPremblyPass(user.id);
+  await queueBushaSubmission(user.id);
 }
 
 async function rejectTier2Submission(
@@ -138,27 +72,32 @@ async function rejectTier2Submission(
   await notifyUserKycRejected(userId, 'tier2', reason);
 }
 
-async function queueBushaAfterPremblyPass(userId: number): Promise<void> {
+async function queueBushaSubmission(userId: number): Promise<void> {
   try {
     const { getBushaConfigRow } = await import('../busha/busha.trade.service');
     const { bushaConfig } = await import('../busha/busha.config');
     const settings = await getBushaConfigRow();
     if (!bushaConfig.isConfigured() || !settings?.isActive) {
-      console.warn('[KYC→Busha] Busha not active — Tier 2 stays pending after Prembly pass');
+      console.warn('[KYC→Busha] Busha not active — Tier 2 stays pending after submit');
       return;
     }
     const { startBushaKycFromTerescrowProfile } = await import('../busha/busha.kyc.service');
     await startBushaKycFromTerescrowProfile(userId);
   } catch (err: any) {
-    console.warn('[KYC→Busha] queue after Prembly pass failed:', err?.message || err);
+    console.warn('[KYC→Busha] queue after Tier 2 submit failed:', err?.message || err);
   }
 }
 
-/** Fire-and-forget async Tier 2 Prembly processing. */
+/** @deprecated Use enqueueTier2BushaProcessing */
 export function enqueueTier2PremblyProcessing(submissionId: number): void {
+  enqueueTier2BushaProcessing(submissionId);
+}
+
+/** Fire-and-forget async Tier 2 → Busha processing. */
+export function enqueueTier2BushaProcessing(submissionId: number): void {
   setImmediate(() => {
-    processTier2PremblySubmission(submissionId).catch((err) => {
-      console.error(`[KYC Tier2] async processing failed for submission ${submissionId}:`, err);
+    processTier2BushaSubmission(submissionId).catch((err) => {
+      console.error(`[KYC Tier2] async Busha processing failed for submission ${submissionId}:`, err);
     });
   });
 }
