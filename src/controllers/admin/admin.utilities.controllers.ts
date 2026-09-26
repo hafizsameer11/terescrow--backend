@@ -1532,6 +1532,8 @@ export const createTeamMember = async (
 export const createOrUpdatePrivacyPageLinks = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { privacyPageLink, termsPageLink } = req.body
+    const normalizedPrivacy = String(privacyPageLink || '').replace(/tercescrow\.io/gi, 'tercescrow.com')
+    const normalizedTerms = String(termsPageLink || '').replace(/tercescrow\.io/gi, 'tercescrow.com')
     const previousPrivacyPage = await prisma.privacyPage.findFirst()
     if (previousPrivacyPage) {
       await prisma.privacyPage.update({
@@ -1540,16 +1542,16 @@ export const createOrUpdatePrivacyPageLinks = async (req: Request, res: Response
           id: previousPrivacyPage.id
         },
         data: {
-          privacyPageLink,
-          termsPageLink
+          privacyPageLink: normalizedPrivacy,
+          termsPageLink: normalizedTerms
         }
       })
     }
     else {
       await prisma.privacyPage.create({
         data: {
-          privacyPageLink,
-          termsPageLink
+          privacyPageLink: normalizedPrivacy,
+          termsPageLink: normalizedTerms
         }
       })
     }
@@ -1565,8 +1567,44 @@ export const createOrUpdatePrivacyPageLinks = async (req: Request, res: Response
 }
 export const getPrivacyPageLinks = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const privacyPage = await prisma.privacyPage.findFirst()
-    return new ApiResponse(200, privacyPage, 'Privacy page links retrieved successfully').send(res)
+    const privacyPage = await prisma.privacyPage.findFirst();
+
+    if (!privacyPage) {
+      return new ApiResponse(
+        200,
+        {
+          privacyPageLink: 'https://tercescrow.com/',
+          termsPageLink: 'https://tercescrow.com/',
+        },
+        'Privacy page links retrieved successfully'
+      ).send(res);
+    }
+
+    const privacyPageLink = String(privacyPage.privacyPageLink || '').replace(
+      /tercescrow\.io/gi,
+      'tercescrow.com'
+    );
+    const termsPageLink = String(privacyPage.termsPageLink || '').replace(
+      /tercescrow\.io/gi,
+      'tercescrow.com'
+    );
+
+    // Persist corrected domain if admin still has legacy .io URLs stored
+    if (
+      privacyPageLink !== privacyPage.privacyPageLink ||
+      termsPageLink !== privacyPage.termsPageLink
+    ) {
+      await prisma.privacyPage.update({
+        where: { id: privacyPage.id },
+        data: { privacyPageLink, termsPageLink },
+      });
+    }
+
+    return new ApiResponse(
+      200,
+      { ...privacyPage, privacyPageLink, termsPageLink },
+      'Privacy page links retrieved successfully'
+    ).send(res);
   } catch (error) {
     console.log(error);
     if (error instanceof ApiError) {
@@ -1575,7 +1613,7 @@ export const getPrivacyPageLinks = async (req: Request, res: Response, next: Nex
     }
     next(ApiError.internal('Internal Server Error'));
   }
-}
+};
 
 export const kycUser = async (req: Request, res: Response, next: NextFunction) => {
   try {

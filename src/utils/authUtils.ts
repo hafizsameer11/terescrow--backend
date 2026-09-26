@@ -136,7 +136,7 @@ export const sendWelcomeEmail = async (userEmail: string, firstName: string): Pr
         <br/>
         <p>Warm regards,<br/>
         The Tercescrow Team<br/>
-        <a href="https://www.tercescrow.io" target="_blank">www.tercescrow.io</a></p>
+        <a href="https://www.tercescrow.com" target="_blank">www.tercescrow.com</a></p>
       `,
     };
 
@@ -326,7 +326,7 @@ export const sendGiftCardOrderEmail = async (
             <div style="margin-top: 30px; text-align: center;">
               <p style="margin: 0;">Need help? Contact our support team.</p>
               <p style="margin: 10px 0 0 0;">
-                <a href="https://www.tercescrow.io" style="color: #007bff; text-decoration: none;">www.tercescrow.io</a>
+                <a href="https://www.tercescrow.com" style="color: #007bff; text-decoration: none;">www.tercescrow.com</a>
               </p>
             </div>
           </div>
