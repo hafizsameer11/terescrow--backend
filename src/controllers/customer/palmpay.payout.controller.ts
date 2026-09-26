@@ -12,6 +12,9 @@ import { assertPalmpayWithdrawEnabled } from '../../services/admin/platform.oper
 import { toCustomerSafeError } from '../../utils/customerSafeError';
 import { transferReferralToFiatWallet, assertReferralWithdrawAvailable } from '../../services/referral/referral.withdraw.service';
 
+/** Fixed NGN fee charged on top of withdrawal amount (matches mobile WITHDRAW_FEE_NGN). */
+const WITHDRAW_FEE_NGN = 100;
+
 /**
  * Get bank list
  * GET /api/v2/payments/palmpay/banks
@@ -127,6 +130,8 @@ export const initiatePayoutController = async (
     }
 
     const amountDecimal = parseFloat(amount);
+    const withdrawFee = WITHDRAW_FEE_NGN;
+    const totalDebit = amountDecimal + withdrawFee;
 
     // Get or create wallet
     const wallet = await fiatWalletService.getOrCreateWallet(user.id, currency);
@@ -136,7 +141,7 @@ export const initiatePayoutController = async (
         return next(ApiError.badRequest('Referral withdrawals must be in NGN'));
       }
       try {
-        await assertReferralWithdrawAvailable(user.id, amount);
+        await assertReferralWithdrawAvailable(user.id, totalDebit);
       } catch (err: any) {
         if (err instanceof ApiError) {
           return next(err);
@@ -144,11 +149,11 @@ export const initiatePayoutController = async (
         throw err;
       }
     } else {
-      // Check fiat balance for normal withdrawals
+      // Check fiat balance for normal withdrawals (amount + fee)
       const balance = await fiatWalletService.getBalance(wallet.id);
-      if (!balance || parseFloat(balance.balance) < amountDecimal) {
+      if (!balance || parseFloat(balance.balance) < totalDebit) {
         return next(ApiError.badRequest(
-          `Insufficient balance. Required: ${amountDecimal.toFixed(2)} ${currency.toUpperCase()}, Available: ${balance?.balance || '0'} ${currency.toUpperCase()}`
+          `Insufficient balance. Required: ${totalDebit.toFixed(2)} ${currency.toUpperCase()} (incl. ₦${withdrawFee} fee), Available: ${balance?.balance || '0'} ${currency.toUpperCase()}`
         ));
       }
     }
@@ -262,9 +267,10 @@ export const initiatePayoutController = async (
     }
 
     // Move referral funds into fiat only after validation so limit failures don't debit referral.
+    // Transfer amount + fee so wallet debit of totalDebit succeeds.
     if (isReferralSource) {
       try {
-        await transferReferralToFiatWallet(user.id, amount);
+        await transferReferralToFiatWallet(user.id, totalDebit);
       } catch (err: any) {
         if (err instanceof ApiError) {
           return next(err);
@@ -285,9 +291,9 @@ export const initiatePayoutController = async (
         type: 'WITHDRAW',
         status: 'pending',
         currency: currency.toUpperCase(),
-        amount: parseFloat(amount),
-        fees: 0, // No fees
-        totalAmount: parseFloat(amount), // Total equals amount (no fees)
+        amount: amountDecimal,
+        fees: withdrawFee,
+        totalAmount: totalDebit,
         description: isReferralSource
           ? `Referral withdrawal to ${accountNumber}`
           : `Withdrawal to ${accountNumber}`,
@@ -314,24 +320,22 @@ export const initiatePayoutController = async (
       remark: `Withdrawal transaction for user ${user.id}`,
     });
 
-    // Update transaction with PalmPay response (no fees)
-    const totalAmount = parseFloat(amount); // Total equals amount (no fees)
-    
+    // Update transaction with PalmPay response
     await prisma.fiatTransaction.update({
       where: { id: transaction.id },
       data: {
         palmpayOrderNo: palmpayResponse.orderNo,
         palmpayStatus: palmpayResponse.orderStatus.toString(),
         palmpaySessionId: palmpayResponse.sessionId,
-        fees: 0, // No fees
-        totalAmount: totalAmount,
+        fees: withdrawFee,
+        totalAmount: totalDebit,
         status: palmpayResponse.orderStatus === 2 ? 'completed' : 'pending',
         ...(palmpayResponse.orderStatus === 2 && { completedAt: new Date() }),
       },
     });
 
-    // Debit wallet immediately after withdrawal is initiated (regardless of status)
-    await fiatWalletService.debitWallet(wallet.id, totalAmount, transaction.id);
+    // Debit wallet for amount + fee; bank receives amount only
+    await fiatWalletService.debitWallet(wallet.id, totalDebit, transaction.id);
 
     return res.status(200).json(
       new ApiResponse(200, {
@@ -339,9 +343,9 @@ export const initiatePayoutController = async (
         orderId: orderId,
         orderNo: palmpayResponse.orderNo,
         status: palmpayResponse.orderStatus === 2 ? 'completed' : 'pending',
-        amount: amount,
-        fees: 0, // No fees
-        totalAmount: totalAmount,
+        amount: amountDecimal,
+        fees: withdrawFee,
+        totalAmount: totalDebit,
         currency: currency.toUpperCase(),
         sessionId: palmpayResponse.sessionId,
       }, 'Payout initiated successfully')
