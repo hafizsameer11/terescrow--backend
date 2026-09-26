@@ -9,8 +9,34 @@ import { validationResult } from 'express-validator';
 import upload from '../../middlewares/multer.middleware';
 import { sendPushNotification } from '../../utils/pushService';
 import { v1Compat, wantsLegacyQuery } from '../../config/v1.compat.config';
+import {
+  notifyUserKycApproved,
+  notifyUserKycRejected,
+} from '../../services/kyc/kyc.notification.service';
 
 const prisma = new PrismaClient();
+
+async function notifyAdminKycDecision(
+  userId: number,
+  tier: string | null | undefined,
+  kycStatus: string,
+  reason?: string
+) {
+  if (tier !== 'tier2' && tier !== 'tier3') return;
+  try {
+    if (kycStatus === 'approved') {
+      await notifyUserKycApproved(userId, tier);
+    } else if (kycStatus === 'rejected') {
+      await notifyUserKycRejected(
+        userId,
+        tier,
+        reason || 'Verification could not be completed.'
+      );
+    }
+  } catch (err) {
+    console.error('KYC push/in-app notification failed:', err);
+  }
+}
 
 
 /*
@@ -1025,6 +1051,12 @@ export const updateKycStatus = async (req: Request, res: Response, next: NextFun
                     reason: reason || 'Your Information has been verified successfully',
                 },
             });
+            await notifyAdminKycDecision(
+                parseInt(userIdParam),
+                tier || 'tier2',
+                kycStatus,
+                reason
+            );
             return new ApiResponse(200, updateKycStates, 'Kyc status updated successfully').send(res);
         }
 
@@ -1078,6 +1110,7 @@ export const updateKycStatus = async (req: Request, res: Response, next: NextFun
                 }
             });
 
+            await notifyAdminKycDecision(userId, tier || 'tier2', kycStatus, reason);
             return new ApiResponse(200, updateKycStates, 'Kyc status updated successfully').send(res);
         }
 
@@ -1134,6 +1167,13 @@ export const updateKycStatus = async (req: Request, res: Response, next: NextFun
                 });
             }
         }
+
+        await notifyAdminKycDecision(
+            submission.userId,
+            submission.tier,
+            kycStatus,
+            reason || updatedSubmission.reason || undefined
+        );
 
         return new ApiResponse(200, updatedSubmission, 'Kyc status updated successfully').send(res);
 

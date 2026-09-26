@@ -481,6 +481,8 @@ export async function processBushaKycApplication(applicationId: string) {
           reason: 'Identity verification was declined',
         },
       });
+      const { notifyUserKycRejected } = await import('../kyc/kyc.notification.service');
+      await notifyUserKycRejected(app.userId, 'tier2', 'Identity verification was declined');
     }
 
     deleteTempSelfieCopy(app.selfiePath);
@@ -536,6 +538,8 @@ async function syncSubmittedBushaKycStatus(limit = 10) {
           where: { userId: app.userId, tier: 'tier2', state: 'pending', premblyVerified: true },
           data: { state: 'rejected', reason: 'Identity verification was declined' },
         });
+        const { notifyUserKycRejected } = await import('../kyc/kyc.notification.service');
+        await notifyUserKycRejected(app.userId, 'tier2', 'Identity verification was declined');
       }
     } catch (err: any) {
       console.error(`[Busha KYC] status sync failed for ${app.id}:`, err?.message || err);
