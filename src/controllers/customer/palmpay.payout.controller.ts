@@ -161,14 +161,31 @@ export const initiatePayoutController = async (
         select: {
           id: true,
           kycTier2Verified: true,
+          kycTier3Verified: true,
+          kycTier4Verified: true,
         },
       });
 
-      // APP sheet #6: max ₦20,000 until Tier 2 verified; higher limits after Tier 2
-      const DAILY_WITHDRAWAL_LIMIT = userWithKyc?.kycTier2Verified ? 50000 : 20000;
-      const MONTHLY_WITHDRAWAL_LIMIT = userWithKyc?.kycTier2Verified ? 150000 : 20000;
+      // Until Tier 2: ₦20k per txn / day; monthly = 20k × 30. After Tier 2+: use KycLimits (NGN).
+      const UNVERIFIED_DAILY_LIMIT = 20000;
+      const UNVERIFIED_MONTHLY_LIMIT = UNVERIFIED_DAILY_LIMIT * 30; // ₦600,000
+      let DAILY_WITHDRAWAL_LIMIT = UNVERIFIED_DAILY_LIMIT;
+      let MONTHLY_WITHDRAWAL_LIMIT = UNVERIFIED_MONTHLY_LIMIT;
 
-      if (!userWithKyc?.kycTier2Verified && amountDecimal > 20000) {
+      if (userWithKyc?.kycTier2Verified) {
+        const limitsTier = userWithKyc.kycTier4Verified
+          ? 'tier4'
+          : userWithKyc.kycTier3Verified
+            ? 'tier3'
+            : 'tier2';
+        const tierLimits = await prisma.kycLimits.findUnique({ where: { tier: limitsTier } });
+        const daily = Number(tierLimits?.withdrawalDailyLimit);
+        const monthly = Number(tierLimits?.withdrawalMonthlyLimit);
+        if (Number.isFinite(daily) && daily > 0) DAILY_WITHDRAWAL_LIMIT = daily;
+        if (Number.isFinite(monthly) && monthly > 0) MONTHLY_WITHDRAWAL_LIMIT = monthly;
+      }
+
+      if (!userWithKyc?.kycTier2Verified && amountDecimal > UNVERIFIED_DAILY_LIMIT) {
         return next(
           ApiError.badRequest(
             'Withdrawal limit is ₦20,000 until Tier 2 verification is completed. Please reduce the amount or complete verification.'
