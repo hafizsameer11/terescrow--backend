@@ -36,6 +36,7 @@ export async function getAdminTransactionsController(
     const result = await getAdminTransactions(parseFilters(req));
     return new ApiResponse(200, result, 'Transactions retrieved').send(res);
   } catch (error) {
+    console.error('[getAdminTransactions]', error);
     if (error instanceof ApiError) return next(error);
     next(ApiError.internal('Failed to fetch transactions'));
   }

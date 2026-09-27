@@ -129,6 +129,7 @@ function normalizeStatus(dbStatus: string): string {
   return s || 'pending';
 }
 
+/** Status values for string columns (GiftCardOrder, BushaTradeLog, BillPayment, FiatTransaction). */
 function statusToDbValues(s: string): string[] {
   if (s === 'successful') {
     return ['successful', 'completed', 'wallet_credited', 'funds_received', 'funds_converted'];
@@ -140,6 +141,44 @@ function statusToDbValues(s: string): string[] {
     return ['pending', 'processing', 'awaiting_payment', 'awaiting_deposit'];
   }
   return [s];
+}
+
+/**
+ * Legacy agent-chat `Transaction.status` is a Prisma enum:
+ * pending | failed | successful — must NOT receive string statuses like
+ * wallet_credited / completed or Prisma throws → 500 on /admin/transactions.
+ */
+function statusToTransactionEnumValues(s: string): Array<'pending' | 'failed' | 'successful'> {
+  const key = String(s || '').toLowerCase();
+  if (
+    key === 'successful' ||
+    key === 'completed' ||
+    key === 'wallet_credited' ||
+    key === 'funds_received' ||
+    key === 'funds_converted'
+  ) {
+    return ['successful'];
+  }
+  if (
+    key === 'declined' ||
+    key === 'failed' ||
+    key === 'cancelled' ||
+    key === 'canceled' ||
+    key === 'refunded' ||
+    key === 'buy_reversed'
+  ) {
+    return ['failed'];
+  }
+  if (
+    key === 'pending' ||
+    key === 'processing' ||
+    key === 'awaiting_payment' ||
+    key === 'awaiting_deposit'
+  ) {
+    return ['pending'];
+  }
+  // Unknown filter — do not pass invalid enum values to Prisma
+  return ['pending', 'failed', 'successful'];
 }
 
 function buildDateFilter(startDate?: string, endDate?: string) {
@@ -245,7 +284,7 @@ async function queryGiftCardSells(f: TransactionFilters, take: number, skip: num
   };
   const df = buildDateFilter(f.startDate, f.endDate);
   if (df) where.createdAt = df;
-  if (f.status) where.status = { in: statusToDbValues(f.status) };
+  if (f.status) where.status = { in: statusToTransactionEnumValues(f.status) };
   if (f.customerId) {
     where.chat = {
       participants: { some: { userId: f.customerId } },
