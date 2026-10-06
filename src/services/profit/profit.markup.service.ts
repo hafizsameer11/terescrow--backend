@@ -10,7 +10,15 @@ function parseAmt(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function extractMarkup(providerResponse: unknown): {
+/**
+ * Sell markup stores crypto in bushaSourceAmount / userSourceAmount and NGN in
+ * bushaTargetAmount / userCreditNgn. Buy stores NGN in both *SourceAmount fields.
+ * Never treat sell crypto source amounts as Naira.
+ */
+function extractMarkup(
+  providerResponse: unknown,
+  sideHint?: string | null
+): {
   markupPercent: number;
   actualAmountNgn: number;
   userAmountNgn: number;
@@ -28,8 +36,42 @@ function extractMarkup(providerResponse: unknown): {
   const bushaSource = parseAmt(markup.bushaSourceAmount);
   const userCredit = parseAmt(markup.userCreditNgn || markup.userTargetAmount);
   const userSource = parseAmt(markup.userSourceAmount);
+  const userShareBusha = parseAmt(markup.userShareBushaNgn);
+  const side = String(sideHint || '').toLowerCase();
 
-  if (buyPct > 0 || userSource > 0 || bushaSource > 0) {
+  const looksLikeSell =
+    side === 'sell' ||
+    sellPct > 0 ||
+    bushaTarget > 0 ||
+    userCredit > 0 ||
+    userShareBusha > 0;
+
+  if (looksLikeSell && side !== 'buy') {
+    // Prefer NGN fields only — source* on sell is crypto units.
+    const actual =
+      bushaTarget > 0
+        ? bushaTarget
+        : userShareBusha > 0
+          ? userShareBusha
+          : userCredit > 0
+            ? userCredit + platformSpread
+            : 0;
+    const user = userCredit > 0 ? userCredit : actual > 0 ? actual - platformSpread : 0;
+    const admin = platformSpread || (actual > 0 && user > 0 ? actual - user : 0);
+    if (admin <= 0 && actual <= 0 && user <= 0) {
+      // fall through
+    } else {
+      return {
+        side: 'sell',
+        markupPercent: sellPct,
+        actualAmountNgn: Math.round(actual * 100) / 100,
+        userAmountNgn: Math.round(Math.max(0, user) * 100) / 100,
+        adminMarkupNgn: Math.round(Math.max(0, admin) * 100) / 100,
+      };
+    }
+  }
+
+  if (side === 'buy' || buyPct > 0 || userSource > 0 || bushaSource > 0) {
     const actual = bushaSource > 0 ? bushaSource : userSource - platformSpread;
     const user = userSource > 0 ? userSource : actual + platformSpread;
     return {
@@ -38,18 +80,6 @@ function extractMarkup(providerResponse: unknown): {
       actualAmountNgn: Math.round(actual * 100) / 100,
       userAmountNgn: Math.round(user * 100) / 100,
       adminMarkupNgn: Math.round((platformSpread || user - actual) * 100) / 100,
-    };
-  }
-
-  if (sellPct > 0 || bushaTarget > 0 || userCredit > 0) {
-    const actual = bushaTarget > 0 ? bushaTarget : userCredit + platformSpread;
-    const user = userCredit > 0 ? userCredit : actual - platformSpread;
-    return {
-      side: 'sell',
-      markupPercent: sellPct,
-      actualAmountNgn: Math.round(actual * 100) / 100,
-      userAmountNgn: Math.round(user * 100) / 100,
-      adminMarkupNgn: Math.round((platformSpread || actual - user) * 100) / 100,
     };
   }
 
@@ -102,7 +132,7 @@ export async function getMarkupProfitOverview(params?: {
   const recent: any[] = [];
 
   for (const t of trades) {
-    const m = extractMarkup(t.providerResponse);
+    const m = extractMarkup(t.providerResponse, t.side);
     if (!m || m.adminMarkupNgn <= 0) continue;
     tradesWithMarkup += 1;
     totalMarkupNgn += m.adminMarkupNgn;
