@@ -756,6 +756,22 @@ Notification Crud
 
 */
 
+function parseNotificationUserIds(raw: unknown): number[] | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  let parsed: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(parsed)) return null;
+  return parsed
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+}
+
 export const createNotification = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = req.body._user;
@@ -764,73 +780,104 @@ export const createNotification = async (req: Request, res: Response, next: Next
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
-    const { message, title, type } = req.body;
-
-    // Parse userIds if sent as JSON string
-    let userIds = req.body.userIds;
-    if (userIds !== undefined && typeof userIds === 'string') {
-      try {
-        userIds = JSON.parse(userIds);
-      } catch (error) {
-        console.error('Invalid userIds JSON:', error);
-        return next(ApiError.badRequest('Invalid userIds format'));
-      }
+    const { message, title } = req.body;
+    if (!title || !message) {
+      return next(ApiError.badRequest('Title and message are required'));
     }
 
-    // If userIds not provided, fetch all customers
-    if (!Array.isArray(userIds)) {
-      const allUsers = await prisma.user.findMany({
-        where: {
-          role: UserRoles.customer, // adjust if you want agents or all users
-        },
-        select: {
-          id: true,
-        },
+    const audience = String(req.body.type || 'customer').toLowerCase();
+    const isSingle =
+      req.body.isSingle === true ||
+      req.body.isSingle === 'true' ||
+      req.body.isSingle === '1';
+
+    let recipients: { id: number; role: UserRoles }[] = [];
+
+    if (isSingle) {
+      const userIds = parseNotificationUserIds(req.body.userIds);
+      if (!userIds || userIds.length === 0) {
+        return next(ApiError.badRequest('Select at least one recipient'));
+      }
+      recipients = await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, role: true },
       });
-      userIds = allUsers.map(user => user.id);
+    } else {
+      const roles: UserRoles[] =
+        audience === 'agent'
+          ? [UserRoles.agent]
+          : audience === 'all'
+            ? [UserRoles.customer, UserRoles.agent]
+            : [UserRoles.customer];
+      recipients = await prisma.user.findMany({
+        where: { role: { in: roles } },
+        select: { id: true, role: true },
+      });
+    }
+
+    if (recipients.length === 0) {
+      return next(ApiError.badRequest('No recipients found for this notification'));
     }
 
     const image = req.file?.filename || '';
+    const storedType =
+      audience === 'agent' ? UserRoles.agent : UserRoles.customer;
 
-    // Create main notification record
     const notification = await prisma.notification.create({
       data: {
-        isSingle: false,
+        isSingle,
         message,
-        type,
+        type: storedType,
         title,
         image,
       },
     });
 
-    if (!notification) {
-      return next(ApiError.badRequest('Failed to create notification'));
-    }
-
-    // Send to each user
-    const notificationPromises = userIds.map(async (userId: number) => {
-      // Create in-app notification
-      await prisma.inAppNotification.create({
-        data: {
-          userId,
+    const IN_APP_CHUNK = 500;
+    for (let i = 0; i < recipients.length; i += IN_APP_CHUNK) {
+      const chunk = recipients.slice(i, i + IN_APP_CHUNK);
+      await prisma.inAppNotification.createMany({
+        data: chunk.map((r) => ({
+          userId: r.id,
           title,
           description: message,
-          type: 'customeer', // fix typo from 'customeer'
-        },
+          type: r.role === UserRoles.agent ? 'team' : 'customeer',
+        })),
       });
+    }
 
-      // Send push notification
-      await sendPushNotification({
-        userId: userId,
-        title: title,
-        body: message,
-        sound: 'default',
-      });
-    });
+    let pushDelivered = 0;
+    let pushFailed = 0;
+    const PUSH_CHUNK = 20;
+    for (let i = 0; i < recipients.length; i += PUSH_CHUNK) {
+      const chunk = recipients.slice(i, i + PUSH_CHUNK);
+      const results = await Promise.all(
+        chunk.map((r) =>
+          sendPushNotification({
+            userId: r.id,
+            title,
+            body: message,
+            sound: 'default',
+          })
+        )
+      );
+      for (const ok of results) {
+        if (ok) pushDelivered += 1;
+        else pushFailed += 1;
+      }
+    }
 
-    await Promise.all(notificationPromises);
-
-    return new ApiResponse(201, notification, 'Notification created successfully').send(res);
+    return new ApiResponse(
+      201,
+      {
+        ...notification,
+        recipients: recipients.length,
+        inAppCreated: recipients.length,
+        pushDelivered,
+        pushFailed,
+      },
+      `Notification sent successfully. ${recipients.length} in-app, ${pushDelivered} push delivered.`
+    ).send(res);
   } catch (error) {
     console.error('Notification Error:', error);
     return next(
