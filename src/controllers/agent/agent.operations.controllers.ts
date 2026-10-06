@@ -13,6 +13,7 @@ import { TransactionStatus } from '@prisma/client';
 import { getCustomerSocketId, io } from '../../socketConfig';
 import { hashPassword } from '../../utils/authUtils';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
+import { notifyGiftCardSellCustomer } from '../../services/giftcard/giftcard.sell.notification.service';
 
 const prisma = new PrismaClient();
 
@@ -221,18 +222,25 @@ export const createTransactionCard = async (
       }
     }
 
-    //create notification for customer
     if (customer) {
-      await prisma.inAppNotification.create({
-        data: {
+      try {
+        await notifyGiftCardSellCustomer({
           userId: customer.id,
-          title: walletCredited ? 'Wallet credited' : 'Transaction created',
-          description: walletCredited
-            ? `₦${creditAmountNgn.toLocaleString('en-NG')} has been credited to your Naira wallet`
-            : 'Your transaction has been created',
-          type: InAppNotificationType.customeer
-        },
-      });
+          event: 'successful',
+          amountNgn: walletCredited ? creditAmountNgn : computedAmountNaira,
+          chatId: parseInt(String(chatId), 10),
+        });
+        if (walletCredited) {
+          await notifyGiftCardSellCustomer({
+            userId: customer.id,
+            event: 'credit',
+            amountNgn: creditAmountNgn,
+            chatId: parseInt(String(chatId), 10),
+          });
+        }
+      } catch (notifyError) {
+        console.error('Gift card sell customer notification failed:', notifyError);
+      }
       await prisma.accountActivity.create({
         data: {
           userId: customer.id,

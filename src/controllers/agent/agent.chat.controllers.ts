@@ -13,6 +13,12 @@ import { getCustomerSocketId } from '../../socketConfig';
 import { io } from '../../socketConfig';
 import { sendPushNotification } from '../../utils/pushService';
 import { v1Compat } from '../../config/v1.compat.config';
+import {
+  findCustomerIdFromParticipants,
+  giftCardSellEventFromChatStatus,
+  isGiftCardSellDepartment,
+  notifyGiftCardSellCustomer,
+} from '../../services/giftcard/giftcard.sell.notification.service';
 
 const prisma = new PrismaClient();
 
@@ -186,9 +192,10 @@ export const changeChatStatusController = async (
       return next(ApiError.unauthorized('You are not authorized'));
     }
 
-    const { chatId, setStatus } = req.body as {
+    const { chatId, setStatus, reason } = req.body as {
       chatId: string;
       setStatus: ChatStatus;
+      reason?: string;
     };
 
     if (!chatId || !setStatus || ChatStatus[setStatus] === undefined) {
@@ -200,9 +207,18 @@ export const changeChatStatusController = async (
         id: Number(chatId),
       },
       select: {
+        id: true,
+        participants: {
+          select: {
+            user: {
+              select: { id: true, role: true },
+            },
+          },
+        },
         chatDetails: {
           select: {
             status: true,
+            department: { select: { niche: true, Type: true } },
           },
         },
       },
@@ -228,6 +244,24 @@ export const changeChatStatusController = async (
         },
       },
     });
+
+    if (isGiftCardSellDepartment(chat.chatDetails?.department)) {
+      const event = giftCardSellEventFromChatStatus(setStatus);
+      const customerId = findCustomerIdFromParticipants(chat.participants);
+      if (event && customerId) {
+        try {
+          await notifyGiftCardSellCustomer({
+            userId: customerId,
+            event,
+            reason: typeof reason === 'string' ? reason : undefined,
+            chatId: chat.id,
+          });
+        } catch (notifyError) {
+          console.error('Gift card sell status notification failed:', notifyError);
+        }
+      }
+    }
+
     return new ApiResponse(
       200,
       undefined,
