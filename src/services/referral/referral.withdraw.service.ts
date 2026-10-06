@@ -25,8 +25,15 @@ async function loadReferralWithdrawContext(
     throw ApiError.badRequest('Insufficient referral wallet balance');
   }
 
+  const { minFirstWithdrawal: minAmount } = await getReferralSignupRules();
+
+  if (withdrawAmount.lt(minAmount)) {
+    throw ApiError.badRequest(
+      `Referral withdrawal must be at least ₦${minAmount.toString()}`
+    );
+  }
+
   if (!wallet.hasWithdrawn) {
-    const { minFirstWithdrawal: minAmount } = await getReferralSignupRules();
     if (new Decimal(wallet.balance.toString()).lt(minAmount)) {
       throw ApiError.badRequest(
         `First withdrawal requires a minimum balance of ₦${minAmount.toString()}`
