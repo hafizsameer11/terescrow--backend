@@ -175,7 +175,8 @@ export async function getMarkupProfitOverview(params?: {
   if (where.createdAt) billFeeWhere.createdAt = where.createdAt;
 
   // Gift card profit from agent Transaction.profit.
-  // Match via txn department OR the chat's department (covers older rows / missing departmentId).
+  // Match by department niche, chat department, OR cardType (create-card always sets it —
+  // covers departments whose niche/Type were misconfigured).
   const giftCardDept = { niche: 'giftCard' as const };
   const [billAgg, gcAgg] = await Promise.all([
     prisma.fiatTransaction.aggregate({
@@ -188,6 +189,24 @@ export async function getMarkupProfitOverview(params?: {
         OR: [
           { department: giftCardDept },
           { chat: { chatDetails: { department: giftCardDept } } },
+          {
+            AND: [
+              { cardType: { not: null } },
+              { NOT: { cardType: '' } },
+            ],
+          },
+          {
+            department: {
+              title: { contains: 'gift' },
+            },
+          },
+          {
+            chat: {
+              chatDetails: {
+                department: { title: { contains: 'gift' } },
+              },
+            },
+          },
         ],
         ...(where.createdAt ? { createdAt: where.createdAt } : {}),
       },

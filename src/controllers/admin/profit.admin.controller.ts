@@ -184,7 +184,7 @@ export async function getMarkupProfitOverviewController(req: Request, res: Respo
       endDate: typeof req.query.endDate === 'string' ? req.query.endDate : undefined,
       limit: req.query.limit ? Number(req.query.limit) : undefined,
     });
-    return res.status(200).json(new ApiResponse(200, data, 'Markup profit overview retrieved'));
+    return new ApiResponse(200, data, 'Markup profit overview retrieved').send(res);
   } catch (error: any) {
     return next(ApiError.internal(error.message || 'Failed to get markup profit overview'));
   }
