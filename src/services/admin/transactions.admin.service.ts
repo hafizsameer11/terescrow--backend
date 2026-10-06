@@ -720,6 +720,35 @@ function mapBillPayment(b: any): UnifiedTransaction {
 
 // ── Naira (PalmPay deposits/withdrawals — not crypto/bill legs) ──
 
+function parseFiatMetadata(raw: unknown): Record<string, any> {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, any>;
+  if (typeof raw !== 'string') return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isReferralNairaWithdraw(f: {
+  type?: string | null;
+  description?: string | null;
+  metadata?: unknown;
+}): boolean {
+  const t = String(f.type || '').toUpperCase();
+  if (!['WITHDRAW', 'WITHDRAWAL', 'DEBIT'].includes(t)) return false;
+  const meta = parseFiatMetadata(f.metadata);
+  const source = String(
+    meta.walletSource || meta.withdrawalSource || meta.source || ''
+  ).toLowerCase();
+  if (source === 'referral') return true;
+  return String(f.description || '')
+    .toLowerCase()
+    .includes('referral');
+}
+
 function nairaWhereBase(): any {
   return {
     billType: null,
@@ -753,6 +782,7 @@ async function queryNaira(f: TransactionFilters, take: number, skip: number) {
       { id: { contains: q } },
       { palmpayOrderNo: { contains: q } },
       { palmpayOrderId: { contains: q } },
+      { description: { contains: q } },
     ];
   }
 
@@ -778,6 +808,13 @@ function mapNaira(f: any): UnifiedTransaction {
   const isUsd = currency === 'USD';
   const t = String(f.type || '').toUpperCase();
   const deptType = ['DEPOSIT', 'CREDIT'].includes(t) ? 'buy' : 'sell';
+  const referralWithdraw = isReferralNairaWithdraw(f);
+  const nairaType = referralWithdraw ? 'REFERRAL_WITHDRAW' : (f.type ?? null);
+  const walletSourceLabel = referralWithdraw
+    ? 'Referral wallet'
+    : ['WITHDRAW', 'WITHDRAWAL', 'DEBIT'].includes(t)
+      ? 'Naira wallet'
+      : null;
   return {
     id: f.id,
     transactionId: f.id,
@@ -788,13 +825,13 @@ function mapNaira(f: any): UnifiedTransaction {
     updatedAt: f.updatedAt.toISOString(),
     profit: 0,
     department: { id: 0, title: 'Naira', niche: 'naira', Type: deptType },
-    category: { id: 0, title: f.type ?? 'Naira', subTitle: 'palmpay', image: null },
-    subCategory: null,
+    category: { id: 0, title: nairaType ?? 'Naira', subTitle: 'palmpay', image: null },
+    subCategory: walletSourceLabel ? { id: 0, title: walletSourceLabel } : null,
     customer: mapUser(f.user),
     agent: null,
     ...NULL_TYPE_FIELDS,
-    nairaType: f.type ?? null,
-    nairaChannel: f.description ?? null,
+    nairaType,
+    nairaChannel: f.description ?? walletSourceLabel,
     nairaReference: f.palmpayOrderNo ?? f.palmpayOrderId ?? null,
     provider: 'palmpay',
   };

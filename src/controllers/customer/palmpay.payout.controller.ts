@@ -297,6 +297,10 @@ export const initiatePayoutController = async (
         description: isReferralSource
           ? `Referral withdrawal to ${accountNumber}`
           : `Withdrawal to ${accountNumber}`,
+        metadata: JSON.stringify({
+          walletSource: isReferralSource ? 'referral' : 'fiat',
+          withdrawalSource: isReferralSource ? 'referral' : 'fiat',
+        }),
         palmpayOrderId: orderId,
         payeeName: accountName,
         payeeBankCode: bankCode,
