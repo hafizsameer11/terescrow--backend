@@ -52,6 +52,13 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
 
         const userId = req.params.id;
 
+        const normalizeNaira = (raw: number) => {
+            if (!Number.isFinite(raw)) return 0;
+            const rounded = Math.round(raw * 100) / 100;
+            if (Object.is(rounded, -0) || rounded === 0) return 0;
+            return rounded;
+        };
+
         if (v1Compat.useV1AdminCustomerDetail || wantsLegacyQuery(req)) {
             const customer = await prisma.user.findUnique({
                 where: { id: parseInt(userId) },
@@ -64,6 +71,10 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
                         take: 6,
                         orderBy: { createdAt: 'desc' },
                     },
+                    fiatWallets: {
+                        where: { currency: 'NGN' },
+                        select: { balance: true },
+                    },
                 },
             });
 
@@ -72,12 +83,20 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
             }
 
             const kycStateTwo = customer.KycStateTwo.length > 0 ? customer.KycStateTwo[0] : null;
+            let nairaBalance = 0;
+            for (const w of customer.fiatWallets || []) {
+                nairaBalance += Number(w.balance || 0);
+            }
+            nairaBalance = normalizeNaira(nairaBalance);
+            const { fiatWallets, ...customerRest } = customer;
 
             return new ApiResponse(
                 200,
                 {
-                    ...customer,
+                    ...customerRest,
                     KycStateTwo: kycStateTwo,
+                    nairaBalance,
+                    hasNairaWallet: (fiatWallets?.length ?? 0) > 0,
                 },
                 'Customer details fetched successfully'
             ).send(res);
@@ -125,6 +144,7 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
         for (const w of customer.fiatWallets) {
             nairaBalance += Number(w.balance || 0);
         }
+        nairaBalance = normalizeNaira(nairaBalance);
 
         let cryptoBalanceUsd = 0;
         const cryptoAssets: { symbol: string; name: string; balance: string; usdEquivalent: number }[] = [];
@@ -158,7 +178,8 @@ export const getCustomerDetails = async (req: Request, res: Response, next: Next
                 featureFreezes: undefined,
                 ipAddress: null,
                 tier,
-                nairaBalance: Math.round(nairaBalance * 100) / 100,
+                nairaBalance,
+                hasNairaWallet: customer.fiatWallets.length > 0,
                 cryptoBalance: Math.round(cryptoBalanceUsd * 100) / 100,
                 referralCode: customer.referralCode ?? null,
                 cryptoAssets,
