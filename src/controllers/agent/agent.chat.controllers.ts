@@ -232,6 +232,19 @@ export const changeChatStatusController = async (
       return next(ApiError.badRequest('chat status already set'));
     }
 
+    if (setStatus === ChatStatus.successful) {
+      const txCount = await prisma.transaction.count({
+        where: { chatId: Number(chatId) },
+      });
+      if (txCount === 0) {
+        return next(
+          ApiError.badRequest(
+            'Log the transaction first before marking this chat successful'
+          )
+        );
+      }
+    }
+
     await prisma.chat.update({
       where: {
         id: Number(chatId),
@@ -432,6 +445,14 @@ export const getCustomerChatDetailsController = async (
         },
         chatGroup: true,
         messages: true,
+        transactions: {
+          take: 5,
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, amount: true, amountNaira: true, status: true, createdAt: true },
+        },
+        _count: {
+          select: { transactions: true },
+        },
       },
     });
 
@@ -468,6 +489,8 @@ export const getCustomerChatDetailsController = async (
       chatType,
       createdAt,
       updatedAt,
+      transactions,
+      _count,
     } = chat;
 
     // Find the customer based on their role
@@ -484,6 +507,8 @@ export const getCustomerChatDetailsController = async (
       chatType,
       createdAt,
       updatedAt,
+      transactions: transactions || [],
+      transactionsCount: _count?.transactions || 0,
     };
 
     return new ApiResponse(200, resData, 'Chat found').send(res);

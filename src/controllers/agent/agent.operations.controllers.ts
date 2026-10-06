@@ -27,9 +27,9 @@ export const createTransactionCard = async (
   next: NextFunction
 ) => {
   try {
-    // Extract agentId from auth middleware
-    const agent: User = req.body._user;
-    if (!agent || agent.role !== UserRoles.agent) {
+    // Agent or admin can log; wallet credit stays optional
+    const actor: User = req.body._user;
+    if (!actor || (actor.role !== UserRoles.agent && actor.role !== UserRoles.admin)) {
       return next(ApiError.unauthorized('Unauthorized'));
     }
 
@@ -59,13 +59,16 @@ export const createTransactionCard = async (
 
     const currChat = await prisma.chat.findUnique({
       where: {
-        id: chatId,
-        participants: {
-          some: {
-            userId: agent.id,
-          },
-        },
-       
+        id: parseInt(String(chatId), 10),
+        ...(actor.role === UserRoles.agent
+          ? {
+              participants: {
+                some: {
+                  userId: actor.id,
+                },
+              },
+            }
+          : {}),
       },
       select: {
         participants: {
@@ -74,6 +77,7 @@ export const createTransactionCard = async (
               select: {
                 id: true,
                 agent: true,
+                role: true,
               },
             },
           },
@@ -111,8 +115,12 @@ export const createTransactionCard = async (
     }
 
     const customer = currChat.participants.find(
-      (participant) => participant.user.id !== agent.id
+      (participant) => participant.user.role === UserRoles.customer
     )?.user;
+    const chatAgent = currChat.participants.find(
+      (participant) => participant.user.role === UserRoles.agent
+    )?.user;
+    const activityAgentId = actor.role === UserRoles.agent ? actor.id : chatAgent?.id ?? actor.id;
 
     let creditAmountNgn = 0;
     let existingNgnWallet: { id: string; status: string } | null = null;
@@ -197,7 +205,8 @@ export const createTransactionCard = async (
               source: 'agent_gift_card_sell',
               legacyTransactionId: transaction.id,
               chatId: parseInt(String(chatId), 10),
-              agentId: agent.id,
+              agentId: activityAgentId,
+              loggedByUserId: actor.id,
               amountUsd: parsedAmount,
               exchangeRate: parsedExchangeRate,
               amountNaira: computedAmountNaira,
@@ -252,7 +261,7 @@ export const createTransactionCard = async (
     }
     await prisma.accountActivity.create({
       data: {
-        userId: agent.id,
+        userId: activityAgentId,
         description: walletCredited
           ? `Completed gift card sell and credited ₦${creditAmountNgn} to customer wallet`
           : 'Create a transaction for customer'
@@ -261,7 +270,7 @@ export const createTransactionCard = async (
     //create notification for agent
     await prisma.inAppNotification.create({
       data: {
-        userId: agent.id,
+        userId: activityAgentId,
         title: 'Transaction created',
         description: walletCredited
           ? 'Transaction created and Naira wallet credited'
@@ -272,7 +281,7 @@ export const createTransactionCard = async (
 
     const updatedChat = await prisma.chat.update({
       where: {
-        id: chatId,
+        id: parseInt(String(chatId), 10),
       },
       data: {
         chatDetails: {
@@ -330,10 +339,10 @@ export const createTransactionCrypto = async (
   next: NextFunction
 ) => {
   try {
-    // Extract agentId from auth middleware
+    // Agent or admin can log (including backfill on older successful chats)
     console.log(req.body);
-    const agent: User = req.body._user;
-    if (!agent || agent.role !== UserRoles.agent) {
+    const actor: User = req.body._user;
+    if (!actor || (actor.role !== UserRoles.agent && actor.role !== UserRoles.admin)) {
       return next(ApiError.unauthorized('Unauthorized'));
     }
 
@@ -363,18 +372,21 @@ export const createTransactionCrypto = async (
       return next(ApiError.badRequest('Missing required fields'));
     }
 
-    //extract agent and userId from chat Id
+    const parsedChatId = parseInt(String(chatId), 10);
+
+    // Allow pending/processing/successful so agents can backfill older Successful chats
     const currChat = await prisma.chat.findUnique({
       where: {
-        id: chatId,
-        participants: {
-          some: {
-            userId: agent.id,
-          },
-        },
-        chatDetails: {
-          status: ChatStatus.pending,
-        },
+        id: parsedChatId,
+        ...(actor.role === UserRoles.agent
+          ? {
+              participants: {
+                some: {
+                  userId: actor.id,
+                },
+              },
+            }
+          : {}),
       },
       select: {
         participants: {
@@ -383,6 +395,7 @@ export const createTransactionCrypto = async (
               select: {
                 id: true,
                 agent: true,
+                role: true,
               },
             },
           },
@@ -390,11 +403,20 @@ export const createTransactionCrypto = async (
       },
     });
 
-    const customer = currChat?.participants.find(
-      (participant) => participant.user.id !== agent.id
+    if (!currChat || currChat.participants.length === 0) {
+      return next(ApiError.notFound('Chat not found'));
+    }
+
+    const customer = currChat.participants.find(
+      (participant) => participant.user.role === UserRoles.customer
     )?.user;
+    const chatAgent = currChat.participants.find(
+      (participant) => participant.user.role === UserRoles.agent
+    )?.user;
+    const activityAgentId = actor.role === UserRoles.agent ? actor.id : chatAgent?.id ?? actor.id;
+
     if (customer) {
-      const notification = await prisma.inAppNotification.create({
+      await prisma.inAppNotification.create({
         data: {
           userId: customer.id,
           title: 'Transaction created',
@@ -402,29 +424,25 @@ export const createTransactionCrypto = async (
           type: InAppNotificationType.customeer
         },
       });
-      const customerActivity = await prisma.accountActivity.create({
+      await prisma.accountActivity.create({
         data: {
           userId: customer.id,
           description: 'Create a transaction for customer'
         }
       })
     }
-    //create notification for agent
-    const agentNotification = await prisma.inAppNotification.create({
+    await prisma.inAppNotification.create({
       data: {
-        userId: agent.id,
+        userId: activityAgentId,
         title: 'Transaction created',
         description: 'Transaction created successfully',
         type: InAppNotificationType.customeer
       },
     });
 
-    if (!currChat || currChat.participants.length === 0) {
-      return next(ApiError.notFound('Chat not found'));
-    }
-    const accountActivityy = await prisma.accountActivity.create({
+    await prisma.accountActivity.create({
       data: {
-        userId: agent.id,
+        userId: activityAgentId,
         description: 'Create a transaction for customer'
       }
     });
@@ -432,7 +450,7 @@ export const createTransactionCrypto = async (
     // Create a new transaction
     const transaction = await prisma.transaction.create({
       data: {
-        chatId: parseInt(chatId, 10),
+        chatId: parsedChatId,
         subCategoryId: parseInt(subCategoryId, 10),
         amount: parseFloat(amount),
         departmentId: parseInt(departmentId, 10),
@@ -452,7 +470,7 @@ export const createTransactionCrypto = async (
 
     const updatedChat = await prisma.chat.update({
       where: {
-        id: chatId,
+        id: parsedChatId,
       },
       data: {
         chatDetails: {
@@ -466,23 +484,21 @@ export const createTransactionCrypto = async (
     if (!updatedChat) {
       return next(ApiError.badRequest('Chat not updated'));
     }
-    const accountActivity = await prisma.accountActivity.create({
+    await prisma.accountActivity.create({
       data: {
-        userId: agent.id,
+        userId: activityAgentId,
         description: 'Create a transaction for customer',
       }
     })
 
-    const currCustomer = currChat.participants.find(
-      (participant) => participant.user.id !== agent.id
-    );
-    const currCustomerId = currCustomer?.user.id;
-
-    const customerSocketId = getCustomerSocketId(currCustomerId!);
-    if (customerSocketId) {
-      io.to(customerSocketId).emit('chat-successful', {
-        chatId: +chatId,
-      });
+    const currCustomerId = customer?.id;
+    if (currCustomerId) {
+      const customerSocketId = getCustomerSocketId(currCustomerId);
+      if (customerSocketId) {
+        io.to(customerSocketId).emit('chat-successful', {
+          chatId: parsedChatId,
+        });
+      }
     }
 
     return new ApiResponse(

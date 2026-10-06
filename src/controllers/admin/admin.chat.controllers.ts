@@ -375,9 +375,16 @@ export const getAllCustomerWithAgentsChats = async (
         },
         messages: {
           where: { OR: [{ message: { not: '' } }, { image: { not: null } }] },
-          take: 1,
+          take: 40,
           orderBy: { createdAt: 'desc' },
-          select: { id: true, message: true, createdAt: true, receiverId: true, isRead: true },
+          select: {
+            id: true,
+            message: true,
+            createdAt: true,
+            receiverId: true,
+            isRead: true,
+            senderId: true,
+          },
         },
         transactions: {
           take: 5,
@@ -385,7 +392,7 @@ export const getAllCustomerWithAgentsChats = async (
           select: { id: true, amount: true, amountNaira: true, createdAt: true },
         },
         rate: {
-          take: 1,
+          take: 3,
           orderBy: { createdAt: 'desc' },
           select: { id: true, amount: true, amountNaira: true },
         },
@@ -406,12 +413,62 @@ export const getAllCustomerWithAgentsChats = async (
       return Number.isFinite(n) ? n : null;
     };
 
+    /** Agents often write "320k send boss" without logging a Transaction. */
+    const parseNairaFromMessages = (
+      messages: Array<{ message?: string | null; senderId?: number | null }>,
+      agentId?: number | null
+    ): number | null => {
+      const candidates: number[] = [];
+      for (const m of messages) {
+        const text = String(m.message || '').replace(/,/g, ' ').trim();
+        if (!text) continue;
+        const fromAgent = agentId != null && m.senderId === agentId;
+
+        // ₦320,000 / NGN 320000
+        const symbol = text.match(/(?:₦|ngn)\s*([\d]+(?:\.\d+)?)/i);
+        if (symbol) {
+          const n = Number(symbol[1]);
+          if (Number.isFinite(n) && n >= 100) candidates.push(n);
+        }
+
+        // 320k send / 215k paid / 22k
+        const kMatch = text.match(/(\d+(?:\.\d+)?)\s*k\b/i);
+        if (kMatch) {
+          const n = Math.round(parseFloat(kMatch[1]) * 1000);
+          if (Number.isFinite(n) && n >= 1000) {
+            // Prefer payout-style agent lines
+            if (fromAgent || /\b(send|sent|paid|pay|credit|transfer)\b/i.test(text)) {
+              return n;
+            }
+            candidates.push(n);
+          }
+        }
+      }
+      return candidates.length ? Math.max(...candidates) : null;
+    };
+
+    const parseUsdFromMessages = (
+      messages: Array<{ message?: string | null }>
+    ): number | null => {
+      for (const m of messages) {
+        const text = String(m.message || '');
+        const dollar = text.match(/\$\s*([\d]+(?:\.\d+)?)/);
+        if (dollar) {
+          const n = Number(dollar[1]);
+          if (Number.isFinite(n) && n > 0) return n;
+        }
+      }
+      return null;
+    };
+
     const pickAmountRow = (
       txs: Array<{ id: number; amount: unknown; amountNaira: unknown }>,
-      rates: Array<{ id: number; amount: unknown; amountNaira: unknown }>
+      rates: Array<{ id: number; amount: unknown; amountNaira: unknown }>,
+      messages: Array<{ message?: string | null; senderId?: number | null }>,
+      agentId?: number | null
     ) => {
       const fromTx =
-        txs.find((t) => toNum(t.amount) != null || toNum(t.amountNaira) != null) || txs[0];
+        txs.find((t) => toNum(t.amount) != null || toNum(t.amountNaira) != null) || null;
       if (fromTx) {
         return {
           id: fromTx.id,
@@ -419,22 +476,46 @@ export const getAllCustomerWithAgentsChats = async (
           amountNaira: toNum(fromTx.amountNaira),
         };
       }
-      const fromRate = rates[0];
-      if (fromRate && (toNum(fromRate.amount) != null || toNum(fromRate.amountNaira) != null)) {
+      const fromRate =
+        rates.find((r) => toNum(r.amount) != null || toNum(r.amountNaira) != null) || null;
+      if (fromRate) {
         return {
           id: fromRate.id,
           amount: toNum(fromRate.amount),
           amountNaira: toNum(fromRate.amountNaira),
         };
       }
+      const ngn = parseNairaFromMessages(messages, agentId);
+      const usd = parseUsdFromMessages(messages);
+      if (ngn != null || usd != null) {
+        return {
+          id: 0,
+          amount: usd,
+          amountNaira: ngn,
+        };
+      }
       return null;
     };
 
     const data = rows.map((chat) => {
-      const recentMessage = chat.messages?.[0] || null;
+      const msgs = chat.messages || [];
+      const recentMessage = msgs[0]
+        ? {
+            id: msgs[0].id,
+            message: msgs[0].message,
+            createdAt: msgs[0].createdAt,
+            receiverId: msgs[0].receiverId,
+            isRead: msgs[0].isRead,
+          }
+        : null;
       const customer = chat.participants.find(p => p.user.role === UserRoles.customer)?.user || null;
       const agent = chat.participants.find(p => p.user.role === UserRoles.agent)?.user || null;
-      const amountRow = pickAmountRow(chat.transactions || [], chat.rate || []);
+      const amountRow = pickAmountRow(
+        chat.transactions || [],
+        chat.rate || [],
+        msgs,
+        agent?.id ?? null
+      );
 
       return {
         id: chat.id,
@@ -763,6 +844,14 @@ export const getAgentCustomerChatDetails = async (
             createdAt: 'asc', // Ensure messages are in chronological order
           },
         },
+        transactions: {
+          take: 5,
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, amount: true, amountNaira: true, status: true, createdAt: true },
+        },
+        _count: {
+          select: { transactions: true },
+        },
       },
     });
 
@@ -800,6 +889,8 @@ export const getAgentCustomerChatDetails = async (
       chatType,
       createdAt,
       updatedAt,
+      transactions,
+      _count,
     } = chat;
 
     const resData = {
@@ -811,6 +902,8 @@ export const getAgentCustomerChatDetails = async (
       chatType,
       createdAt,
       updatedAt,
+      transactions: transactions || [],
+      transactionsCount: _count?.transactions || 0,
     };
 
     return new ApiResponse(200, resData, 'Chat details retrieved successfully').send(res);
