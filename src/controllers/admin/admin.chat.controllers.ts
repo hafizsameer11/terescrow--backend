@@ -380,6 +380,11 @@ export const getAllCustomerWithAgentsChats = async (
           select: { id: true, message: true, createdAt: true, receiverId: true, isRead: true },
         },
         transactions: {
+          take: 5,
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, amount: true, amountNaira: true, createdAt: true },
+        },
+        rate: {
           take: 1,
           orderBy: { createdAt: 'desc' },
           select: { id: true, amount: true, amountNaira: true },
@@ -395,10 +400,41 @@ export const getAllCustomerWithAgentsChats = async (
       },
     });
 
+    const toNum = (v: unknown): number | null => {
+      if (v == null || v === '') return null;
+      const n = typeof v === 'number' ? v : Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const pickAmountRow = (
+      txs: Array<{ id: number; amount: unknown; amountNaira: unknown }>,
+      rates: Array<{ id: number; amount: unknown; amountNaira: unknown }>
+    ) => {
+      const fromTx =
+        txs.find((t) => toNum(t.amount) != null || toNum(t.amountNaira) != null) || txs[0];
+      if (fromTx) {
+        return {
+          id: fromTx.id,
+          amount: toNum(fromTx.amount),
+          amountNaira: toNum(fromTx.amountNaira),
+        };
+      }
+      const fromRate = rates[0];
+      if (fromRate && (toNum(fromRate.amount) != null || toNum(fromRate.amountNaira) != null)) {
+        return {
+          id: fromRate.id,
+          amount: toNum(fromRate.amount),
+          amountNaira: toNum(fromRate.amountNaira),
+        };
+      }
+      return null;
+    };
+
     const data = rows.map((chat) => {
       const recentMessage = chat.messages?.[0] || null;
       const customer = chat.participants.find(p => p.user.role === UserRoles.customer)?.user || null;
       const agent = chat.participants.find(p => p.user.role === UserRoles.agent)?.user || null;
+      const amountRow = pickAmountRow(chat.transactions || [], chat.rate || []);
 
       return {
         id: chat.id,
@@ -412,7 +448,7 @@ export const getAllCustomerWithAgentsChats = async (
         recentMessage,
         unreadCount: chat._count.messages || 0,
         transactionsCount: chat._count.transactions || 0,
-        transactions: chat.transactions || [],
+        transactions: amountRow ? [amountRow] : [],
       };
     });
 
