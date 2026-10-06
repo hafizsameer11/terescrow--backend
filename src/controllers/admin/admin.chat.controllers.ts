@@ -379,6 +379,11 @@ export const getAllCustomerWithAgentsChats = async (
           orderBy: { createdAt: 'desc' },
           select: { id: true, message: true, createdAt: true, receiverId: true, isRead: true },
         },
+        transactions: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, amount: true, amountNaira: true },
+        },
         _count: {
           select: {
             messages: {
@@ -387,7 +392,6 @@ export const getAllCustomerWithAgentsChats = async (
             transactions: true,
           },
         },
-        // (Optional) remove the heavy transactions list from the list view
       },
     });
 
@@ -408,6 +412,7 @@ export const getAllCustomerWithAgentsChats = async (
         recentMessage,
         unreadCount: chat._count.messages || 0,
         transactionsCount: chat._count.transactions || 0,
+        transactions: chat.transactions || [],
       };
     });
 
