@@ -82,6 +82,12 @@ export const createTransactionCard = async (
             },
           },
         },
+        chatDetails: {
+          select: {
+            departmentId: true,
+            categoryId: true,
+          },
+        },
       },
     });
 
@@ -100,10 +106,20 @@ export const createTransactionCard = async (
         : parsedAmount * parsedExchangeRate;
     const computedProfit =
       profit != null && profit !== ''
-        ? parseFloat(profit)
+        ? parseFloat(String(profit))
         : parsedVendorRate > 0
           ? parsedAmount * (parsedExchangeRate - parsedVendorRate)
           : 0;
+    if (!Number.isFinite(computedProfit) || computedProfit < 0) {
+      return next(ApiError.badRequest('Enter a valid Naira profit (0 or greater)'));
+    }
+
+    const resolvedDepartmentId = Number.isFinite(parseInt(String(departmentId), 10))
+      ? parseInt(String(departmentId), 10)
+      : currChat.chatDetails?.departmentId ?? null;
+    const resolvedCategoryId = Number.isFinite(parseInt(String(categoryId), 10))
+      ? parseInt(String(categoryId), 10)
+      : currChat.chatDetails?.categoryId ?? null;
 
     let resolvedVendorName = vendorName || null;
     if (!resolvedVendorName && vendorId) {
@@ -168,8 +184,8 @@ export const createTransactionCard = async (
         subCategoryId: parseInt(subCategoryId, 10),
         cardType: cardType || null,
         cardNumber: cardNumber || null,
-        departmentId: parseInt(departmentId, 10),
-        categoryId: parseInt(categoryId, 10),
+        departmentId: resolvedDepartmentId,
+        categoryId: resolvedCategoryId,
         amount: parsedAmount,
         exchangeRate: parsedExchangeRate || null,
         amountNaira: computedAmountNaira || null,

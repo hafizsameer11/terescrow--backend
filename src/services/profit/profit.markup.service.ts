@@ -105,10 +105,19 @@ export async function getMarkupProfitOverview(params?: {
   };
   if (params?.startDate || params?.endDate) {
     where.createdAt = {};
-    if (params.startDate) where.createdAt.gte = new Date(params.startDate);
+    // Match getChatStats: date-only bounds use local day; ISO strings keep clock-in precision
+    if (params.startDate) {
+      where.createdAt.gte = new Date(
+        params.startDate.includes('T') ? params.startDate : `${params.startDate}T00:00:00`
+      );
+    }
     if (params.endDate) {
-      const end = new Date(params.endDate);
-      end.setHours(23, 59, 59, 999);
+      const end = new Date(
+        params.endDate.includes('T') ? params.endDate : `${params.endDate}T00:00:00`
+      );
+      if (!params.endDate.includes('T')) {
+        end.setHours(23, 59, 59, 999);
+      }
       where.createdAt.lte = end;
     }
   }
@@ -165,7 +174,9 @@ export async function getMarkupProfitOverview(params?: {
   };
   if (where.createdAt) billFeeWhere.createdAt = where.createdAt;
 
-  // Gift card sell profit from agent Transaction.profit (giftCard sell department)
+  // Gift card profit from agent Transaction.profit.
+  // Match via txn department OR the chat's department (covers older rows / missing departmentId).
+  const giftCardDept = { niche: 'giftCard' as const };
   const [billAgg, gcAgg] = await Promise.all([
     prisma.fiatTransaction.aggregate({
       where: billFeeWhere,
@@ -174,8 +185,10 @@ export async function getMarkupProfitOverview(params?: {
     }),
     prisma.transaction.aggregate({
       where: {
-        profit: { gt: 0 },
-        department: { niche: 'giftCard', Type: 'sell' },
+        OR: [
+          { department: giftCardDept },
+          { chat: { chatDetails: { department: giftCardDept } } },
+        ],
         ...(where.createdAt ? { createdAt: where.createdAt } : {}),
       },
       _sum: { profit: true },
