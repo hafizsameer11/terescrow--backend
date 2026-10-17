@@ -86,6 +86,9 @@ import platformSettingsRouter from './routes/admin/platform.settings.router';
 import merchantsRouter from './routes/admin/merchants.router';
 import bushaRouter from './routes/admin/busha.router';
 import bushaCustomerRouter from './routes/cutomer/busha.router';
+import obiexRouter from './routes/admin/obiex.router';
+import obiexCustomerRouter from './routes/cutomer/obiex.router';
+import obiexWebhookRouter from './routes/webhooks/obiex.webhook.router';
 import { startBushaSettlementPoller } from './jobs/busha/busha.settlement.poller';
 import { startBushaKycPoller } from './jobs/busha/busha.kyc.poller';
 import { startPalmPayPermanentVaPoller } from './jobs/palmpay/palmpay.permanent.va.poller';
@@ -158,6 +161,16 @@ app.use(
     },
   }),
   bushaWebhookRouter
+);
+
+app.use(
+  '/api/v2/webhooks/obiex',
+  bodyParser.json({
+    verify: (req: express.Request, _res: express.Response, buf: Buffer) => {
+      (req as express.Request & { rawBody?: string }).rawBody = buf.toString('utf8');
+    },
+  }),
+  obiexWebhookRouter
 );
 
 app.use(express.json({ limit: '8mb' }));
@@ -258,6 +271,7 @@ app.use('/api/v2/payment/merchant', palmpayMerchantOrderRouter);
 app.use('/api/v2/wallets', fiatWalletRouter);
 app.use('/api/v2/kyc', kycRouter);
 app.use('/api/v2/busha', bushaCustomerRouter);
+app.use('/api/v2/obiex', obiexCustomerRouter);
 // Register specific provider routes first (more specific) before general bill-payments routes
 app.use('/api/v2/bill-payments/reloadly/utilities', reloadlyUtilityBillPaymentRouter);
 app.use('/api/v2/bill-payments/reloadly', reloadlyBillPaymentRouter);
@@ -294,6 +308,7 @@ app.use('/api/admin/daily-report', dailyReportRouter);
 app.use('/api/admin/platform-settings', platformSettingsRouter);
 app.use('/api/admin/merchants', merchantsRouter);
 app.use('/api/admin/busha', bushaRouter);
+app.use('/api/admin/obiex', obiexRouter);
 app.use('/api/admin/transaction-tracking', transactionTrackingRouter);
 app.use('/api/admin/changenow', changenowAdminRouter);
 app.use('/api/admin/referrals', referralsAdminRouter);

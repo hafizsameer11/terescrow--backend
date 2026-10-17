@@ -84,6 +84,10 @@ model User {
   bushaKycApplications             BushaKycApplication[]
   bushaUserAssets                  BushaUserAsset[]
   bushaFeeLedgers                  BushaFeeLedger[]
+  obiexUserAssets                  ObiexUserAsset[]
+  obiexTradesAsUser                ObiexTradeLog[]     @relation("ObiexTradeUser")
+  obiexTradesInitiated             ObiexTradeLog[]     @relation("ObiexTradeInitiatedBy")
+  obiexDepositAddresses            ObiexDepositAddress[]
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
@@ -1007,6 +1011,111 @@ model BushaTradeLog {
   @@index([userId])
   @@index([bushaTransferId])
   @@map("busha_trade_logs")
+}
+
+/// Admin Obiex integration settings (singleton). Parallel to Busha — do not share rows.
+model ObiexConfig {
+  id                Int      @id @default(1)
+  /// master_swap | collections_va
+  buyMode           String   @default("master_swap") @map("buy_mode") @db.VarChar(30)
+  buyMarkupPercent  Decimal  @default(0) @map("buy_markup_percent") @db.Decimal(8, 4)
+  sellMarkupPercent Decimal  @default(0) @map("sell_markup_percent") @db.Decimal(8, 4)
+  /// Default settlement stablecoin for collections_va buys
+  collectionsTarget String   @default("USDT") @map("collections_target") @db.VarChar(10)
+  isActive          Boolean  @default(false) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("obiex_config")
+}
+
+/// Amount-range (USD) markup tiers for Obiex buy/sell — separate from Busha.
+model ObiexMarkupRange {
+  id        Int      @id @default(autoincrement())
+  /// buy | sell
+  side      String   @db.VarChar(10)
+  minUsd    Decimal  @map("min_usd") @db.Decimal(18, 4)
+  maxUsd    Decimal  @map("max_usd") @db.Decimal(18, 4)
+  percent   Decimal  @db.Decimal(8, 4)
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([side, isActive])
+  @@map("obiex_markup_ranges")
+}
+
+/// App ledger for Obiex master-wallet custody (per user + currency).
+model ObiexUserAsset {
+  id            String   @id @default(uuid())
+  userId        Int      @map("user_id")
+  currency      String   @db.VarChar(20)
+  userAvailable Decimal  @default(0) @map("user_available") @db.Decimal(28, 12)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, currency])
+  @@index([userId])
+  @@index([currency])
+  @@map("obiex_user_assets")
+}
+
+/// Cached Obiex deposit addresses per user/currency/network.
+model ObiexDepositAddress {
+  id                    String   @id @default(uuid())
+  userId                Int      @map("user_id")
+  currency              String   @db.VarChar(20)
+  network               String   @db.VarChar(30)
+  address               String   @db.VarChar(120)
+  uniqueUserIdentifier  String   @map("unique_user_identifier") @db.VarChar(80)
+  providerData          Json?    @map("provider_data")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, currency, network])
+  @@index([address])
+  @@index([uniqueUserIdentifier])
+  @@map("obiex_deposit_addresses")
+}
+
+/// Obiex buy/sell/convert/receive/send trades.
+model ObiexTradeLog {
+  id                   String    @id @default(uuid())
+  userId               Int?      @map("user_id")
+  side                 String    @db.VarChar(20)
+  sourceCurrency       String    @map("source_currency") @db.VarChar(20)
+  targetCurrency       String    @map("target_currency") @db.VarChar(20)
+  sourceAmount         String    @map("source_amount") @db.VarChar(40)
+  targetAmount         String?   @map("target_amount") @db.VarChar(40)
+  obiexReference       String?   @map("obiex_reference") @db.VarChar(80)
+  obiexTransactionId   String?   @map("obiex_transaction_id") @db.VarChar(80)
+  obiexQuoteId         String?   @map("obiex_quote_id") @db.VarChar(80)
+  obiexStatus          String?   @map("obiex_status") @db.VarChar(40)
+  cryptoDepositAddress String?   @map("crypto_deposit_address") @db.VarChar(120)
+  cryptoDepositNetwork String?   @map("crypto_deposit_network") @db.VarChar(30)
+  withdrawAddress      String?   @map("withdraw_address") @db.VarChar(120)
+  withdrawNetwork      String?   @map("withdraw_network") @db.VarChar(30)
+  fiatTransactionId    String?   @map("fiat_transaction_id") @db.VarChar(64)
+  status               String    @default("pending") @db.VarChar(40)
+  errorMessage         String?   @map("error_message") @db.Text
+  providerResponse     Json?     @map("provider_response")
+  initiatedById        Int       @map("initiated_by_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  completedAt          DateTime? @map("completed_at")
+  user                 User?     @relation("ObiexTradeUser", fields: [userId], references: [id], onDelete: SetNull)
+  initiatedBy          User      @relation("ObiexTradeInitiatedBy", fields: [initiatedById], references: [id], onDelete: Restrict)
+
+  @@index([side])
+  @@index([status])
+  @@index([createdAt])
+  @@index([userId])
+  @@index([obiexReference])
+  @@index([obiexTransactionId])
+  @@map("obiex_trade_logs")
 }
 
 model PalmPayUserVirtualAccount {

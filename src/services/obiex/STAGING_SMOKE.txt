@@ -1,0 +1,31 @@
+Obiex staging smoke checklist (ops)
+=====================================
+
+Env (staging host)
+- OBIEX_API_KEY / OBIEX_API_SECRET set
+- OBIEX_ENVIRONMENT=sandbox (or OBIEX_BASE_URL override)
+- OBIEX_SIGNATURE_SECRET = Obiex dashboard Signature Secret
+- Apply prisma/migrations_manual/obiex_app_integration.sql if not migrated
+
+Obiex dashboard
+- Settings → Developers → Webhook Url = https://<api-host>/api/v2/webhooks/obiex
+- Fund staging NGNX float on business wallet (required for master_swap buys)
+
+Admin
+1. PUT /api/admin/obiex/settings { "isActive": true, "buyMode": "master_swap" }
+2. Optional: set buy/sell markup % and ObiexMarkupRange tiers
+3. Confirm GET /api/admin/obiex/settings shows configured + master balances
+
+App smoke (Obiex on)
+1. selectasset → assets/rates load with icons
+2. Buy USDT (master_swap): NGN debit → ledger USDT credit
+3. Receive: deposit address → DEPOSIT CONFIRMED webhook credits ledger
+4. Send: withdraw → WITHDRAWAL SUCCESSFUL; FAILED refunds ledger
+5. Sell: ledger debit → FiatWallet NGN credit
+6. Swap/convert between ledger assets
+7. collections_va (if sales-enabled): buyMode=collections_va → VA → COLLECTION COMPLETED credits
+
+Busha fallback (Obiex off)
+1. PUT /api/admin/obiex/settings { "isActive": false }
+2. Confirm buy/sell/swap/receive/send still use Busha when Busha isActive
+3. Confirm no calls to /api/v2/obiex from those screens
