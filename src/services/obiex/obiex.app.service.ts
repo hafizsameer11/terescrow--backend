@@ -209,7 +209,9 @@ export async function getAppObiexAssets(userId: number) {
       status.currencies?.networksByCurrency?.[obiexCode] ||
       [obiexCode];
     const ledger = ledgerByCode.get(obiexCode);
-    const available = ledger ? String(ledger.userAvailable ?? '0') : '0';
+    const available = ledger
+      ? formatAmountStr(Number(ledger.userAvailable ?? 0), 8)
+      : '0';
     const amt = parseFloat(available) || 0;
     const isStable = ['USDT', 'USDC', 'USD'].includes(appCode);
     const balanceUsd = isStable ? String(amt) : '0';
@@ -242,7 +244,7 @@ export async function getAppObiexAssets(userId: number) {
   for (const [code, ledger] of ledgerByCode.entries()) {
     if (seenObiex.has(code)) continue;
     seenObiex.add(code);
-    const available = String((ledger as any).userAvailable ?? '0');
+    const available = formatAmountStr(Number((ledger as any).userAvailable ?? 0), 8);
     const amt = parseFloat(available) || 0;
     const isStable = ['USDT', 'USDC', 'USD'].includes(code);
     assets.push({
@@ -347,6 +349,7 @@ function mapObiexTradeToAssetTx(t: any) {
 
 export async function getAppObiexAssetDetail(userId: number, currency: string) {
   await assertObiexAppActive();
+  // Keep app ticker as stored (USDT/MATIC) — do not remap via CMC aliases (MATIC≠POL).
   const appCode = String(currency || '')
     .trim()
     .toUpperCase()
@@ -355,14 +358,29 @@ export async function getAppObiexAssetDetail(userId: number, currency: string) {
   if (!appCode) throw ApiError.badRequest('currency required');
 
   const ledgerCode = await resolveObiexLedgerCurrency(appCode);
+  // Prefer live ledger row so detail always matches credited balance.
+  const availableNum = await getObiexAvailable(userId, ledgerCode);
+  const available = formatAmountStr(availableNum, 8);
+  const isStable = ['USDT', 'USDC', 'USD'].includes(appCode);
+  const balanceUsd = isStable ? formatAmountStr(availableNum, 2) : '0';
+
   const listed = await getAppObiexAssets(userId);
   const asset =
     listed.assets.find((a: any) => String(a.currency).toUpperCase() === appCode) ||
     listed.assets.find((a: any) => String(a.obiexCurrency || '').toUpperCase() === ledgerCode);
 
-  if (!asset) {
-    throw ApiError.notFound(`Asset ${appCode} not found`);
-  }
+  const row = asset || {
+    id: -1,
+    currency: appCode,
+    blockchain: appCode,
+    symbol: getObiexIconPath(appCode) || appCode,
+    name: appCode,
+    networks: [appCode],
+    defaultNetwork: appCode,
+    obiexCurrency: ledgerCode,
+    icon: getObiexIconPath(appCode),
+    image: getObiexIconPath(appCode),
+  };
 
   const trades = await tradeModel().findMany({
     where: {
@@ -374,15 +392,18 @@ export async function getAppObiexAssetDetail(userId: number, currency: string) {
   });
 
   return {
-    ...asset,
+    ...row,
+    balance: available,
+    availableBalance: available,
+    accountBalance: available,
+    balanceUsd,
+    availableBalanceUsd: balanceUsd,
+    accountBalanceUsd: balanceUsd,
+    balanceNaira: '0',
+    availableBalanceNaira: '0',
+    accountBalanceNaira: '0',
     accountCode: appCode,
     accountId: appCode,
-    availableBalance: asset.availableBalance || asset.balance,
-    accountBalance: asset.availableBalance || asset.balance,
-    availableBalanceUsd: asset.balanceUsd,
-    accountBalanceUsd: asset.balanceUsd,
-    availableBalanceNaira: asset.balanceNaira || '0',
-    accountBalanceNaira: asset.balanceNaira || '0',
     transactions: trades.map((t: any) => mapObiexTradeToAssetTx(t)),
     source: 'obiex' as const,
   };
@@ -1125,8 +1146,8 @@ export async function executeAppObiexSend(
   }
 }
 
+/** History list — does not require Obiex isActive so past trades remain visible. */
 export async function listAppObiexTrades(userId: number, limit = 50) {
-  await assertObiexAppActive();
   return tradeModel().findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
@@ -1134,8 +1155,8 @@ export async function listAppObiexTrades(userId: number, limit = 50) {
   });
 }
 
+/** Detail for history — works even if Obiex was later deactivated. */
 export async function getAppObiexTrade(userId: number, id: string) {
-  await assertObiexAppActive();
   const trade = await tradeModel().findFirst({ where: { id, userId } });
   if (!trade) throw ApiError.notFound('Trade not found');
   return trade;
