@@ -4,6 +4,7 @@ import {
   executeAppObiexConvert,
   executeAppObiexSell,
   executeAppObiexSend,
+  getAppObiexAssetDetail,
   getAppObiexAssets,
   getAppObiexDepositAddress,
   getAppObiexPublicRates,
@@ -55,6 +56,20 @@ export const getObiexWalletController = async (req: Request, res: Response, next
 export const getObiexAssetsController = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = await getAppObiexAssets(userId(req));
+    res.json({ status: 'success', data });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getObiexAssetDetailController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const currency = String(req.params.currency || '');
+    const data = await getAppObiexAssetDetail(userId(req), currency);
     res.json({ status: 'success', data });
   } catch (e) {
     next(e);

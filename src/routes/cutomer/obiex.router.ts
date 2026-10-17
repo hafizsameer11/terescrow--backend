@@ -5,6 +5,7 @@ import {
   executeObiexConvertController,
   executeObiexSellController,
   executeObiexSendController,
+  getObiexAssetDetailController,
   getObiexAssetsController,
   getObiexDepositAddressController,
   getObiexPublicRatesController,
@@ -24,6 +25,7 @@ router.get('/status', authenticateUser, getObiexStatusController);
 router.get('/rates/public', authenticateUser, getObiexPublicRatesController);
 router.get('/wallet', authenticateUser, getObiexWalletController);
 router.get('/assets', authenticateUser, getObiexAssetsController);
+router.get('/assets/:currency', authenticateUser, getObiexAssetDetailController);
 router.get('/deposit-address', authenticateUser, getObiexDepositAddressController);
 router.post('/deposit-address', authenticateUser, getObiexDepositAddressController);
 

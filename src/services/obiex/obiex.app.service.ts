@@ -288,6 +288,106 @@ export async function getAppObiexAssets(userId: number) {
   };
 }
 
+function mapObiexSideToTxType(side: string): string {
+  const s = String(side || '').toLowerCase();
+  if (s === 'buy') return 'BUY';
+  if (s === 'sell') return 'SELL';
+  if (s === 'receive') return 'RECEIVE';
+  if (s === 'send') return 'SEND';
+  if (s === 'convert' || s === 'swap') return 'SWAP';
+  return s.toUpperCase();
+}
+
+function mapObiexTradeToAssetTx(t: any) {
+  const side = String(t.side || '').toLowerCase();
+  const source = String(t.sourceCurrency || '').toUpperCase();
+  const target = String(t.targetCurrency || '').toUpperCase();
+  const sourceAmount = String(t.sourceAmount ?? '0');
+  const targetAmount =
+    t.targetAmount != null && t.targetAmount !== '' ? String(t.targetAmount) : undefined;
+  const type = mapObiexSideToTxType(t.side);
+
+  let currency = source;
+  let amount = sourceAmount;
+  let amountNaira: string | undefined;
+
+  if (side === 'buy') {
+    currency = target || source;
+    amount = targetAmount || sourceAmount;
+    if (source === 'NGN') amountNaira = sourceAmount;
+  } else if (side === 'sell') {
+    currency = source;
+    amount = sourceAmount;
+    if (target === 'NGN') amountNaira = targetAmount;
+  } else if (side === 'receive') {
+    currency = target || source;
+    amount = targetAmount || sourceAmount;
+  }
+
+  return {
+    id: t.id,
+    transactionId: t.id,
+    type,
+    transactionType: type,
+    side: t.side,
+    currency,
+    cryptocurrencyType: currency,
+    amount,
+    amountNaira,
+    fromCurrency: side === 'convert' || side === 'swap' ? source : undefined,
+    toCurrency: side === 'convert' || side === 'swap' ? target : undefined,
+    fromAmount: side === 'convert' || side === 'swap' ? sourceAmount : undefined,
+    toAmount: side === 'convert' || side === 'swap' ? targetAmount : undefined,
+    status: t.status,
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    source: 'obiex' as const,
+  };
+}
+
+export async function getAppObiexAssetDetail(userId: number, currency: string) {
+  await assertObiexAppActive();
+  const appCode = String(currency || '')
+    .trim()
+    .toUpperCase()
+    .replace(/^USDT_.*/, 'USDT')
+    .replace(/^USDC_.*/, 'USDC');
+  if (!appCode) throw ApiError.badRequest('currency required');
+
+  const ledgerCode = await resolveObiexLedgerCurrency(appCode);
+  const listed = await getAppObiexAssets(userId);
+  const asset =
+    listed.assets.find((a: any) => String(a.currency).toUpperCase() === appCode) ||
+    listed.assets.find((a: any) => String(a.obiexCurrency || '').toUpperCase() === ledgerCode);
+
+  if (!asset) {
+    throw ApiError.notFound(`Asset ${appCode} not found`);
+  }
+
+  const trades = await tradeModel().findMany({
+    where: {
+      userId,
+      OR: [{ sourceCurrency: ledgerCode }, { targetCurrency: ledgerCode }],
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 30,
+  });
+
+  return {
+    ...asset,
+    accountCode: appCode,
+    accountId: appCode,
+    availableBalance: asset.availableBalance || asset.balance,
+    accountBalance: asset.availableBalance || asset.balance,
+    availableBalanceUsd: asset.balanceUsd,
+    accountBalanceUsd: asset.balanceUsd,
+    availableBalanceNaira: asset.balanceNaira || '0',
+    accountBalanceNaira: asset.balanceNaira || '0',
+    transactions: trades.map((t: any) => mapObiexTradeToAssetTx(t)),
+    source: 'obiex' as const,
+  };
+}
+
 export async function getAppObiexDepositAddress(
   userId: number,
   currency: string,
