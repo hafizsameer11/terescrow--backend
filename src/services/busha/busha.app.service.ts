@@ -1305,28 +1305,33 @@ export async function getAppBushaCurrencyLimits(
   return getBushaCurrencyNetworkLimits(currency, network);
 }
 
+/** Trade detail for history — works even if Busha isActive is off (backward-compat with Obiex). */
 export async function getAppBushaTrade(userId: number, tradeId: string) {
-  await assertBushaAppActive();
   const trade = await getBushaTrade(tradeId);
+  if (trade.userId === userId) return trade;
   if (trade.userId && trade.userId !== userId) {
     throw ApiError.forbidden('Not your trade');
   }
-  const customer = await ensureBushaCustomerForUser(userId);
-  if (trade.customerId !== customer.id && trade.userId !== userId) {
-    throw ApiError.forbidden('Not your trade');
+  // Older rows may only link via Busha customer
+  try {
+    const customer = await ensureBushaCustomerForUser(userId);
+    if (trade.customerId === customer.id) return trade;
+  } catch {
+    /* ignore — customer may not exist when Busha inactive */
   }
-  return trade;
+  throw ApiError.forbidden('Not your trade');
 }
 
 export async function refreshAppBushaTrade(userId: number, tradeId: string) {
+  await assertBushaAppActive();
   const trade = await getAppBushaTrade(userId, tradeId);
   await refreshBushaTrade(trade.id);
   await settleBushaTradeIfNeeded(trade.id);
   return getBushaTrade(trade.id);
 }
 
+/** Trade history list — does not require Busha isActive so past trades stay visible alongside Obiex. */
 export async function listAppBushaTrades(userId: number, limit = 30) {
-  await assertBushaAppActive();
   return bushaTradeLogModel.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
