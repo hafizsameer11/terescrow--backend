@@ -1,6 +1,7 @@
 import { prisma } from '../../utils/prisma';
-import { creditObiexAsset } from './obiex.ledger.service';
+import { creditObiexAsset, getObiexAvailable } from './obiex.ledger.service';
 import { formatAmountStr } from './obiex.markup';
+import { recordLedgerOnlyRecon } from './obiex.reconcile.service';
 
 const depositModel = () => (prisma as any).obiexDepositAddress;
 const tradeModel = () => (prisma as any).obiexTradeLog;
@@ -36,7 +37,9 @@ export async function handleObiexDepositWebhook(event: any) {
     return { handled: false, reason: 'unknown_address' };
   }
 
+  const userLedgerBefore = await getObiexAvailable(cached.userId, currency);
   await creditObiexAsset(cached.userId, currency, amount);
+  const userLedgerAfter = await getObiexAvailable(cached.userId, currency);
 
   const trade = await tradeModel().create({
     data: {
@@ -57,6 +60,20 @@ export async function handleObiexDepositWebhook(event: any) {
       providerResponse: event,
     },
   });
+
+  try {
+    await recordLedgerOnlyRecon({
+      tradeLogId: trade.id,
+      userId: cached.userId,
+      side: 'receive',
+      coinCurrency: currency,
+      userLedgerBefore,
+      userLedgerAfter,
+      expectedUserLedgerDelta: amount,
+    });
+  } catch (e: any) {
+    console.warn('[Obiex deposit] recon failed', e?.message || e);
+  }
 
   return { handled: true, tradeId: trade.id };
 }

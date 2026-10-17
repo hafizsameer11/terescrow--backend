@@ -4,7 +4,10 @@ import authenticateAdmin from '../../middlewares/authenticate.admin';
 import {
   deleteObiexMarkupRangeController,
   getObiexAdminStatusController,
+  getObiexTradeReconController,
+  listObiexCurrencyMapsController,
   listObiexMarkupRangesController,
+  listObiexReconMismatchesController,
   putObiexSettingsController,
   upsertObiexMarkupRangeController,
 } from '../../controllers/admin/obiex.controller';
@@ -24,6 +27,24 @@ router.delete(
   authenticateUser,
   authenticateAdmin,
   deleteObiexMarkupRangeController
+);
+router.get(
+  '/currency-map',
+  authenticateUser,
+  authenticateAdmin,
+  listObiexCurrencyMapsController
+);
+router.get(
+  '/reconciliations/mismatches',
+  authenticateUser,
+  authenticateAdmin,
+  listObiexReconMismatchesController
+);
+router.get(
+  '/trades/:tradeId/reconciliation',
+  authenticateUser,
+  authenticateAdmin,
+  getObiexTradeReconController
 );
 
 export default router;

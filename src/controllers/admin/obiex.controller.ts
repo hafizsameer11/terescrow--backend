@@ -3,6 +3,9 @@ import {
   deleteObiexMarkupRange,
   getObiexAdminStatus,
   getObiexMarkupRangesAdmin,
+  getTradeReconByTradeId,
+  listActiveObiexCurrencyMaps,
+  listMismatchedRecons,
   upsertObiexMarkupRange,
   upsertObiexSettings,
 } from '../../services/obiex/obiex.admin.service';
@@ -68,6 +71,46 @@ export const deleteObiexMarkupRangeController = async (
   try {
     await deleteObiexMarkupRange(Number(req.params.id));
     res.json({ status: 'success', data: { deleted: true } });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getObiexTradeReconController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const data = await getTradeReconByTradeId(String(req.params.tradeId));
+    res.json({ status: 'success', data });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listObiexReconMismatchesController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const limit = Number(req.query.limit) || 50;
+    const data = await listMismatchedRecons(limit);
+    res.json({ status: 'success', data });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listObiexCurrencyMapsController = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const data = await listActiveObiexCurrencyMaps();
+    res.json({ status: 'success', data });
   } catch (e) {
     next(e);
   }

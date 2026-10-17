@@ -117,3 +117,10 @@ export async function upsertObiexMarkupRange(input: {
 export async function deleteObiexMarkupRange(id: number) {
   return rangeModel().delete({ where: { id } });
 }
+
+export {
+  getTradeReconByTradeId,
+  listMismatchedRecons,
+} from './obiex.reconcile.service';
+
+export { listActiveObiexCurrencyMaps, ensureObiexCurrencyMapSeeded } from './obiex.currency-map';

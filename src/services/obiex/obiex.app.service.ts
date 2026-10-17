@@ -20,6 +20,14 @@ import {
   roundNgn,
   userSellCreditNgn,
 } from './obiex.markup';
+import {
+  listActiveObiexCurrencyMaps,
+  resolveObiexLedgerCurrency,
+} from './obiex.currency-map';
+import {
+  beginTradeRecon,
+  finalizeTradeRecon,
+} from './obiex.reconcile.service';
 
 const tradeModel = () => (prisma as any).obiexTradeLog;
 const depositModel = () => (prisma as any).obiexDepositAddress;
@@ -165,9 +173,119 @@ export async function getAppObiexWallet(userId: number) {
   };
 }
 
+/**
+ * Busha-shaped assets list: catalog from ObiexCurrencyMap + ObiexUserAsset balances.
+ * Same fields as getAppBushaAssets so mobile Assets screens can swap API with minimal change.
+ */
 export async function getAppObiexAssets(userId: number) {
+  await assertObiexAppActive();
+
   const status = await getAppObiexStatus(userId);
-  return { assets: status.currencies.assets || [] };
+  const statusAssets: any[] = status.currencies?.assets || [];
+  const statusByCode = new Map(
+    statusAssets.map((a: any) => [String(a.code || '').toUpperCase(), a])
+  );
+
+  const maps: any[] = await listActiveObiexCurrencyMaps();
+  const ledgerRows: any[] = await listObiexUserAssets(userId);
+  const ledgerByCode = new Map<string, any>(
+    ledgerRows.map((a: any) => [String(a.currency).toUpperCase(), a])
+  );
+
+  const assets: any[] = [];
+  const seenObiex = new Set<string>();
+
+  for (const row of maps) {
+    const appCode = String(row.appCurrency || '').toUpperCase();
+    const obiexCode = String(row.obiexCurrency || appCode).toUpperCase();
+    if (!appCode || seenObiex.has(obiexCode)) continue;
+    seenObiex.add(obiexCode);
+
+    const meta = statusByCode.get(obiexCode) || statusByCode.get(appCode);
+    const netsFromMap = Array.isArray(row.networks) ? (row.networks as string[]) : null;
+    const networks: string[] =
+      netsFromMap ||
+      meta?.networks ||
+      status.currencies?.networksByCurrency?.[obiexCode] ||
+      [obiexCode];
+    const ledger = ledgerByCode.get(obiexCode);
+    const available = ledger ? String(ledger.userAvailable ?? '0') : '0';
+    const amt = parseFloat(available) || 0;
+    const isStable = ['USDT', 'USDC', 'USD'].includes(appCode);
+    const balanceUsd = isStable ? String(amt) : '0';
+
+    assets.push({
+      id: -(assets.length + 1),
+      currency: appCode,
+      blockchain: meta?.defaultNetwork || networks[0] || appCode,
+      symbol: getObiexIconPath(appCode) || getObiexIconPath(obiexCode) || appCode,
+      name: row.displayName || meta?.name || appCode,
+      balance: available,
+      availableBalance: available,
+      balanceUsd,
+      balanceNaira: '0',
+      price: '0',
+      nairaPrice: '0',
+      depositAddress: '',
+      active: true,
+      frozen: false,
+      networks,
+      defaultNetwork: meta?.defaultNetwork || networks[0] || '',
+      obiexCurrency: obiexCode,
+      icon: getObiexIconPath(appCode) || getObiexIconPath(obiexCode),
+      image: getObiexIconPath(appCode) || getObiexIconPath(obiexCode),
+      source: 'obiex' as const,
+    });
+  }
+
+  // Include any ledger balances not in the map
+  for (const [code, ledger] of ledgerByCode.entries()) {
+    if (seenObiex.has(code)) continue;
+    seenObiex.add(code);
+    const available = String((ledger as any).userAvailable ?? '0');
+    const amt = parseFloat(available) || 0;
+    const isStable = ['USDT', 'USDC', 'USD'].includes(code);
+    assets.push({
+      id: -(assets.length + 1),
+      currency: code,
+      blockchain: code,
+      symbol: getObiexIconPath(code) || code,
+      name: code,
+      balance: available,
+      availableBalance: available,
+      balanceUsd: isStable ? String(amt) : '0',
+      balanceNaira: '0',
+      price: '0',
+      nairaPrice: '0',
+      depositAddress: '',
+      active: true,
+      frozen: false,
+      networks: status.currencies?.networksByCurrency?.[code] || [code],
+      defaultNetwork: status.currencies?.networksByCurrency?.[code]?.[0] || code,
+      obiexCurrency: code,
+      icon: getObiexIconPath(code),
+      image: getObiexIconPath(code),
+      source: 'obiex' as const,
+    });
+  }
+
+  let totalUsd = 0;
+  for (const a of assets) {
+    const amt = parseFloat(a.balance || '0');
+    if (['USDT', 'USDC', 'USD'].includes(a.currency) && Number.isFinite(amt)) {
+      totalUsd += amt;
+    }
+  }
+
+  return {
+    assets,
+    totals: {
+      totalUsd: String(totalUsd),
+      totalNaira: '0',
+    },
+    count: assets.length,
+    source: 'obiex' as const,
+  };
 }
 
 export async function getAppObiexDepositAddress(
@@ -399,16 +517,52 @@ export async function executeAppObiexBuy(
     throw ApiError.badRequest(error?.message || 'Failed to debit NGN wallet');
   }
 
+  const ledgerCurrency = await resolveObiexLedgerCurrency(target);
+  const trade = await tradeModel().create({
+    data: {
+      userId,
+      side: 'buy',
+      sourceCurrency: 'NGN',
+      targetCurrency: ledgerCurrency,
+      sourceAmount: formatAmountStr(userNgn, 2),
+      fiatTransactionId: fiatTxn.id,
+      status: 'processing',
+      initiatedById: userId,
+      providerResponse: {
+        buyMode: 'master_swap',
+        markup: {
+          buyMarkupPercent: resolved.percent,
+          markupSource: resolved.source,
+          rangeId: resolved.rangeId ?? null,
+          userSourceAmount: formatAmountStr(userNgn, 2),
+          obiexSourceAmount: formatAmountStr(obiexNgn, 2),
+          platformSpreadNgn: formatAmountStr(platformSpreadNgn, 2),
+        },
+      },
+    },
+  });
+
   try {
+    await beginTradeRecon({
+      tradeLogId: trade.id,
+      userId,
+      side: 'buy',
+      coinCurrency: ledgerCurrency,
+      expectedMasterNgnxDelta: -obiexNgn,
+      includeNgnx: true,
+    });
+
     const balRes = await obiexClient.getWalletBalance('NGNX');
-    const available = Number(unwrapData(balRes)?.availableBalance ?? unwrapData(balRes)?.totalSwappableBalance ?? 0);
+    const available = Number(
+      unwrapData(balRes)?.availableBalance ?? unwrapData(balRes)?.totalSwappableBalance ?? 0
+    );
     if (available + 1e-9 < obiexNgn) {
       throw ApiError.badRequest('Obiex NGNX float insufficient — fund master wallet');
     }
 
     const swap = await obiexClient.instantSwap({
       sourceId: 'NGNX',
-      targetId: target,
+      targetId: ledgerCurrency,
       amount: obiexNgn,
       side: 'SELL',
     });
@@ -418,27 +572,29 @@ export async function executeAppObiexBuy(
       throw ApiError.badRequest('Obiex swap returned no crypto amount');
     }
 
-    await creditObiexAsset(userId, target, received);
+    await creditObiexAsset(userId, ledgerCurrency, received);
     await prisma.fiatTransaction.update({
       where: { id: fiatTxn.id },
       data: { status: 'completed' },
     });
 
-    const trade = await tradeModel().create({
+    await finalizeTradeRecon({
+      tradeLogId: trade.id,
+      expectedMasterNgnxDelta: -obiexNgn,
+      expectedMasterCoinDelta: received,
+      expectedUserLedgerDelta: received,
+      includeNgnx: true,
+    });
+
+    const updated = await tradeModel().update({
+      where: { id: trade.id },
       data: {
-        userId,
-        side: 'buy',
-        sourceCurrency: 'NGN',
-        targetCurrency: target,
-        sourceAmount: formatAmountStr(userNgn, 2),
         targetAmount: formatAmountStr(received, 8),
         obiexReference: swapData?.reference ? String(swapData.reference) : null,
         obiexTransactionId: swapData?.id ? String(swapData.id) : null,
         obiexStatus: 'SUCCESSFUL',
-        fiatTransactionId: fiatTxn.id,
         status: 'completed',
         completedAt: new Date(),
-        initiatedById: userId,
         providerResponse: {
           buyMode: 'master_swap',
           swap: swapData,
@@ -454,8 +610,20 @@ export async function executeAppObiexBuy(
       },
     });
 
-    return { trade };
+    return { trade: updated };
   } catch (error: any) {
+    await tradeModel().update({
+      where: { id: trade.id },
+      data: {
+        status: 'failed',
+        errorMessage: error?.message || 'Obiex buy failed',
+      },
+    }).catch(() => undefined);
+    try {
+      await finalizeTradeRecon({ tradeLogId: trade.id, includeNgnx: true });
+    } catch {
+      /* best-effort after snapshot */
+    }
     await reverseBuyDebit(userId, fiatTxn.id, userNgn, error?.message || 'Obiex buy failed');
     if (error instanceof ApiError) throw error;
     if (error instanceof ObiexApiError) {
@@ -513,18 +681,40 @@ export async function executeAppObiexSell(
 ) {
   await assertObiexAppActive();
   const amount = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
-  const source = String(params.sourceCurrency || 'USDT').toUpperCase();
+  const sourceRaw = String(params.sourceCurrency || 'USDT').toUpperCase();
+  const source = await resolveObiexLedgerCurrency(sourceRaw);
   if (!Number.isFinite(amount) || amount <= 0) {
     throw ApiError.badRequest('sourceAmount must be greater than 0');
   }
-
-  await debitObiexAsset(userId, source, amount);
 
   const usdNotional = parseFloat(String(params.usdAmount ?? '').replace(/,/g, ''));
   const resolved = await resolveObiexMarkupForUsdAmount(
     'sell',
     Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : amount
   );
+
+  const trade = await tradeModel().create({
+    data: {
+      userId,
+      side: 'sell',
+      sourceCurrency: source,
+      targetCurrency: 'NGN',
+      sourceAmount: formatAmountStr(amount, 8),
+      status: 'processing',
+      initiatedById: userId,
+    },
+  });
+
+  await beginTradeRecon({
+    tradeLogId: trade.id,
+    userId,
+    side: 'sell',
+    coinCurrency: source,
+    expectedUserLedgerDelta: -amount,
+    includeNgnx: true,
+  });
+
+  await debitObiexAsset(userId, source, amount);
 
   try {
     const swap = await obiexClient.instantSwap({
@@ -557,13 +747,17 @@ export async function executeAppObiexSell(
     });
     await fiatWalletService.creditWallet(fiatWallet.id, userNgn, fiatTxn.id);
 
-    const trade = await tradeModel().create({
+    await finalizeTradeRecon({
+      tradeLogId: trade.id,
+      expectedMasterNgnxDelta: obiexNgn,
+      expectedMasterCoinDelta: -amount,
+      expectedUserLedgerDelta: -amount,
+      includeNgnx: true,
+    });
+
+    const updated = await tradeModel().update({
+      where: { id: trade.id },
       data: {
-        userId,
-        side: 'sell',
-        sourceCurrency: source,
-        targetCurrency: 'NGN',
-        sourceAmount: formatAmountStr(amount, 8),
         targetAmount: formatAmountStr(userNgn, 2),
         obiexReference: swapData?.reference ? String(swapData.reference) : null,
         obiexTransactionId: swapData?.id ? String(swapData.id) : null,
@@ -571,7 +765,6 @@ export async function executeAppObiexSell(
         fiatTransactionId: fiatTxn.id,
         status: 'completed',
         completedAt: new Date(),
-        initiatedById: userId,
         providerResponse: {
           swap: swapData,
           markup: {
@@ -584,9 +777,21 @@ export async function executeAppObiexSell(
       },
     });
 
-    return { trade };
+    return { trade: updated };
   } catch (error: any) {
     await creditObiexAsset(userId, source, amount);
+    await tradeModel().update({
+      where: { id: trade.id },
+      data: {
+        status: 'failed',
+        errorMessage: error?.message || 'Obiex sell failed',
+      },
+    }).catch(() => undefined);
+    try {
+      await finalizeTradeRecon({ tradeLogId: trade.id, includeNgnx: true });
+    } catch {
+      /* best-effort */
+    }
     if (error instanceof ApiError) throw error;
     if (error instanceof ObiexApiError) throw ApiError.badRequest(error.message);
     throw error;
@@ -623,13 +828,36 @@ export async function executeAppObiexConvert(
   params: { sourceCurrency: string; targetCurrency: string; sourceAmount: string }
 ) {
   await assertObiexAppActive();
-  const source = String(params.sourceCurrency).toUpperCase();
-  const target = String(params.targetCurrency).toUpperCase();
+  const source = await resolveObiexLedgerCurrency(String(params.sourceCurrency).toUpperCase());
+  const target = await resolveObiexLedgerCurrency(String(params.targetCurrency).toUpperCase());
   const amount = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
   if (!Number.isFinite(amount) || amount <= 0) {
     throw ApiError.badRequest('sourceAmount must be greater than 0');
   }
   if (source === target) throw ApiError.badRequest('source and target must differ');
+
+  const trade = await tradeModel().create({
+    data: {
+      userId,
+      side: 'convert',
+      sourceCurrency: source,
+      targetCurrency: target,
+      sourceAmount: formatAmountStr(amount, 8),
+      status: 'processing',
+      initiatedById: userId,
+    },
+  });
+
+  // Recon tracks source coin master + user ledger; includeNgnx false for crypto-crypto.
+  await beginTradeRecon({
+    tradeLogId: trade.id,
+    userId,
+    side: 'convert',
+    coinCurrency: source,
+    expectedUserLedgerDelta: -amount,
+    expectedMasterCoinDelta: -amount,
+    includeNgnx: false,
+  });
 
   await debitObiexAsset(userId, source, amount);
   try {
@@ -645,26 +873,41 @@ export async function executeAppObiexConvert(
       throw ApiError.badRequest('Obiex convert returned no amount');
     }
     await creditObiexAsset(userId, target, received);
-    const trade = await tradeModel().create({
+
+    await finalizeTradeRecon({
+      tradeLogId: trade.id,
+      expectedMasterCoinDelta: -amount,
+      expectedUserLedgerDelta: -amount,
+      includeNgnx: false,
+    });
+
+    const updated = await tradeModel().update({
+      where: { id: trade.id },
       data: {
-        userId,
-        side: 'convert',
-        sourceCurrency: source,
-        targetCurrency: target,
-        sourceAmount: formatAmountStr(amount, 8),
         targetAmount: formatAmountStr(received, 8),
         obiexReference: swapData?.reference ? String(swapData.reference) : null,
         obiexTransactionId: swapData?.id ? String(swapData.id) : null,
         obiexStatus: 'SUCCESSFUL',
         status: 'completed',
         completedAt: new Date(),
-        initiatedById: userId,
-        providerResponse: { swap: swapData },
+        providerResponse: { swap: swapData, targetReceived: received },
       },
     });
-    return { trade };
+    return { trade: updated };
   } catch (error: any) {
     await creditObiexAsset(userId, source, amount);
+    await tradeModel().update({
+      where: { id: trade.id },
+      data: {
+        status: 'failed',
+        errorMessage: error?.message || 'Obiex convert failed',
+      },
+    }).catch(() => undefined);
+    try {
+      await finalizeTradeRecon({ tradeLogId: trade.id, includeNgnx: false });
+    } catch {
+      /* best-effort */
+    }
     if (error instanceof ApiError) throw error;
     if (error instanceof ObiexApiError) throw ApiError.badRequest(error.message);
     throw error;
@@ -703,15 +946,13 @@ export async function executeAppObiexSend(
   params: { currency: string; amount: string; network: string; address: string }
 ) {
   await assertObiexAppActive();
-  const currency = String(params.currency).toUpperCase();
+  const currency = await resolveObiexLedgerCurrency(String(params.currency).toUpperCase());
   const network = String(params.network).toUpperCase();
   const amount = parseFloat(String(params.amount).replace(/,/g, ''));
   const address = String(params.address || '').trim();
   if (!Number.isFinite(amount) || amount <= 0) {
     throw ApiError.badRequest('amount must be greater than 0');
   }
-
-  await debitObiexAsset(userId, currency, amount);
 
   const trade = await tradeModel().create({
     data: {
@@ -727,6 +968,18 @@ export async function executeAppObiexSend(
     },
   });
 
+  await beginTradeRecon({
+    tradeLogId: trade.id,
+    userId,
+    side: 'send',
+    coinCurrency: currency,
+    expectedUserLedgerDelta: -amount,
+    expectedMasterCoinDelta: -amount,
+    includeNgnx: false,
+  });
+
+  await debitObiexAsset(userId, currency, amount);
+
   try {
     const res = await obiexClient.withdrawCrypto({
       currency,
@@ -734,6 +987,14 @@ export async function executeAppObiexSend(
       destination: { address, network },
     });
     const data = unwrapData(res);
+
+    await finalizeTradeRecon({
+      tradeLogId: trade.id,
+      expectedMasterCoinDelta: -amount,
+      expectedUserLedgerDelta: -amount,
+      includeNgnx: false,
+    });
+
     const updated = await tradeModel().update({
       where: { id: trade.id },
       data: {
@@ -754,6 +1015,11 @@ export async function executeAppObiexSend(
         errorMessage: error?.message || 'Obiex withdraw failed',
       },
     });
+    try {
+      await finalizeTradeRecon({ tradeLogId: trade.id, includeNgnx: false });
+    } catch {
+      /* best-effort */
+    }
     if (error instanceof ObiexApiError) throw ApiError.badRequest(error.message);
     throw error;
   }

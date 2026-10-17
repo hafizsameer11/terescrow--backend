@@ -88,6 +88,7 @@ model User {
   obiexTradesAsUser                ObiexTradeLog[]     @relation("ObiexTradeUser")
   obiexTradesInitiated             ObiexTradeLog[]     @relation("ObiexTradeInitiatedBy")
   obiexDepositAddresses            ObiexDepositAddress[]
+  obiexTradeReconciliations        ObiexTradeReconciliation[]
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
@@ -1048,18 +1049,38 @@ model ObiexMarkupRange {
 
 /// App ledger for Obiex master-wallet custody (per user + currency).
 model ObiexUserAsset {
-  id            String   @id @default(uuid())
-  userId        Int      @map("user_id")
-  currency      String   @db.VarChar(20)
-  userAvailable Decimal  @default(0) @map("user_available") @db.Decimal(28, 12)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                     String    @id @default(uuid())
+  userId                 Int       @map("user_id")
+  currency               String    @db.VarChar(20)
+  userAvailable          Decimal   @default(0) @map("user_available") @db.Decimal(28, 12)
+  lastObiexMasterBalance Decimal?  @map("last_obiex_master_balance") @db.Decimal(28, 12)
+  lastReconciledAt       DateTime? @map("last_reconciled_at")
+  reconcileMismatch      Boolean   @default(false) @map("reconcile_mismatch")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, currency])
   @@index([userId])
   @@index([currency])
   @@map("obiex_user_assets")
+}
+
+/// Maps app/Busha display currency codes → Obiex ledger codes.
+model ObiexCurrencyMap {
+  id            Int      @id @default(autoincrement())
+  appCurrency   String   @unique @map("app_currency") @db.VarChar(20)
+  obiexCurrency String   @map("obiex_currency") @db.VarChar(20)
+  displayName   String?  @map("display_name") @db.VarChar(80)
+  networks      Json?
+  isActive      Boolean  @default(true) @map("is_active")
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([obiexCurrency])
+  @@index([isActive])
+  @@map("obiex_currency_map")
 }
 
 /// Cached Obiex deposit addresses per user/currency/network.
@@ -1108,6 +1129,7 @@ model ObiexTradeLog {
   completedAt          DateTime? @map("completed_at")
   user                 User?     @relation("ObiexTradeUser", fields: [userId], references: [id], onDelete: SetNull)
   initiatedBy          User      @relation("ObiexTradeInitiatedBy", fields: [initiatedById], references: [id], onDelete: Restrict)
+  reconciliation       ObiexTradeReconciliation?
 
   @@index([side])
   @@index([status])
@@ -1116,6 +1138,40 @@ model ObiexTradeLog {
   @@index([obiexReference])
   @@index([obiexTransactionId])
   @@map("obiex_trade_logs")
+}
+
+/// Pre/post master-wallet + user-ledger snapshot for each Obiex trade.
+model ObiexTradeReconciliation {
+  id                       String   @id @default(uuid())
+  tradeLogId               String   @unique @map("trade_log_id") @db.VarChar(191)
+  userId                   Int      @map("user_id")
+  side                     String   @db.VarChar(20)
+  coinCurrency             String   @map("coin_currency") @db.VarChar(20)
+  masterNgnxBefore         Decimal? @map("master_ngnx_before") @db.Decimal(28, 12)
+  masterCoinBefore         Decimal? @map("master_coin_before") @db.Decimal(28, 12)
+  userLedgerBefore         Decimal? @map("user_ledger_before") @db.Decimal(28, 12)
+  masterNgnxAfter          Decimal? @map("master_ngnx_after") @db.Decimal(28, 12)
+  masterCoinAfter          Decimal? @map("master_coin_after") @db.Decimal(28, 12)
+  userLedgerAfter          Decimal? @map("user_ledger_after") @db.Decimal(28, 12)
+  expectedMasterNgnxDelta  Decimal? @map("expected_master_ngnx_delta") @db.Decimal(28, 12)
+  expectedMasterCoinDelta  Decimal? @map("expected_master_coin_delta") @db.Decimal(28, 12)
+  expectedUserLedgerDelta  Decimal? @map("expected_user_ledger_delta") @db.Decimal(28, 12)
+  actualMasterNgnxDelta    Decimal? @map("actual_master_ngnx_delta") @db.Decimal(28, 12)
+  actualMasterCoinDelta    Decimal? @map("actual_master_coin_delta") @db.Decimal(28, 12)
+  actualUserLedgerDelta    Decimal? @map("actual_user_ledger_delta") @db.Decimal(28, 12)
+  mismatch                 Boolean  @default(false)
+  mismatchDetail           String?  @map("mismatch_detail") @db.Text
+  providerBalances         Json?    @map("provider_balances")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+  tradeLog                 ObiexTradeLog @relation(fields: [tradeLogId], references: [id], onDelete: Cascade)
+  user                     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([side])
+  @@index([mismatch])
+  @@index([createdAt])
+  @@map("obiex_trade_reconciliations")
 }
 
 model PalmPayUserVirtualAccount {

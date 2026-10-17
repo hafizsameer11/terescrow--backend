@@ -1,6 +1,7 @@
 import { prisma } from '../../utils/prisma';
-import { creditObiexAsset } from './obiex.ledger.service';
+import { creditObiexAsset, getObiexAvailable } from './obiex.ledger.service';
 import { formatAmountStr } from './obiex.markup';
+import { recordLedgerOnlyRecon } from './obiex.reconcile.service';
 
 const tradeModel = () => (prisma as any).obiexTradeLog;
 
@@ -25,7 +26,22 @@ export async function handleObiexCollectionWebhook(event: any) {
     const targetCurrency = String(event?.targetCurrency || trade.targetCurrency || 'USDT').toUpperCase();
     const targetAmount = Number(event?.targetAmount);
     if (trade.userId && Number.isFinite(targetAmount) && targetAmount > 0) {
+      const before = await getObiexAvailable(trade.userId, targetCurrency);
       await creditObiexAsset(trade.userId, targetCurrency, targetAmount);
+      const after = await getObiexAvailable(trade.userId, targetCurrency);
+      try {
+        await recordLedgerOnlyRecon({
+          tradeLogId: trade.id,
+          userId: trade.userId,
+          side: 'buy',
+          coinCurrency: targetCurrency,
+          userLedgerBefore: before,
+          userLedgerAfter: after,
+          expectedUserLedgerDelta: targetAmount,
+        });
+      } catch (e: any) {
+        console.warn('[Obiex collection] recon failed', e?.message || e);
+      }
     }
     await tradeModel().update({
       where: { id: trade.id },
