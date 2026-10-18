@@ -28,9 +28,54 @@ import {
   beginTradeRecon,
   finalizeTradeRecon,
 } from './obiex.reconcile.service';
+import { computeWithdrawFeeAmount } from '../busha/busha.ledger.service';
 
 const tradeModel = () => (prisma as any).obiexTradeLog;
 const depositModel = () => (prisma as any).obiexDepositAddress;
+
+/** Resolve Obiex network min/fee for a currency+network pair. */
+async function resolveObiexWithdrawNetwork(currency: string, network: string) {
+  const netMap = unwrapData(await obiexClient.getActiveNetworks()) || {};
+  const entry = netMap[currency] || netMap[currency.toUpperCase()];
+  const nets = Array.isArray(entry?.networks) ? entry.networks : [];
+  const networkUpper = network.toUpperCase();
+  const match =
+    nets.find(
+      (n: any) =>
+        String(n?.networkCode || n?.code || '').toUpperCase() === networkUpper
+    ) || null;
+  const providerMin = match?.minimumWithdrawal != null
+    ? parseFloat(String(match.minimumWithdrawal))
+    : match?.minimum != null
+      ? parseFloat(String(match.minimum))
+      : NaN;
+  const providerFee = match?.withdrawalFee != null
+    ? parseFloat(String(match.withdrawalFee))
+    : match?.fee != null
+      ? parseFloat(String(match.fee))
+      : 0;
+  const feeType = String(match?.withdrawalFeeType || match?.feeType || 'FLAT').toUpperCase();
+  return {
+    match,
+    networkName: match?.networkName ? String(match.networkName) : network,
+    providerMin: Number.isFinite(providerMin) ? providerMin : null,
+    providerFee: Number.isFinite(providerFee) ? providerFee : 0,
+    feeType,
+    isWithdrawable: match ? match.isWithdrawable !== false : true,
+  };
+}
+
+function calcProviderNetworkFee(
+  amount: number,
+  providerFee: number,
+  feeType: string
+): number {
+  if (!(providerFee > 0) || !(amount > 0)) return 0;
+  if (feeType === 'PERCENTAGE' || feeType === 'PERCENT') {
+    return (amount * providerFee) / 100;
+  }
+  return providerFee;
+}
 
 export async function assertObiexAppActive() {
   if (!obiexConfig.isConfigured()) {
@@ -1043,22 +1088,90 @@ export async function previewAppObiexSend(
   const currency = String(params.currency).toUpperCase();
   const network = String(params.network).toUpperCase();
   const amount = parseFloat(String(params.amount).replace(/,/g, ''));
-  const address = String(params.address || '').trim();
-  if (!currency || !network || !address) {
-    throw ApiError.badRequest('currency, network, and address required');
+  const address = String(params.address || '')
+    .trim()
+    .replace(/^['"]+|['"]+$/g, '');
+  if (!currency || !network) {
+    throw ApiError.badRequest('currency and network required');
   }
   if (!Number.isFinite(amount) || amount <= 0) {
     throw ApiError.badRequest('amount must be greater than 0');
   }
+
   const available = await getObiexAvailable(userId, currency);
-  if (available + 1e-12 < amount) throw ApiError.badRequest(`Insufficient ${currency}`);
+  const netInfo = await resolveObiexWithdrawNetwork(currency, network);
+  const providerNetworkFee = calcProviderNetworkFee(
+    amount,
+    netInfo.providerFee,
+    netInfo.feeType
+  );
+  const platformFeeDec = await computeWithdrawFeeAmount(currency, amount);
+  const platformFee = parseFloat(platformFeeDec.toString()) || 0;
+  const combinedFee = platformFee + providerNetworkFee;
+  const totalDebit = amount + combinedFee;
+
+  // UI min = Obiex minimumWithdrawal + flat network fee (matches live Obiex preview).
+  const minWithdrawNum =
+    netInfo.providerMin != null
+      ? netInfo.providerMin +
+        (netInfo.feeType === 'FLAT' || !netInfo.feeType
+          ? netInfo.providerFee
+          : 0)
+      : null;
+  const belowMinimum =
+    minWithdrawNum != null && Number.isFinite(amount) && amount < minWithdrawNum;
+  const sufficient =
+    Number.isFinite(available) && available + 1e-12 >= totalDebit;
+  const canProceed =
+    !!address &&
+    sufficient &&
+    !belowMinimum &&
+    netInfo.isWithdrawable !== false;
+
+  const combinedFeeStr = formatAmountStr(combinedFee, 8);
+  const platformFeeStr = formatAmountStr(platformFee, 8);
+  const providerFeeStr = formatAmountStr(providerNetworkFee, 8);
+  const fees: any[] = [
+    {
+      name: 'fee',
+      type: 'FIXED',
+      amount: { amount: combinedFeeStr, currency },
+    },
+  ];
+  if (platformFee > 0) {
+    fees.push({
+      name: 'platform_fee',
+      type: 'PERCENT',
+      amount: { amount: platformFeeStr, currency },
+    });
+  }
+  if (providerNetworkFee > 0) {
+    fees.push({
+      name: 'network_fee',
+      type: 'FIXED',
+      amount: { amount: providerFeeStr, currency },
+    });
+  }
+
   return {
-    canProceed: true,
     currency,
     network,
-    address,
-    amount: formatAmountStr(amount, 8),
+    networkName: netInfo.networkName,
+    amount: String(params.amount),
     available: formatAmountStr(available, 8),
+    sufficient,
+    hasSufficientBalance: sufficient,
+    canProceed,
+    toAddress: address || null,
+    fees,
+    networkFee: combinedFeeStr,
+    networkFeeCurrency: currency,
+    withdrawalFee: combinedFeeStr,
+    platformFee: platformFeeStr,
+    providerNetworkFee: providerFeeStr,
+    minWithdraw: minWithdrawNum != null ? formatAmountStr(minWithdrawNum, 8) : null,
+    belowMinimum,
+    totalDebit: formatAmountStr(totalDebit, 8),
   };
 }
 
@@ -1070,9 +1183,42 @@ export async function executeAppObiexSend(
   const currency = await resolveObiexLedgerCurrency(String(params.currency).toUpperCase());
   const network = String(params.network).toUpperCase();
   const amount = parseFloat(String(params.amount).replace(/,/g, ''));
-  const address = String(params.address || '').trim();
+  const address = String(params.address || '')
+    .trim()
+    .replace(/^['"]+|['"]+$/g, '');
   if (!Number.isFinite(amount) || amount <= 0) {
     throw ApiError.badRequest('amount must be greater than 0');
+  }
+  if (!address) throw ApiError.badRequest('address required');
+
+  const netInfo = await resolveObiexWithdrawNetwork(currency, network);
+  if (netInfo.isWithdrawable === false) {
+    throw ApiError.badRequest(`${currency} withdrawals on ${network} are not available`);
+  }
+  const providerNetworkFee = calcProviderNetworkFee(
+    amount,
+    netInfo.providerFee,
+    netInfo.feeType
+  );
+  const platformFeeDec = await computeWithdrawFeeAmount(currency, amount);
+  const platformFee = parseFloat(platformFeeDec.toString()) || 0;
+  const totalDebit = amount + platformFee + providerNetworkFee;
+  const minWithdrawNum =
+    netInfo.providerMin != null
+      ? netInfo.providerMin +
+        (netInfo.feeType === 'FLAT' || !netInfo.feeType ? netInfo.providerFee : 0)
+      : null;
+  if (minWithdrawNum != null && amount < minWithdrawNum) {
+    throw ApiError.badRequest(
+      `Minimum send on ${network} is ${formatAmountStr(minWithdrawNum, 8)} ${currency}`
+    );
+  }
+
+  const available = await getObiexAvailable(userId, currency);
+  if (available + 1e-12 < totalDebit) {
+    throw ApiError.badRequest(
+      `Insufficient ${currency}. Need ${formatAmountStr(totalDebit, 8)} (incl. fees), available ${formatAmountStr(available, 8)}`
+    );
   }
 
   const trade = await tradeModel().create({
@@ -1086,6 +1232,13 @@ export async function executeAppObiexSend(
       withdrawNetwork: network,
       status: 'processing',
       initiatedById: userId,
+      providerResponse: {
+        fees: {
+          platformFee,
+          providerNetworkFee,
+          totalDebit,
+        },
+      },
     },
   });
 
@@ -1094,12 +1247,12 @@ export async function executeAppObiexSend(
     userId,
     side: 'send',
     coinCurrency: currency,
-    expectedUserLedgerDelta: -amount,
-    expectedMasterCoinDelta: -amount,
+    expectedUserLedgerDelta: -totalDebit,
+    expectedMasterCoinDelta: -(amount + providerNetworkFee),
     includeNgnx: false,
   });
 
-  await debitObiexAsset(userId, currency, amount);
+  await debitObiexAsset(userId, currency, totalDebit);
 
   try {
     const res = await obiexClient.withdrawCrypto({
@@ -1111,8 +1264,8 @@ export async function executeAppObiexSend(
 
     await finalizeTradeRecon({
       tradeLogId: trade.id,
-      expectedMasterCoinDelta: -amount,
-      expectedUserLedgerDelta: -amount,
+      expectedMasterCoinDelta: -(amount + providerNetworkFee),
+      expectedUserLedgerDelta: -totalDebit,
       includeNgnx: false,
     });
 
@@ -1123,12 +1276,15 @@ export async function executeAppObiexSend(
         obiexTransactionId: data?.transactionId || data?.id ? String(data.transactionId || data.id) : null,
         obiexStatus: data?.status || 'PROCESSING',
         status: 'processing',
-        providerResponse: data,
+        providerResponse: {
+          ...(typeof data === 'object' && data ? data : { raw: data }),
+          fees: { platformFee, providerNetworkFee, totalDebit },
+        },
       },
     });
     return { trade: updated };
   } catch (error: any) {
-    await creditObiexAsset(userId, currency, amount);
+    await creditObiexAsset(userId, currency, totalDebit);
     await tradeModel().update({
       where: { id: trade.id },
       data: {
