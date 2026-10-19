@@ -130,6 +130,9 @@ export const sellCryptoController = async (
     const restrictions = await getCustomerRestrictions(userId);
     if (restrictions.banned) return next(ApiError.forbidden('Your account has been banned. Contact support.'));
     if (isFeatureFrozen(restrictions, FEATURE_CRYPTO)) return next(ApiError.forbidden('Crypto operations are temporarily disabled for your account.'));
+    // Old app (no X-Terescrow-Client: v2): Tier 2 required. New app skips this.
+    const { assertLegacyCryptoTier2 } = await import('../../utils/clientPolicy');
+    await assertLegacyCryptoTier2(req, userId);
 
     const { amount, amountType, currency, blockchain } = req.body;
 
