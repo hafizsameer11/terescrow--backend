@@ -13,11 +13,42 @@ import { toCustomerSafeError } from '../../utils/customerSafeError';
 import { transferReferralToFiatWallet, assertReferralWithdrawAvailable } from '../../services/referral/referral.withdraw.service';
 
 /**
- * Terescrow markup on PalmPay withdrawals.
- * Client request: no extra app charges beyond what PalmPay itself charges
- * (was ₦50 withdraw + ₦50 stamp duty on ₦10k+). Keep at 0.
+ * Single withdraw fee (NGN) applied by the backend on every payout.
+ * Source of truth for the app — do not hardcode on the client.
+ * Set to 0 when no Terescrow markup (PalmPay may still apply its own charges).
  */
 const WITHDRAW_FEE_NGN = 0;
+
+function getWithdrawFeeNgn(): number {
+  return WITHDRAW_FEE_NGN;
+}
+
+/**
+ * Get withdrawal fee config
+ * GET /api/v2/payments/palmpay/payout/fee
+ */
+export const getWithdrawFeeController = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const feeNgn = getWithdrawFeeNgn();
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          feeNgn,
+          currency: 'NGN',
+          /** amount the user enters; totalDebit = amount + feeNgn */
+        },
+        'Withdrawal fee retrieved successfully'
+      )
+    );
+  } catch (error: unknown) {
+    return next(toCustomerSafeError(error, 'Get withdraw fee error:'));
+  }
+};
 
 /**
  * Get bank list
@@ -134,7 +165,8 @@ export const initiatePayoutController = async (
     }
 
     const amountDecimal = parseFloat(amount);
-    const withdrawFee = WITHDRAW_FEE_NGN;
+    // Fee is always server-side — ignore any client-sent withdrawFee.
+    const withdrawFee = getWithdrawFeeNgn();
     const totalDebit = amountDecimal + withdrawFee;
 
     // Get or create wallet

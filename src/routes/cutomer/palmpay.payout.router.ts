@@ -2,6 +2,7 @@ import { Router } from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
 import {
   getBankListController,
+  getWithdrawFeeController,
   verifyBankAccountController,
   initiatePayoutController,
   checkPayoutStatusController,
@@ -15,6 +16,11 @@ const payoutRouter = Router();
  *   name: V2 - PalmPay Payout
  *   description: PalmPay withdrawal (payout) endpoints
  */
+
+/**
+ * Withdrawal fee (source of truth for mobile). Must be registered before /payout/:id.
+ */
+payoutRouter.get('/payout/fee', authenticateUser, getWithdrawFeeController);
 
 /**
  * @swagger
