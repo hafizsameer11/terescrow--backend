@@ -12,8 +12,12 @@ import { assertPalmpayWithdrawEnabled } from '../../services/admin/platform.oper
 import { toCustomerSafeError } from '../../utils/customerSafeError';
 import { transferReferralToFiatWallet, assertReferralWithdrawAvailable } from '../../services/referral/referral.withdraw.service';
 
-/** Fixed NGN fee charged on top of withdrawal amount (matches mobile WITHDRAW_FEE_NGN). */
-const WITHDRAW_FEE_NGN = 100;
+/**
+ * Terescrow markup on PalmPay withdrawals.
+ * Client request: no extra app charges beyond what PalmPay itself charges
+ * (was ₦50 withdraw + ₦50 stamp duty on ₦10k+). Keep at 0.
+ */
+const WITHDRAW_FEE_NGN = 0;
 
 /**
  * Get bank list
@@ -152,8 +156,10 @@ export const initiatePayoutController = async (
       // Check fiat balance for normal withdrawals (amount + fee)
       const balance = await fiatWalletService.getBalance(wallet.id);
       if (!balance || parseFloat(balance.balance) < totalDebit) {
+        const feeNote =
+          withdrawFee > 0 ? ` (incl. ₦${withdrawFee} fee)` : '';
         return next(ApiError.badRequest(
-          `Insufficient balance. Required: ${totalDebit.toFixed(2)} ${currency.toUpperCase()} (incl. ₦${withdrawFee} fee), Available: ${balance?.balance || '0'} ${currency.toUpperCase()}`
+          `Insufficient balance. Required: ${totalDebit.toFixed(2)} ${currency.toUpperCase()}${feeNote}, Available: ${balance?.balance || '0'} ${currency.toUpperCase()}`
         ));
       }
     }

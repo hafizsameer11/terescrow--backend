@@ -1,5 +1,6 @@
--- Tercescrow 3-tier KYC deposit/withdrawal limits (product spec Aug 2026)
+-- Tercescrow 3-tier KYC deposit/withdrawal limits
 -- Tier 1 = registration (auto on email verify)
+-- Withdrawal caps (client request): daily ₦2M, monthly ₦20M for default tier.
 -- Run manually against production DB when deploying.
 
 INSERT INTO `KycLimits` (
@@ -9,9 +10,9 @@ INSERT INTO `KycLimits` (
   `withdrawalDailyLimit`,
   `withdrawalMonthlyLimit`
 ) VALUES
-  ('tier1', '100000', '3000000', '1000000', '30000000'),
-  ('tier2', '1000000', '30000000', '5000000', '150000000'),
-  ('tier3', '5000000', '150000000', '50000000', '1500000000')
+  ('tier1', '100000', '3000000', '2000000', '20000000'),
+  ('tier2', '1000000', '30000000', '2000000', '20000000'),
+  ('tier3', '5000000', '150000000', '2000000', '20000000')
 ON DUPLICATE KEY UPDATE
   `depositDailyLimit` = VALUES(`depositDailyLimit`),
   `depositMonthlyLimit` = VALUES(`depositMonthlyLimit`),
