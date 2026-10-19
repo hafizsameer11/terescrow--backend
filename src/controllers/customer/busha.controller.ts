@@ -15,7 +15,6 @@ import {
   getAppBushaAssetDetail,
   previewAppBushaSell,
   executeAppBushaSell,
-  executeAppBushaBuy,
   executeAppBushaReceive,
   executeAppBushaSend,
   previewAppBushaSend,
@@ -277,41 +276,23 @@ export async function executeBushaSellController(req: Request, res: Response, ne
   }
 }
 
-export async function previewBushaBuyController(req: Request, res: Response, next: NextFunction) {
-  try {
-    const { sourceAmount, targetCurrency, usdAmount } = req.body ?? {};
-    if (!sourceAmount || !targetCurrency) {
-      throw ApiError.badRequest('sourceAmount and targetCurrency are required');
-    }
-    const { previewAppBushaBuy } = await import('../../services/busha/busha.app.service');
-    const data = await previewAppBushaBuy(userId(req), {
-      sourceAmount: String(sourceAmount),
-      targetCurrency: String(targetCurrency),
-      usdAmount: usdAmount != null ? String(usdAmount) : undefined,
-    });
-    return new ApiResponse(200, data, 'Buy preview').send(res);
-  } catch (error) {
-    if (error instanceof ApiError) return next(error);
-    return next(ApiError.internal('Failed to preview Busha buy'));
-  }
+const CRYPTO_BUY_MAINTENANCE_MSG =
+  'Crypto buy is temporarily under maintenance. Please try again later.';
+
+export async function previewBushaBuyController(
+  _req: Request,
+  _res: Response,
+  next: NextFunction
+) {
+  return next(ApiError.forbidden(CRYPTO_BUY_MAINTENANCE_MSG));
 }
 
-export async function executeBushaBuyController(req: Request, res: Response, next: NextFunction) {
-  try {
-    const { sourceAmount, targetCurrency, usdAmount } = req.body ?? {};
-    if (!sourceAmount || !targetCurrency) {
-      throw ApiError.badRequest('sourceAmount and targetCurrency are required');
-    }
-    const data = await executeAppBushaBuy(userId(req), {
-      sourceAmount: String(sourceAmount),
-      targetCurrency,
-      usdAmount: usdAmount != null ? String(usdAmount) : undefined,
-    });
-    return new ApiResponse(200, data, 'Buy initiated').send(res);
-  } catch (error) {
-    if (error instanceof ApiError) return next(error);
-    return next(ApiError.internal('Failed to execute buy'));
-  }
+export async function executeBushaBuyController(
+  _req: Request,
+  _res: Response,
+  next: NextFunction
+) {
+  return next(ApiError.forbidden(CRYPTO_BUY_MAINTENANCE_MSG));
 }
 
 export async function executeBushaReceiveController(req: Request, res: Response, next: NextFunction) {
