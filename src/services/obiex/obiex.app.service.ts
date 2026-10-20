@@ -293,10 +293,8 @@ export async function getAppObiexAssets(userId: number) {
       status.currencies?.networksByCurrency?.[obiexCode] ||
       [obiexCode];
     const networks = orderObiexNetworks(appCode, networksRaw);
-    const defaultNetwork =
-      meta?.defaultNetwork && networks.includes(String(meta.defaultNetwork).toUpperCase())
-        ? String(meta.defaultNetwork).toUpperCase()
-        : pickDefaultObiexNetwork(appCode, networks);
+    // Always prefer native (BTC→BTC). Ignore provider meta.defaultNetwork when it is BSC/etc.
+    const defaultNetwork = pickDefaultObiexNetwork(appCode, networks);
     const ledger = ledgerByCode.get(obiexCode);
     const available = ledger
       ? formatAmountStr(Number(ledger.userAvailable ?? 0), 8)
