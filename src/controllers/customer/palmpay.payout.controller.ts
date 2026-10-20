@@ -11,16 +11,29 @@ import { getCustomerRestrictions, isFeatureFrozen, FEATURE_WITHDRAWAL } from '..
 import { assertPalmpayWithdrawEnabled } from '../../services/admin/platform.operation.settings.service';
 import { toCustomerSafeError } from '../../utils/customerSafeError';
 import { transferReferralToFiatWallet, assertReferralWithdrawAvailable } from '../../services/referral/referral.withdraw.service';
+import { palmpayKoboToNgn } from '../../services/palmpay/palmpay.merchant.service';
 
 /**
- * Single withdraw fee (NGN) applied by the backend on every payout.
- * Source of truth for the app — do not hardcode on the client.
- * Set to 0 when no Terescrow markup (PalmPay may still apply its own charges).
+ * PalmPay payout fee (docs: Initiate merchant payment → response `fee: { fee, vat }` in kobo).
+ * Docs do not publish a fixed NGN schedule — only return the fee per payout.
+ * Set PALMPAY_WITHDRAW_FEE_NGN to your contracted PalmPay rate for UI preview + balance checks.
+ * On each payout we charge the exact fee PalmPay returns (fee + vat), when present.
  */
-const WITHDRAW_FEE_NGN = 0;
+function getConfiguredWithdrawFeeNgn(): number {
+  const fromEnv = Number(process.env.PALMPAY_WITHDRAW_FEE_NGN);
+  if (Number.isFinite(fromEnv) && fromEnv >= 0) return fromEnv;
+  return 0;
+}
 
-function getWithdrawFeeNgn(): number {
-  return WITHDRAW_FEE_NGN;
+/** Convert PalmPay payout `fee` object (kobo) → NGN. */
+function feeNgnFromPalmpayResponse(data: {
+  fee?: { fee?: number; vat?: number } | null;
+} | null | undefined): number | null {
+  const raw = data?.fee;
+  if (!raw || typeof raw !== 'object') return null;
+  const kobo = (Number(raw.fee) || 0) + (Number(raw.vat) || 0);
+  if (!Number.isFinite(kobo) || kobo < 0) return null;
+  return palmpayKoboToNgn(kobo);
 }
 
 /**
@@ -33,14 +46,19 @@ export const getWithdrawFeeController = async (
   next: NextFunction
 ) => {
   try {
-    const feeNgn = getWithdrawFeeNgn();
+    const feeNgn = getConfiguredWithdrawFeeNgn();
     return res.status(200).json(
       new ApiResponse(
         200,
         {
           feeNgn,
           currency: 'NGN',
-          /** amount the user enters; totalDebit = amount + feeNgn */
+          /** Preview only; debit uses exact PalmPay fee from payout response when available. */
+          feeSource: 'palmpay',
+          note:
+            feeNgn > 0
+              ? 'Preview fee (PalmPay commercial rate). Exact fee from PalmPay is applied at payout.'
+              : 'Set PALMPAY_WITHDRAW_FEE_NGN to your PalmPay payout fee for preview. Exact fee is taken from PalmPay payout response (fee+vat in kobo).',
         },
         'Withdrawal fee retrieved successfully'
       )
@@ -165,9 +183,10 @@ export const initiatePayoutController = async (
     }
 
     const amountDecimal = parseFloat(amount);
-    // Fee is always server-side — ignore any client-sent withdrawFee.
-    const withdrawFee = getWithdrawFeeNgn();
-    const totalDebit = amountDecimal + withdrawFee;
+    // Preview fee for balance check / referral hold (ignore any client-sent fee).
+    // Exact debit fee comes from PalmPay payout response after initiate.
+    const previewFee = getConfiguredWithdrawFeeNgn();
+    const previewTotalDebit = amountDecimal + previewFee;
 
     // Get or create wallet
     const wallet = await fiatWalletService.getOrCreateWallet(user.id, currency);
@@ -177,7 +196,7 @@ export const initiatePayoutController = async (
         return next(ApiError.badRequest('Referral withdrawals must be in NGN'));
       }
       try {
-        await assertReferralWithdrawAvailable(user.id, totalDebit);
+        await assertReferralWithdrawAvailable(user.id, previewTotalDebit);
       } catch (err: any) {
         if (err instanceof ApiError) {
           return next(err);
@@ -185,13 +204,13 @@ export const initiatePayoutController = async (
         throw err;
       }
     } else {
-      // Check fiat balance for normal withdrawals (amount + fee)
+      // Check fiat balance for normal withdrawals (amount + preview fee)
       const balance = await fiatWalletService.getBalance(wallet.id);
-      if (!balance || parseFloat(balance.balance) < totalDebit) {
+      if (!balance || parseFloat(balance.balance) < previewTotalDebit) {
         const feeNote =
-          withdrawFee > 0 ? ` (incl. ₦${withdrawFee} fee)` : '';
+          previewFee > 0 ? ` (incl. ₦${previewFee} fee)` : '';
         return next(ApiError.badRequest(
-          `Insufficient balance. Required: ${totalDebit.toFixed(2)} ${currency.toUpperCase()}${feeNote}, Available: ${balance?.balance || '0'} ${currency.toUpperCase()}`
+          `Insufficient balance. Required: ${previewTotalDebit.toFixed(2)} ${currency.toUpperCase()}${feeNote}, Available: ${balance?.balance || '0'} ${currency.toUpperCase()}`
         ));
       }
     }
@@ -305,10 +324,10 @@ export const initiatePayoutController = async (
     }
 
     // Move referral funds into fiat only after validation so limit failures don't debit referral.
-    // Transfer amount + fee so wallet debit of totalDebit succeeds.
+    // Transfer amount + preview fee; if PalmPay fee is higher we debit the difference after.
     if (isReferralSource) {
       try {
-        await transferReferralToFiatWallet(user.id, totalDebit);
+        await transferReferralToFiatWallet(user.id, previewTotalDebit);
       } catch (err: any) {
         if (err instanceof ApiError) {
           return next(err);
@@ -320,7 +339,7 @@ export const initiatePayoutController = async (
     // Generate unique order ID
     const orderId = `payout_${uuidv4().replace(/-/g, '')}`.substring(0, 32);
 
-    // Create transaction record
+    // Create transaction record (fees finalized after PalmPay response)
     const transaction = await prisma.fiatTransaction.create({
       data: {
         id: uuidv4(),
@@ -330,14 +349,15 @@ export const initiatePayoutController = async (
         status: 'pending',
         currency: currency.toUpperCase(),
         amount: amountDecimal,
-        fees: withdrawFee,
-        totalAmount: totalDebit,
+        fees: previewFee,
+        totalAmount: previewTotalDebit,
         description: isReferralSource
           ? `Referral withdrawal to ${accountNumber}`
           : `Withdrawal to ${accountNumber}`,
         metadata: JSON.stringify({
           walletSource: isReferralSource ? 'referral' : 'fiat',
           withdrawalSource: isReferralSource ? 'referral' : 'fiat',
+          previewFeeNgn: previewFee,
         }),
         palmpayOrderId: orderId,
         payeeName: accountName,
@@ -362,7 +382,27 @@ export const initiatePayoutController = async (
       remark: `Withdrawal transaction for user ${user.id}`,
     });
 
-    // Update transaction with PalmPay response
+    // Exact fee PalmPay charged (kobo → NGN). Docs example: fee.fee = 402 → ₦4.02.
+    const palmpayFeeNgn = feeNgnFromPalmpayResponse(palmpayResponse);
+    const withdrawFee =
+      palmpayFeeNgn != null && Number.isFinite(palmpayFeeNgn) ? palmpayFeeNgn : previewFee;
+    const totalDebit = amountDecimal + withdrawFee;
+
+    let meta: Record<string, unknown> = {
+      walletSource: isReferralSource ? 'referral' : 'fiat',
+      withdrawalSource: isReferralSource ? 'referral' : 'fiat',
+      previewFeeNgn: previewFee,
+      palmpayFeeRaw: palmpayResponse.fee ?? null,
+      palmpayFeeNgn: withdrawFee,
+    };
+    try {
+      const prev = transaction.metadata ? JSON.parse(String(transaction.metadata)) : {};
+      meta = { ...prev, ...meta };
+    } catch {
+      /* keep meta */
+    }
+
+    // Update transaction with PalmPay response + exact fee
     await prisma.fiatTransaction.update({
       where: { id: transaction.id },
       data: {
@@ -371,12 +411,40 @@ export const initiatePayoutController = async (
         palmpaySessionId: palmpayResponse.sessionId,
         fees: withdrawFee,
         totalAmount: totalDebit,
+        metadata: JSON.stringify(meta),
         status: palmpayResponse.orderStatus === 2 ? 'completed' : 'pending',
         ...(palmpayResponse.orderStatus === 2 && { completedAt: new Date() }),
       },
     });
 
-    // Debit wallet for amount + fee; bank receives amount only
+    // If PalmPay fee exceeded preview, ensure wallet covers the difference (referral already moved preview).
+    if (withdrawFee > previewFee) {
+      const extra = withdrawFee - previewFee;
+      if (isReferralSource) {
+        try {
+          await transferReferralToFiatWallet(user.id, extra);
+        } catch (err: any) {
+          console.error('PalmPay fee exceeded referral preview hold:', {
+            transactionId: transaction.id,
+            previewFee,
+            withdrawFee,
+            err: err?.message,
+          });
+        }
+      }
+      const balance = await fiatWalletService.getBalance(wallet.id);
+      if (!balance || parseFloat(balance.balance) < totalDebit) {
+        console.error('PalmPay fee exceeds available balance after payout sent:', {
+          transactionId: transaction.id,
+          amount: amountDecimal,
+          previewFee,
+          withdrawFee,
+          available: balance?.balance,
+        });
+      }
+    }
+
+    // Debit wallet for amount + exact PalmPay fee; bank receives amount only
     await fiatWalletService.debitWallet(wallet.id, totalDebit, transaction.id);
 
     return res.status(200).json(
@@ -390,6 +458,7 @@ export const initiatePayoutController = async (
         totalAmount: totalDebit,
         currency: currency.toUpperCase(),
         sessionId: palmpayResponse.sessionId,
+        feeSource: palmpayFeeNgn != null ? 'palmpay_response' : 'config',
       }, 'Payout initiated successfully')
     );
   } catch (error: unknown) {

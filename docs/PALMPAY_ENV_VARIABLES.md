@@ -64,6 +64,12 @@ PALMPAY_ENVIRONMENT=sandbox
 # - sandbox: https://open-gw-daily.palmpay-inc.com
 # - production: https://open-gw.palmpay-inc.com
 
+# Withdraw / payout fee preview (NGN). PalmPay docs do not publish a fixed schedule;
+# the live fee is returned on payout as fee.fee + fee.vat in kobo (e.g. 402 → ₦4.02).
+# Set this to your contracted PalmPay rate so the app can show the fee before confirm.
+# At payout we still charge the exact fee from PalmPay's response when present.
+# PALMPAY_WITHDRAW_FEE_NGN=10
+
 # API Version
 PALMPAY_VERSION=V1.1
 # Default: "V1.1"
