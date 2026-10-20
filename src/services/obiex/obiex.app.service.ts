@@ -96,6 +96,44 @@ function unwrapData(res: any) {
   return res?.data ?? res;
 }
 
+/**
+ * Prefer the coin's native network (BTC→BTC, ETH→ETH) over Obiex's unordered list
+ * (e.g. BTC often comes back as [BSC, BTC] — we must not default to BSC).
+ */
+function pickDefaultObiexNetwork(currency: string, networks: string[]): string {
+  const code = String(currency || '').toUpperCase();
+  const nets = (networks || []).map((n) => String(n || '').toUpperCase()).filter(Boolean);
+  if (!nets.length) return code || '';
+  if (nets.includes(code)) return code;
+  const nativeAliases: Record<string, string[]> = {
+    BTC: ['BTC', 'BITCOIN'],
+    ETH: ['ETH', 'ERC20', 'ETHEREUM'],
+    BNB: ['BSC', 'BNB', 'BEP20'],
+    TRX: ['TRX', 'TRC20', 'TRON'],
+    SOL: ['SOL', 'SOLANA'],
+    MATIC: ['MATIC', 'POLYGON'],
+    AVAX: ['AVAX', 'AVALANCHE'],
+    LTC: ['LTC', 'LITECOIN'],
+    DOGE: ['DOGE', 'DOGECOIN'],
+    XRP: ['XRP', 'RIPPLE'],
+    TON: ['TON'],
+    ADA: ['ADA', 'CARDANO'],
+    DOT: ['DOT', 'POLKADOT'],
+  };
+  for (const alias of nativeAliases[code] || []) {
+    if (nets.includes(alias)) return alias;
+  }
+  return nets[0];
+}
+
+/** Put preferred default first for UI pickers. */
+function orderObiexNetworks(currency: string, networks: string[]): string[] {
+  const preferred = pickDefaultObiexNetwork(currency, networks);
+  const nets = (networks || []).map((n) => String(n || '').toUpperCase()).filter(Boolean);
+  if (!preferred) return nets;
+  return [preferred, ...nets.filter((n) => n !== preferred)];
+}
+
 export async function getAppObiexStatus(userId: number) {
   const configured = obiexConfig.isConfigured();
   let settings: any = null;
@@ -126,10 +164,11 @@ export async function getAppObiexStatus(userId: number) {
       for (const code of Object.keys(netMap)) {
         const entry = netMap[code];
         const nets = Array.isArray(entry?.networks) ? entry.networks : [];
-        networksByCurrency[code.toUpperCase()] = nets
+        const codes = nets
           .filter((n: any) => n?.isReceivable || n?.isWithdrawable)
           .map((n: any) => String(n.networkCode || n.code || '').toUpperCase())
           .filter(Boolean);
+        networksByCurrency[code.toUpperCase()] = orderObiexNetworks(code, codes);
       }
 
       assets = crypto.map((code) => {
@@ -139,7 +178,7 @@ export async function getAppObiexStatus(userId: number) {
           code,
           name: code,
           networks: nets,
-          defaultNetwork: nets[0] || '',
+          defaultNetwork: pickDefaultObiexNetwork(code, nets),
           deposit: netEntries.some((n: any) => n?.isReceivable),
           withdraw: netEntries.some((n: any) => n?.isWithdrawable),
           rampBuy: true,
@@ -248,11 +287,16 @@ export async function getAppObiexAssets(userId: number) {
 
     const meta = statusByCode.get(obiexCode) || statusByCode.get(appCode);
     const netsFromMap = Array.isArray(row.networks) ? (row.networks as string[]) : null;
-    const networks: string[] =
+    const networksRaw: string[] =
       netsFromMap ||
       meta?.networks ||
       status.currencies?.networksByCurrency?.[obiexCode] ||
       [obiexCode];
+    const networks = orderObiexNetworks(appCode, networksRaw);
+    const defaultNetwork =
+      meta?.defaultNetwork && networks.includes(String(meta.defaultNetwork).toUpperCase())
+        ? String(meta.defaultNetwork).toUpperCase()
+        : pickDefaultObiexNetwork(appCode, networks);
     const ledger = ledgerByCode.get(obiexCode);
     const available = ledger
       ? formatAmountStr(Number(ledger.userAvailable ?? 0), 8)
@@ -264,7 +308,7 @@ export async function getAppObiexAssets(userId: number) {
     assets.push({
       id: -(assets.length + 1),
       currency: appCode,
-      blockchain: meta?.defaultNetwork || networks[0] || appCode,
+      blockchain: defaultNetwork || appCode,
       symbol: getObiexIconPath(appCode) || getObiexIconPath(obiexCode) || appCode,
       name: row.displayName || meta?.name || appCode,
       balance: available,
@@ -277,7 +321,7 @@ export async function getAppObiexAssets(userId: number) {
       active: true,
       frozen: false,
       networks,
-      defaultNetwork: meta?.defaultNetwork || networks[0] || '',
+      defaultNetwork,
       obiexCurrency: obiexCode,
       icon: getObiexIconPath(appCode) || getObiexIconPath(obiexCode),
       image: getObiexIconPath(appCode) || getObiexIconPath(obiexCode),
@@ -292,10 +336,15 @@ export async function getAppObiexAssets(userId: number) {
     const available = formatAmountStr(Number((ledger as any).userAvailable ?? 0), 8);
     const amt = parseFloat(available) || 0;
     const isStable = ['USDT', 'USDC', 'USD'].includes(code);
+    const networks = orderObiexNetworks(
+      code,
+      status.currencies?.networksByCurrency?.[code] || [code]
+    );
+    const defaultNetwork = pickDefaultObiexNetwork(code, networks);
     assets.push({
       id: -(assets.length + 1),
       currency: code,
-      blockchain: code,
+      blockchain: defaultNetwork || code,
       symbol: getObiexIconPath(code) || code,
       name: code,
       balance: available,
@@ -307,8 +356,8 @@ export async function getAppObiexAssets(userId: number) {
       depositAddress: '',
       active: true,
       frozen: false,
-      networks: status.currencies?.networksByCurrency?.[code] || [code],
-      defaultNetwork: status.currencies?.networksByCurrency?.[code]?.[0] || code,
+      networks,
+      defaultNetwork,
       obiexCurrency: code,
       icon: getObiexIconPath(code),
       image: getObiexIconPath(code),
