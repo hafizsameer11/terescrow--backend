@@ -14,18 +14,39 @@ import { transferReferralToFiatWallet, assertReferralWithdrawAvailable } from '.
 import { palmpayKoboToNgn } from '../../services/palmpay/palmpay.merchant.service';
 
 /**
- * PalmPay payout fee (docs: Initiate merchant payment → response `fee: { fee, vat }` in kobo).
- * Docs do not publish a fixed NGN schedule — only return the fee per payout.
- * Set PALMPAY_WITHDRAW_FEE_NGN to your contracted PalmPay rate for UI preview + balance checks.
- * On each payout we charge the exact fee PalmPay returns (fee + vat), when present.
+ * Network payout fee preview (provider returns exact fee+vat in kobo on payout).
+ * Set PALMPAY_WITHDRAW_FEE_NGN for UI/balance preview when known commercially.
  */
-function getConfiguredWithdrawFeeNgn(): number {
+function getConfiguredNetworkFeeNgn(): number {
   const fromEnv = Number(process.env.PALMPAY_WITHDRAW_FEE_NGN);
   if (Number.isFinite(fromEnv) && fromEnv >= 0) return fromEnv;
   return 0;
 }
 
-/** Convert PalmPay payout `fee` object (kobo) → NGN. */
+/** ₦50 service + ₦50 stamp on withdrawals above ₦10,000 (stacks on network fee). */
+const WITHDRAW_SERVICE_FEE_NGN = 50;
+const WITHDRAW_STAMP_DUTY_NGN = 50;
+const WITHDRAW_STAMP_THRESHOLD_NGN = 10_000;
+
+function getAppWithdrawFeeNgn(amountNgn: number): number {
+  if (!Number.isFinite(amountNgn) || amountNgn <= 0) return 0;
+  if (amountNgn > WITHDRAW_STAMP_THRESHOLD_NGN) {
+    return WITHDRAW_SERVICE_FEE_NGN + WITHDRAW_STAMP_DUTY_NGN;
+  }
+  return 0;
+}
+
+function buildWithdrawFeePreview(amountNgn: number) {
+  const networkFeeNgn = getConfiguredNetworkFeeNgn();
+  const appFeeNgn = getAppWithdrawFeeNgn(amountNgn);
+  return {
+    networkFeeNgn,
+    appFeeNgn,
+    feeNgn: networkFeeNgn + appFeeNgn,
+  };
+}
+
+/** Convert provider payout `fee` object (kobo) → NGN. */
 function feeNgnFromPalmpayResponse(data: {
   fee?: { fee?: number; vat?: number } | null;
 } | null | undefined): number | null {
@@ -38,27 +59,26 @@ function feeNgnFromPalmpayResponse(data: {
 
 /**
  * Get withdrawal fee config
- * GET /api/v2/payments/palmpay/payout/fee
+ * GET /api/v2/payments/palmpay/payout/fee?amount=15000
  */
 export const getWithdrawFeeController = async (
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const feeNgn = getConfiguredWithdrawFeeNgn();
+    const amountNgn = Number(req.query.amount);
+    const preview = buildWithdrawFeePreview(
+      Number.isFinite(amountNgn) && amountNgn > 0 ? amountNgn : 0
+    );
     return res.status(200).json(
       new ApiResponse(
         200,
         {
-          feeNgn,
+          feeNgn: preview.feeNgn,
           currency: 'NGN',
-          /** Preview only; debit uses exact PalmPay fee from payout response when available. */
-          feeSource: 'palmpay',
-          note:
-            feeNgn > 0
-              ? 'Preview fee (PalmPay commercial rate). Exact fee from PalmPay is applied at payout.'
-              : 'Set PALMPAY_WITHDRAW_FEE_NGN to your PalmPay payout fee for preview. Exact fee is taken from PalmPay payout response (fee+vat in kobo).',
+          /** Single total for the app — network fee + ₦50+₦50 when amount > ₦10k. */
+          feeSource: 'combined',
         },
         'Withdrawal fee retrieved successfully'
       )
@@ -184,8 +204,10 @@ export const initiatePayoutController = async (
 
     const amountDecimal = parseFloat(amount);
     // Preview fee for balance check / referral hold (ignore any client-sent fee).
-    // Exact debit fee comes from PalmPay payout response after initiate.
-    const previewFee = getConfiguredWithdrawFeeNgn();
+    // Final debit = exact network fee from payout response + app fee (₦50+₦50 if > ₦10k).
+    const appFeeNgn = getAppWithdrawFeeNgn(amountDecimal);
+    const networkFeePreview = getConfiguredNetworkFeeNgn();
+    const previewFee = networkFeePreview + appFeeNgn;
     const previewTotalDebit = amountDecimal + previewFee;
 
     // Get or create wallet
@@ -358,6 +380,8 @@ export const initiatePayoutController = async (
           walletSource: isReferralSource ? 'referral' : 'fiat',
           withdrawalSource: isReferralSource ? 'referral' : 'fiat',
           previewFeeNgn: previewFee,
+          appFeeNgn,
+          networkFeePreviewNgn: networkFeePreview,
         }),
         palmpayOrderId: orderId,
         payeeName: accountName,
@@ -382,18 +406,24 @@ export const initiatePayoutController = async (
       remark: `Withdrawal transaction for user ${user.id}`,
     });
 
-    // Exact fee PalmPay charged (kobo → NGN). Docs example: fee.fee = 402 → ₦4.02.
-    const palmpayFeeNgn = feeNgnFromPalmpayResponse(palmpayResponse);
-    const withdrawFee =
-      palmpayFeeNgn != null && Number.isFinite(palmpayFeeNgn) ? palmpayFeeNgn : previewFee;
+    // Exact network fee from provider (kobo → NGN) + app ₦50+₦50 when amount > ₦10k.
+    const networkFeeActual = feeNgnFromPalmpayResponse(palmpayResponse);
+    const networkFeeNgn =
+      networkFeeActual != null && Number.isFinite(networkFeeActual)
+        ? networkFeeActual
+        : networkFeePreview;
+    const withdrawFee = networkFeeNgn + appFeeNgn;
     const totalDebit = amountDecimal + withdrawFee;
 
     let meta: Record<string, unknown> = {
       walletSource: isReferralSource ? 'referral' : 'fiat',
       withdrawalSource: isReferralSource ? 'referral' : 'fiat',
       previewFeeNgn: previewFee,
-      palmpayFeeRaw: palmpayResponse.fee ?? null,
-      palmpayFeeNgn: withdrawFee,
+      appFeeNgn,
+      networkFeePreviewNgn: networkFeePreview,
+      networkFeeRaw: palmpayResponse.fee ?? null,
+      networkFeeNgn,
+      withdrawFeeNgn: withdrawFee,
     };
     try {
       const prev = transaction.metadata ? JSON.parse(String(transaction.metadata)) : {};
@@ -458,7 +488,7 @@ export const initiatePayoutController = async (
         totalAmount: totalDebit,
         currency: currency.toUpperCase(),
         sessionId: palmpayResponse.sessionId,
-        feeSource: palmpayFeeNgn != null ? 'palmpay_response' : 'config',
+        feeSource: networkFeeActual != null ? 'network_plus_app' : 'preview_plus_app',
       }, 'Payout initiated successfully')
     );
   } catch (error: unknown) {
