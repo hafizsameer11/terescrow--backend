@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import ApiError from '../../utils/ApiError';
 import {
+  executeAppObiexBuy,
   executeAppObiexConvert,
   executeAppObiexSell,
   executeAppObiexSend,
@@ -12,6 +13,7 @@ import {
   getAppObiexTrade,
   getAppObiexWallet,
   listAppObiexTrades,
+  previewAppObiexBuy,
   previewAppObiexConvert,
   previewAppObiexSell,
   previewAppObiexSend,
@@ -95,23 +97,22 @@ export const getObiexDepositAddressController = async (
   }
 };
 
-const CRYPTO_BUY_MAINTENANCE_MSG =
-  'Crypto buy is temporarily under maintenance. Please try again later.';
-
-export const previewObiexBuyController = async (
-  _req: Request,
-  _res: Response,
-  next: NextFunction
-) => {
-  return next(ApiError.forbidden(CRYPTO_BUY_MAINTENANCE_MSG));
+export const previewObiexBuyController = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await previewAppObiexBuy(userId(req), req.body || {});
+    res.json({ status: 'success', data });
+  } catch (e) {
+    next(e);
+  }
 };
 
-export const executeObiexBuyController = async (
-  _req: Request,
-  _res: Response,
-  next: NextFunction
-) => {
-  return next(ApiError.forbidden(CRYPTO_BUY_MAINTENANCE_MSG));
+export const executeObiexBuyController = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await executeAppObiexBuy(userId(req), req.body || {});
+    res.json({ status: 'success', data });
+  } catch (e) {
+    next(e);
+  }
 };
 
 export const previewObiexSellController = async (
