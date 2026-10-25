@@ -5,6 +5,7 @@ import { obiexClient } from './obiex.client';
 import {
   getObiexConfigRow,
   listObiexMarkupRanges,
+  parseFlatFeeNgn,
   parseSignedPercent,
 } from './obiex.markup';
 
@@ -35,6 +36,8 @@ export async function getObiexAdminStatus() {
       buyMode: settings.buyMode,
       buyMarkupPercent: Number(settings.buyMarkupPercent),
       sellMarkupPercent: Number(settings.sellMarkupPercent),
+      buyFlatFeeNgn: parseFlatFeeNgn(settings.buyFlatFeeNgn),
+      sellFlatFeeNgn: parseFlatFeeNgn(settings.sellFlatFeeNgn),
       collectionsTarget: settings.collectionsTarget,
     },
     masterBalances,
@@ -46,6 +49,8 @@ export async function upsertObiexSettings(input: {
   buyMode?: string;
   buyMarkupPercent?: number | string;
   sellMarkupPercent?: number | string;
+  buyFlatFeeNgn?: number | string;
+  sellFlatFeeNgn?: number | string;
   collectionsTarget?: string;
 }) {
   const buyMode =
@@ -65,6 +70,8 @@ export async function upsertObiexSettings(input: {
       buyMode: buyMode || 'master_swap',
       buyMarkupPercent: parseSignedPercent(input.buyMarkupPercent ?? 0),
       sellMarkupPercent: Math.abs(parseSignedPercent(input.sellMarkupPercent ?? 0)),
+      buyFlatFeeNgn: parseFlatFeeNgn(input.buyFlatFeeNgn ?? 0),
+      sellFlatFeeNgn: parseFlatFeeNgn(input.sellFlatFeeNgn ?? 0),
       collectionsTarget: collectionsTarget || 'USDT',
     },
     update: {
@@ -75,6 +82,12 @@ export async function upsertObiexSettings(input: {
         : {}),
       ...(input.sellMarkupPercent !== undefined
         ? { sellMarkupPercent: Math.abs(parseSignedPercent(input.sellMarkupPercent)) }
+        : {}),
+      ...(input.buyFlatFeeNgn !== undefined
+        ? { buyFlatFeeNgn: parseFlatFeeNgn(input.buyFlatFeeNgn) }
+        : {}),
+      ...(input.sellFlatFeeNgn !== undefined
+        ? { sellFlatFeeNgn: parseFlatFeeNgn(input.sellFlatFeeNgn) }
         : {}),
       ...(collectionsTarget ? { collectionsTarget } : {}),
     },

@@ -1021,6 +1021,9 @@ model ObiexConfig {
   buyMode           String   @default("master_swap") @map("buy_mode") @db.VarChar(30)
   buyMarkupPercent  Decimal  @default(0) @map("buy_markup_percent") @db.Decimal(8, 4)
   sellMarkupPercent Decimal  @default(0) @map("sell_markup_percent") @db.Decimal(8, 4)
+  /// Flat NGN fee on top of % markup (buy: taken from user debit; sell: deducted from user credit)
+  buyFlatFeeNgn     Decimal  @default(0) @map("buy_flat_fee_ngn") @db.Decimal(18, 2)
+  sellFlatFeeNgn    Decimal  @default(0) @map("sell_flat_fee_ngn") @db.Decimal(18, 2)
   /// Default settlement stablecoin for collections_va buys
   collectionsTarget String   @default("USDT") @map("collections_target") @db.VarChar(10)
   isActive          Boolean  @default(false) @map("is_active")

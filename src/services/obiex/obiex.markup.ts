@@ -28,6 +28,12 @@ function parseLegacyPercent(value: unknown): number {
   return n;
 }
 
+export function parseFlatFeeNgn(value: unknown): number {
+  const n = parseFloat(String(value ?? '0').replace(/,/g, ''));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 export async function getObiexConfigRow() {
   const existing = await configModel().findUnique({ where: { id: 1 } });
   if (existing) return existing;
@@ -38,6 +44,8 @@ export async function getObiexConfigRow() {
       buyMode: 'master_swap',
       buyMarkupPercent: 0,
       sellMarkupPercent: 0,
+      buyFlatFeeNgn: 0,
+      sellFlatFeeNgn: 0,
       collectionsTarget: 'USDT',
       isActive: false,
     },
@@ -50,6 +58,14 @@ export async function getObiexMarkupPercents() {
   return {
     buyMarkupPercent: parseLegacyPercent(settings?.buyMarkupPercent),
     sellMarkupPercent: parseLegacyPercent(settings?.sellMarkupPercent),
+  };
+}
+
+export async function getObiexFlatFeesNgn() {
+  const settings = await getObiexConfigRow();
+  return {
+    buyFlatFeeNgn: parseFlatFeeNgn(settings?.buyFlatFeeNgn),
+    sellFlatFeeNgn: parseFlatFeeNgn(settings?.sellFlatFeeNgn),
   };
 }
 
@@ -107,6 +123,83 @@ export function obiexBuySourceNgn(userNgn: number, buyMarkupPercent: number): nu
 export function userSellCreditNgn(obiexNgn: number, sellMarkupPercent: number): number {
   if (!Number.isFinite(obiexNgn) || obiexNgn <= 0) return 0;
   return obiexNgn * (1 + parseSignedPercent(sellMarkupPercent) / 100);
+}
+
+/**
+ * Buy split: flat fee taken first, then % markup on the remainder.
+ * User pays `userNgn`; Obiex receives `obiexNgn`; platform keeps the rest (gross).
+ */
+export function splitObiexBuyUserDebit(params: {
+  userNgn: number;
+  buyMarkupPercent: number;
+  buyFlatFeeNgn: number;
+}): {
+  userNgn: number;
+  flatFeeNgn: number;
+  percentSpreadNgn: number;
+  obiexNgn: number;
+  grossPlatformProfitNgn: number;
+} {
+  const userNgn = roundNgn(params.userNgn);
+  const flatFeeNgn = Math.min(parseFlatFeeNgn(params.buyFlatFeeNgn), Math.max(0, userNgn));
+  const afterFlat = roundNgn(Math.max(0, userNgn - flatFeeNgn));
+  const obiexNgn = roundNgn(obiexBuySourceNgn(afterFlat, params.buyMarkupPercent));
+  const percentSpreadNgn = roundNgn(Math.max(0, afterFlat - obiexNgn));
+  const grossPlatformProfitNgn = roundNgn(flatFeeNgn + percentSpreadNgn);
+  return { userNgn, flatFeeNgn, percentSpreadNgn, obiexNgn, grossPlatformProfitNgn };
+}
+
+/**
+ * Sell split: apply signed % to Obiex NGNX, then deduct flat sell fee from user credit.
+ */
+export function splitObiexSellUserCredit(params: {
+  obiexNgn: number;
+  sellMarkupPercent: number;
+  sellFlatFeeNgn: number;
+}): {
+  obiexNgn: number;
+  flatFeeNgn: number;
+  percentSpreadNgn: number;
+  userNgn: number;
+  grossPlatformProfitNgn: number;
+} {
+  const obiexNgn = roundNgn(params.obiexNgn);
+  const afterPct = roundNgn(userSellCreditNgn(obiexNgn, params.sellMarkupPercent));
+  // percentSpread: positive when we keep money (sell % stored as negative signed in resolve)
+  const percentSpreadNgn = roundNgn(obiexNgn - afterPct);
+  const flatFeeNgn = Math.min(parseFlatFeeNgn(params.sellFlatFeeNgn), Math.max(0, afterPct));
+  const userNgn = roundNgn(Math.max(0, afterPct - flatFeeNgn));
+  const grossPlatformProfitNgn = roundNgn(obiexNgn - userNgn);
+  return { obiexNgn, flatFeeNgn, percentSpreadNgn, userNgn, grossPlatformProfitNgn };
+}
+
+/** Net admin P&L after provider fees (deposit/withdraw). Negative = loss. */
+export function buildObiexFeesForAdmin(params: {
+  side: 'buy' | 'sell';
+  markupPercent: number;
+  flatFeeNgn: number;
+  percentSpreadNgn: number;
+  grossPlatformProfitNgn: number;
+  providerFeesNgn: number;
+  userNgn: number;
+  obiexNgn: number;
+  extra?: Record<string, unknown>;
+}) {
+  const providerFeesNgn = roundNgn(Math.max(0, params.providerFeesNgn));
+  const netPlatformProfitNgn = roundNgn(params.grossPlatformProfitNgn - providerFeesNgn);
+  return {
+    side: params.side,
+    markupPercent: params.markupPercent,
+    flatFeeNgn: roundNgn(params.flatFeeNgn),
+    percentSpreadNgn: roundNgn(params.percentSpreadNgn),
+    grossPlatformProfitNgn: roundNgn(params.grossPlatformProfitNgn),
+    providerFeesNgn,
+    netPlatformProfitNgn,
+    isProfit: netPlatformProfitNgn >= 0,
+    userNgn: roundNgn(params.userNgn),
+    obiexNgn: roundNgn(params.obiexNgn),
+    ...(params.extra || {}),
+  };
 }
 
 export function applySignedRateMarkup(rate: number, percent: number): number {

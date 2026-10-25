@@ -13,12 +13,14 @@ import {
 } from './obiex.ledger.service';
 import {
   applySignedRateMarkup,
+  buildObiexFeesForAdmin,
   formatAmountStr,
   getObiexConfigRow,
-  obiexBuySourceNgn,
+  getObiexFlatFeesNgn,
   resolveObiexMarkupForUsdAmount,
   roundNgn,
-  userSellCreditNgn,
+  splitObiexBuyUserDebit,
+  splitObiexSellUserCredit,
 } from './obiex.markup';
 import {
   listActiveObiexCurrencyMaps,
@@ -575,13 +577,18 @@ export async function previewAppObiexBuy(
     'buy',
     Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : userNgn / 1500
   );
-  const obiexNgn = roundNgn(obiexBuySourceNgn(userNgn, resolved.percent));
-  if (obiexNgn <= 0) throw ApiError.badRequest('Buy amount too small after markup');
+  const flatFees = await getObiexFlatFeesNgn();
+  const split = splitObiexBuyUserDebit({
+    userNgn,
+    buyMarkupPercent: resolved.percent,
+    buyFlatFeeNgn: flatFees.buyFlatFeeNgn,
+  });
+  if (split.obiexNgn <= 0) throw ApiError.badRequest('Buy amount too small after fees');
 
   const rates = await getAppObiexPublicRates();
   const ngnRate = rates.rates.find((r: any) => String(r.currency).toUpperCase() === 'NGNX');
   const buyRate = Number(ngnRate?.buyRate) || 0;
-  const estimatedCrypto = buyRate > 0 ? obiexNgn / buyRate : 0;
+  const estimatedCrypto = buyRate > 0 ? split.obiexNgn / buyRate : 0;
 
   return {
     buyMode: settings.buyMode,
@@ -594,10 +601,12 @@ export async function previewAppObiexBuy(
     },
     markup: {
       buyMarkupPercent: resolved.percent,
+      buyFlatFeeNgn: split.flatFeeNgn,
       markupSource: resolved.source,
       rangeId: resolved.rangeId ?? null,
-      obiexSourceAmount: formatAmountStr(obiexNgn, 2),
-      platformSpreadNgn: formatAmountStr(userNgn - obiexNgn, 2),
+      obiexSourceAmount: formatAmountStr(split.obiexNgn, 2),
+      percentSpreadNgn: formatAmountStr(split.percentSpreadNgn, 2),
+      platformSpreadNgn: formatAmountStr(split.grossPlatformProfitNgn, 2),
     },
   };
 }
@@ -645,8 +654,26 @@ export async function executeAppObiexBuy(
     'buy',
     Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : userNgn / 1500
   );
-  const obiexNgn = roundNgn(obiexBuySourceNgn(userNgn, resolved.percent));
-  const platformSpreadNgn = roundNgn(userNgn - obiexNgn);
+  const flatFees = await getObiexFlatFeesNgn();
+  const split = splitObiexBuyUserDebit({
+    userNgn,
+    buyMarkupPercent: resolved.percent,
+    buyFlatFeeNgn: flatFees.buyFlatFeeNgn,
+  });
+  const obiexNgn = split.obiexNgn;
+  const platformSpreadNgn = split.grossPlatformProfitNgn;
+  if (obiexNgn <= 0) throw ApiError.badRequest('Buy amount too small after fees');
+
+  const buyMarkupFields = {
+    buyMarkupPercent: resolved.percent,
+    buyFlatFeeNgn: split.flatFeeNgn,
+    percentSpreadNgn: split.percentSpreadNgn,
+    markupSource: resolved.source,
+    rangeId: resolved.rangeId ?? null,
+    userSourceAmount: formatAmountStr(userNgn, 2),
+    obiexSourceAmount: formatAmountStr(obiexNgn, 2),
+    platformSpreadNgn: formatAmountStr(platformSpreadNgn, 2),
+  };
 
   const buyMode = String(settings.buyMode || 'master_swap');
 
@@ -683,11 +710,7 @@ export async function executeAppObiexBuy(
         providerResponse: {
           buyMode: 'collections_va',
           collection: data,
-          markup: {
-            buyMarkupPercent: resolved.percent,
-            markupSource: resolved.source,
-            userSourceAmount: formatAmountStr(userNgn, 2),
-          },
+          markup: buyMarkupFields,
         },
       },
     });
@@ -745,14 +768,7 @@ export async function executeAppObiexBuy(
       initiatedById: userId,
       providerResponse: {
         buyMode: 'master_swap',
-        markup: {
-          buyMarkupPercent: resolved.percent,
-          markupSource: resolved.source,
-          rangeId: resolved.rangeId ?? null,
-          userSourceAmount: formatAmountStr(userNgn, 2),
-          obiexSourceAmount: formatAmountStr(obiexNgn, 2),
-          platformSpreadNgn: formatAmountStr(platformSpreadNgn, 2),
-        },
+        markup: buyMarkupFields,
       },
     },
   });
@@ -774,6 +790,7 @@ export async function executeAppObiexBuy(
       String(process.env.OBIEX_BUY_SKIP_VA_FUND || '') === '1';
 
     let fundingAdminNote: Record<string, unknown> | null = null;
+    let providerDepositFeeNgn = 0;
     if (!skipVaFund) {
       const funding = await fundObiexNgnxViaPalmpayForBuy({
         creditNeededNgn: obiexNgn,
@@ -781,20 +798,14 @@ export async function executeAppObiexBuy(
         userId,
       });
       fundingAdminNote = funding.adminNote;
+      providerDepositFeeNgn = roundNgn(Number(funding.feeNgn) || 0);
       await tradeModel().update({
         where: { id: trade.id },
         data: {
           providerResponse: {
             buyMode: 'master_swap',
             funding: fundingAdminNote,
-            markup: {
-              buyMarkupPercent: resolved.percent,
-              markupSource: resolved.source,
-              rangeId: resolved.rangeId ?? null,
-              userSourceAmount: formatAmountStr(userNgn, 2),
-              obiexSourceAmount: formatAmountStr(obiexNgn, 2),
-              platformSpreadNgn: formatAmountStr(platformSpreadNgn, 2),
-            },
+            markup: buyMarkupFields,
           },
         },
       });
@@ -847,6 +858,20 @@ export async function executeAppObiexBuy(
       includeNgnx: true,
     });
 
+    const feesForAdmin = buildObiexFeesForAdmin({
+      side: 'buy',
+      markupPercent: resolved.percent,
+      flatFeeNgn: split.flatFeeNgn,
+      percentSpreadNgn: split.percentSpreadNgn,
+      grossPlatformProfitNgn: platformSpreadNgn,
+      providerFeesNgn: providerDepositFeeNgn,
+      userNgn,
+      obiexNgn,
+      extra: {
+        obiexNgnDepositFeeNgn: providerDepositFeeNgn,
+      },
+    });
+
     const updated = await tradeModel().update({
       where: { id: trade.id },
       data: {
@@ -860,17 +885,26 @@ export async function executeAppObiexBuy(
           buyMode: 'master_swap',
           ...(fundingAdminNote ? { funding: fundingAdminNote } : {}),
           swap: swapData,
-          markup: {
-            buyMarkupPercent: resolved.percent,
-            markupSource: resolved.source,
-            rangeId: resolved.rangeId ?? null,
-            userSourceAmount: formatAmountStr(userNgn, 2),
-            obiexSourceAmount: formatAmountStr(obiexNgn, 2),
-            platformSpreadNgn: formatAmountStr(platformSpreadNgn, 2),
-          },
+          feesForAdmin,
+          markup: buyMarkupFields,
         },
       },
     });
+
+    try {
+      await prisma.fiatTransaction.update({
+        where: { id: fiatTxn.id },
+        data: {
+          metadata: JSON.stringify({
+            adminOnly: true,
+            feesForAdmin,
+            ...(fundingAdminNote ? { obiexNgnDepositFunding: fundingAdminNote } : {}),
+          }),
+        },
+      });
+    } catch {
+      /* best-effort */
+    }
 
     // User-facing payload stays a normal completed buy (no funding / VA details).
     return { trade: updated };
@@ -919,21 +953,29 @@ export async function previewAppObiexSell(
   const ngnRate = rates.rates.find((r: any) => String(r.currency).toUpperCase() === 'NGNX');
   const rawSell = Number(ngnRate?.rawSellRate ?? ngnRate?.sellRate) || 0;
   const obiexNgn = roundNgn(amount * rawSell);
-  const userNgn = roundNgn(userSellCreditNgn(obiexNgn, resolved.percent));
+  const flatFees = await getObiexFlatFeesNgn();
+  const split = splitObiexSellUserCredit({
+    obiexNgn,
+    sellMarkupPercent: resolved.percent,
+    sellFlatFeeNgn: flatFees.sellFlatFeeNgn,
+  });
 
   return {
     quote: {
       source_currency: source,
       target_currency: 'NGN',
       source_amount: formatAmountStr(amount, 8),
-      target_amount: formatAmountStr(userNgn, 2),
+      target_amount: formatAmountStr(split.userNgn, 2),
       rate: applySignedRateMarkup(rawSell, resolved.percent),
     },
     markup: {
       sellMarkupPercent: resolved.percent,
+      sellFlatFeeNgn: split.flatFeeNgn,
       markupSource: resolved.source,
       obiexTargetAmount: formatAmountStr(obiexNgn, 2),
-      userCreditNgn: formatAmountStr(userNgn, 2),
+      percentSpreadNgn: formatAmountStr(split.percentSpreadNgn, 2),
+      platformSpreadNgn: formatAmountStr(split.grossPlatformProfitNgn, 2),
+      userCreditNgn: formatAmountStr(split.userNgn, 2),
     },
   };
 }
@@ -991,8 +1033,14 @@ export async function executeAppObiexSell(
     if (!Number.isFinite(obiexNgn) || obiexNgn <= 0) {
       throw ApiError.badRequest('Obiex sell swap returned no NGNX');
     }
-    const userNgn = roundNgn(userSellCreditNgn(obiexNgn, resolved.percent));
-    const sellMarkupFeeNgn = roundNgn(Math.max(0, obiexNgn - userNgn));
+    const flatFees = await getObiexFlatFeesNgn();
+    const split = splitObiexSellUserCredit({
+      obiexNgn,
+      sellMarkupPercent: resolved.percent,
+      sellFlatFeeNgn: flatFees.sellFlatFeeNgn,
+    });
+    const userNgn = split.userNgn;
+    const sellMarkupFeeNgn = split.grossPlatformProfitNgn;
 
     const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
     const fiatTxn = await prisma.fiatTransaction.create({
@@ -1004,7 +1052,7 @@ export async function executeAppObiexSell(
         status: 'completed',
         currency: 'NGN',
         amount: userNgn,
-        /** User-facing / markup fee only — Obiex withdraw fee is admin-only in metadata. */
+        /** User-facing flat+% fee only — Obiex withdraw fee is admin-only in metadata. */
         fees: sellMarkupFeeNgn,
         totalAmount: userNgn,
         description: `Obiex sell ${source}`,
@@ -1021,17 +1069,21 @@ export async function executeAppObiexSell(
       sourceCurrency: source,
     });
 
-    const feesForAdmin = {
-      sellMarkupFeeNgn,
-      obiexFiatWithdrawFeeNgn: settlement.providerWithdrawFeeNgn,
-      totalProviderAndMarkupFeesNgn: roundNgn(
-        sellMarkupFeeNgn + settlement.providerWithdrawFeeNgn
-      ),
-      obiexSwapNgnxGross: roundNgn(obiexNgn),
-      userCreditNgn: userNgn,
-      netSettledToBusinessNgn: settlement.netSettledToBusinessNgn,
-      settlementStatus: settlement.status,
-    };
+    const feesForAdmin = buildObiexFeesForAdmin({
+      side: 'sell',
+      markupPercent: resolved.percent,
+      flatFeeNgn: split.flatFeeNgn,
+      percentSpreadNgn: split.percentSpreadNgn,
+      grossPlatformProfitNgn: sellMarkupFeeNgn,
+      providerFeesNgn: settlement.providerWithdrawFeeNgn,
+      userNgn,
+      obiexNgn,
+      extra: {
+        obiexFiatWithdrawFeeNgn: settlement.providerWithdrawFeeNgn,
+        netSettledToBusinessNgn: settlement.netSettledToBusinessNgn,
+        settlementStatus: settlement.status,
+      },
+    });
 
     await finalizeTradeRecon({
       tradeLogId: trade.id,
@@ -1057,8 +1109,11 @@ export async function executeAppObiexSell(
           feesForAdmin,
           markup: {
             sellMarkupPercent: resolved.percent,
+            sellFlatFeeNgn: split.flatFeeNgn,
+            percentSpreadNgn: split.percentSpreadNgn,
             markupSource: resolved.source,
             obiexTargetAmount: formatAmountStr(obiexNgn, 2),
+            platformSpreadNgn: formatAmountStr(sellMarkupFeeNgn, 2),
             userCreditNgn: formatAmountStr(userNgn, 2),
           },
         },
