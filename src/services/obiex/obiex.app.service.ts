@@ -30,6 +30,7 @@ import {
 } from './obiex.reconcile.service';
 import { computeWithdrawFeeAmount } from '../busha/busha.ledger.service';
 import { fundObiexNgnxViaPalmpayForBuy } from './obiex.ngn-deposit-fund.service';
+import { settleObiexSellNgnxToBusinessAccount } from './obiex.sell-settlement.service';
 
 const tradeModel = () => (prisma as any).obiexTradeLog;
 const depositModel = () => (prisma as any).obiexDepositAddress;
@@ -1009,6 +1010,15 @@ export async function executeAppObiexSell(
     });
     await fiatWalletService.creditWallet(fiatWallet.id, userNgn, fiatTxn.id);
 
+    // Move Obiex NGNX proceeds to PalmPay business account (admin settlement).
+    // User already credited — settlement failure is logged, sell stays completed.
+    const settlement = await settleObiexSellNgnxToBusinessAccount({
+      amountNgn: obiexNgn,
+      tradeId: trade.id,
+      userId,
+      sourceCurrency: source,
+    });
+
     await finalizeTradeRecon({
       tradeLogId: trade.id,
       expectedMasterNgnxDelta: obiexNgn,
@@ -1029,6 +1039,7 @@ export async function executeAppObiexSell(
         completedAt: new Date(),
         providerResponse: {
           swap: swapData,
+          settlement: settlement.adminNote,
           markup: {
             sellMarkupPercent: resolved.percent,
             markupSource: resolved.source,
@@ -1038,6 +1049,20 @@ export async function executeAppObiexSell(
         },
       },
     });
+
+    try {
+      await prisma.fiatTransaction.update({
+        where: { id: fiatTxn.id },
+        data: {
+          metadata: JSON.stringify({
+            adminOnly: true,
+            obiexSellSettlement: settlement.adminNote,
+          }),
+        },
+      });
+    } catch {
+      /* best-effort */
+    }
 
     return { trade: updated };
   } catch (error: any) {
