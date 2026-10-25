@@ -669,8 +669,10 @@ export async function previewAppObiexBuy(
 
   const rates = await getAppObiexPublicRates();
   const ngnRate = rates.rates.find((r: any) => String(r.currency).toUpperCase() === 'NGNX');
-  const buyRate = Number(ngnRate?.buyRate) || 0;
-  const estimatedCrypto = buyRate > 0 ? split.obiexNgn / buyRate : 0;
+  // % is applied on the rate only; crypto estimate uses raw Obiex rate × platform NGN after flat fee.
+  const rawBuy = Number(ngnRate?.rawBuyRate ?? ngnRate?.buyRate) || 0;
+  const markedBuyRate = applySignedRateMarkup(rawBuy, resolved.percent);
+  const estimatedCrypto = rawBuy > 0 ? split.obiexNgn / rawBuy : 0;
 
   return {
     buyMode: settings.buyMode,
@@ -679,7 +681,11 @@ export async function previewAppObiexBuy(
       target_currency: target,
       source_amount: formatAmountStr(userNgn, 2),
       target_amount: formatAmountStr(estimatedCrypto, 8),
-      rate: buyRate,
+      /** Marked-up rate for UI (Obiex raw ± buy %). */
+      rate: markedBuyRate,
+      raw_rate: rawBuy,
+      flat_fee_ngn: split.flatFeeNgn,
+      amount_after_flat_fee_ngn: formatAmountStr(userNgn - split.flatFeeNgn, 2),
     },
     markup: {
       buyMarkupPercent: resolved.percent,
@@ -1034,6 +1040,7 @@ export async function previewAppObiexSell(
   const rates = await getAppObiexPublicRates();
   const ngnRate = rates.rates.find((r: any) => String(r.currency).toUpperCase() === 'NGNX');
   const rawSell = Number(ngnRate?.rawSellRate ?? ngnRate?.sellRate) || 0;
+  const markedSellRate = applySignedRateMarkup(rawSell, resolved.percent);
   const obiexNgn = roundNgn(amount * rawSell);
   const flatFees = await getObiexFlatFeesNgn();
   const split = splitObiexSellUserCredit({
@@ -1048,7 +1055,12 @@ export async function previewAppObiexSell(
       target_currency: 'NGN',
       source_amount: formatAmountStr(amount, 8),
       target_amount: formatAmountStr(split.userNgn, 2),
-      rate: applySignedRateMarkup(rawSell, resolved.percent),
+      /** Marked-up rate for UI (Obiex raw ± sell %). Flat fee is separate. */
+      rate: markedSellRate,
+      raw_rate: rawSell,
+      flat_fee_ngn: split.flatFeeNgn,
+      /** NGN after % rate adjust, before flat fee. */
+      amount_before_flat_fee_ngn: formatAmountStr(roundNgn(split.userNgn + split.flatFeeNgn), 2),
     },
     markup: {
       sellMarkupPercent: resolved.percent,
