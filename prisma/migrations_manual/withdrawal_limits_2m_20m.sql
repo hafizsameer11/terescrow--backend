@@ -1,8 +1,3 @@
--- Item 13: Daily withdrawal ₦2,000,000 / Monthly ₦20,000,000
--- Apply on production when deploying.
-
-UPDATE `KycLimits`
-SET
-  `withdrawalDailyLimit` = '2000000',
-  `withdrawalMonthlyLimit` = '20000000'
-WHERE `tier` IN ('tier1', 'tier2', 'tier3');
+-- Superseded by kyc_tier_limits_display_2026.sql (per-tier withdraw caps).
+-- Kept for history; do not re-run on production (would overwrite tier2/tier3).
+-- Tier1 withdraw remains daily ₦2M / monthly ₦30M in the current sheet.

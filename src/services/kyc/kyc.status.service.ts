@@ -77,7 +77,11 @@ class KycStatusService {
         limits: {
           deposit: {
             daily: limit?.depositDailyLimit || '0',
-            monthly: limit?.depositMonthlyLimit || '0',
+            // Tier 1: monthly deposit is not shown (client requirement).
+            monthly:
+              tier === 'tier1'
+                ? null
+                : limit?.depositMonthlyLimit || '0',
           },
           withdrawal: {
             daily: limit?.withdrawalDailyLimit || '0',
@@ -135,7 +139,8 @@ class KycStatusService {
     return {
       deposit: {
         daily: limit.depositDailyLimit || '0',
-        monthly: limit.depositMonthlyLimit || '0',
+        monthly:
+          tier === 'tier1' ? null : limit.depositMonthlyLimit || '0',
       },
       withdrawal: {
         daily: limit.withdrawalDailyLimit || '0',
