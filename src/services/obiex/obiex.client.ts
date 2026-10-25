@@ -45,6 +45,8 @@ async function obiexRequest<T = any>(
     'X-API-TIMESTAMP': String(timestamp),
     'X-API-SIGNATURE': signature,
     Accept: 'application/json',
+    // Cloudflare on Obiex edge rejects requests without a User-Agent.
+    'User-Agent': 'TerescrowBackend/1.0',
   };
   if (body != null) headers['Content-Type'] = 'application/json';
 
@@ -108,4 +110,14 @@ export const obiexClient = {
     obiexRequest('POST', '/wallets/ext/debit/fiat', payload),
   initiateCollection: (payload: Record<string, unknown>) =>
     obiexRequest('POST', '/collections', payload),
+  /**
+   * Issue a one-time NGN deposit account (amount-locked).
+   * Body must be `{ amount }` only — extra fields return 400.
+   * Fee is deducted from the transferred amount (credit ≈ amount − fee).
+   * Send exactly `amount` via payout; do not send amount + fee.
+   */
+  issueNgnDepositAccount: (payload: { amount: number }) =>
+    obiexRequest('POST', '/ngn-payments/deposits/accounts/issue', {
+      amount: payload.amount,
+    }),
 };

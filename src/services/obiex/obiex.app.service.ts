@@ -29,6 +29,7 @@ import {
   finalizeTradeRecon,
 } from './obiex.reconcile.service';
 import { computeWithdrawFeeAmount } from '../busha/busha.ledger.service';
+import { fundObiexNgnxViaPalmpayForBuy } from './obiex.ngn-deposit-fund.service';
 
 const tradeModel = () => (prisma as any).obiexTradeLog;
 const depositModel = () => (prisma as any).obiexDepositAddress;
@@ -765,12 +766,58 @@ export async function executeAppObiexBuy(
       includeNgnx: true,
     });
 
-    const balRes = await obiexClient.getWalletBalance('NGNX');
-    const available = Number(
-      unwrapData(balRes)?.availableBalance ?? unwrapData(balRes)?.totalSwappableBalance ?? 0
-    );
-    if (available + 1e-9 < obiexNgn) {
-      throw ApiError.badRequest('Obiex NGNX float insufficient — fund master wallet');
+    // Fund Obiex NGNX for this buy: issue amount-locked VA, PalmPay-payout exact amount
+    // (fee deducted by Obiex → credit ≈ amount − fee). Admin-only note; user buy UX unchanged.
+    const skipVaFund =
+      String(process.env.OBIEX_BUY_SKIP_VA_FUND || '').toLowerCase() === 'true' ||
+      String(process.env.OBIEX_BUY_SKIP_VA_FUND || '') === '1';
+
+    let fundingAdminNote: Record<string, unknown> | null = null;
+    if (!skipVaFund) {
+      const funding = await fundObiexNgnxViaPalmpayForBuy({
+        creditNeededNgn: obiexNgn,
+        tradeId: trade.id,
+        userId,
+      });
+      fundingAdminNote = funding.adminNote;
+      await tradeModel().update({
+        where: { id: trade.id },
+        data: {
+          providerResponse: {
+            buyMode: 'master_swap',
+            funding: fundingAdminNote,
+            markup: {
+              buyMarkupPercent: resolved.percent,
+              markupSource: resolved.source,
+              rangeId: resolved.rangeId ?? null,
+              userSourceAmount: formatAmountStr(userNgn, 2),
+              obiexSourceAmount: formatAmountStr(obiexNgn, 2),
+              platformSpreadNgn: formatAmountStr(platformSpreadNgn, 2),
+            },
+          },
+        },
+      });
+      try {
+        await prisma.fiatTransaction.update({
+          where: { id: fiatTxn.id },
+          data: {
+            metadata: JSON.stringify({
+              adminOnly: true,
+              obiexNgnDepositFunding: fundingAdminNote,
+            }),
+          },
+        });
+      } catch {
+        /* metadata column optional / best-effort */
+      }
+    } else {
+      const balRes = await obiexClient.getWalletBalance('NGNX');
+      const available = Number(
+        unwrapData(balRes)?.availableBalance ?? unwrapData(balRes)?.totalSwappableBalance ?? 0
+      );
+      if (available + 1e-9 < obiexNgn) {
+        throw ApiError.badRequest('Obiex NGNX float insufficient — fund master wallet');
+      }
     }
 
     const swap = await obiexClient.instantSwap({
@@ -810,6 +857,7 @@ export async function executeAppObiexBuy(
         completedAt: new Date(),
         providerResponse: {
           buyMode: 'master_swap',
+          ...(fundingAdminNote ? { funding: fundingAdminNote } : {}),
           swap: swapData,
           markup: {
             buyMarkupPercent: resolved.percent,
@@ -823,6 +871,7 @@ export async function executeAppObiexBuy(
       },
     });
 
+    // User-facing payload stays a normal completed buy (no funding / VA details).
     return { trade: updated };
   } catch (error: any) {
     await tradeModel().update({
