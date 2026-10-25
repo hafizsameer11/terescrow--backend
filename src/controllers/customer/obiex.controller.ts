@@ -54,7 +54,12 @@ export const getObiexWalletController = async (req: Request, res: Response, next
 
 export const getObiexAssetsController = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const data = await getAppObiexAssets(userId(req));
+    const purpose = String(req.query.purpose || '').toLowerCase();
+    const receivableOnly =
+      purpose === 'receive' ||
+      String(req.query.receivableOnly || '') === '1' ||
+      String(req.query.receivableOnly || '').toLowerCase() === 'true';
+    const data = await getAppObiexAssets(userId(req), { receivableOnly });
     res.json({ status: 'success', data });
   } catch (e) {
     next(e);

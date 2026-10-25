@@ -138,6 +138,16 @@ function orderObiexNetworks(currency: string, networks: string[]): string[] {
   return [preferred, ...nets.filter((n) => n !== preferred)];
 }
 
+function extractObiexNetworkCodes(
+  netEntries: any[],
+  predicate: (n: any) => boolean
+): string[] {
+  return (Array.isArray(netEntries) ? netEntries : [])
+    .filter(predicate)
+    .map((n: any) => String(n.networkCode || n.code || '').toUpperCase())
+    .filter(Boolean);
+}
+
 export async function getAppObiexStatus(userId: number) {
   const configured = obiexConfig.isConfigured();
   let settings: any = null;
@@ -150,6 +160,8 @@ export async function getAppObiexStatus(userId: number) {
 
   let assets: any[] = [];
   let networksByCurrency: Record<string, string[]> = {};
+  /** Deposit / receive only — excludes withdraw-only networks that break address issuance. */
+  let networksReceivableByCurrency: Record<string, string[]> = {};
   let crypto: string[] = [];
 
   if (isActive) {
@@ -168,22 +180,31 @@ export async function getAppObiexStatus(userId: number) {
       for (const code of Object.keys(netMap)) {
         const entry = netMap[code];
         const nets = Array.isArray(entry?.networks) ? entry.networks : [];
-        const codes = nets
-          .filter((n: any) => n?.isReceivable || n?.isWithdrawable)
-          .map((n: any) => String(n.networkCode || n.code || '').toUpperCase())
-          .filter(Boolean);
-        networksByCurrency[code.toUpperCase()] = orderObiexNetworks(code, codes);
+        const upper = code.toUpperCase();
+        const receivable = extractObiexNetworkCodes(nets, (n) => !!n?.isReceivable);
+        const depositOrWithdraw = extractObiexNetworkCodes(
+          nets,
+          (n) => !!(n?.isReceivable || n?.isWithdrawable)
+        );
+        networksReceivableByCurrency[upper] = orderObiexNetworks(code, receivable);
+        networksByCurrency[upper] = orderObiexNetworks(code, depositOrWithdraw);
       }
 
       assets = crypto.map((code) => {
-        const nets = networksByCurrency[code] || [];
+        const receivableNets = networksReceivableByCurrency[code] || [];
+        const allNets = networksByCurrency[code] || [];
         const netEntries = Array.isArray(netMap[code]?.networks) ? netMap[code].networks : [];
+        const deposit = netEntries.some((n: any) => n?.isReceivable);
         return {
           code,
           name: code,
-          networks: nets,
-          defaultNetwork: pickDefaultObiexNetwork(code, nets),
-          deposit: netEntries.some((n: any) => n?.isReceivable),
+          /** Prefer receivable nets for deposit UX; fall back to deposit|withdraw list. */
+          networks: deposit && receivableNets.length ? receivableNets : allNets,
+          defaultNetwork: pickDefaultObiexNetwork(
+            code,
+            deposit && receivableNets.length ? receivableNets : allNets
+          ),
+          deposit,
           withdraw: netEntries.some((n: any) => n?.isWithdrawable),
           rampBuy: true,
           rampSell: true,
@@ -211,6 +232,7 @@ export async function getAppObiexStatus(userId: number) {
       crypto,
       rampCrypto: crypto,
       networksByCurrency,
+      networksReceivableByCurrency,
       assets,
     },
     ledger: ledger.map((r: any) => ({
@@ -264,15 +286,22 @@ export async function getAppObiexWallet(userId: number) {
 /**
  * Busha-shaped assets list: catalog from ObiexCurrencyMap + ObiexUserAsset balances.
  * Same fields as getAppBushaAssets so mobile Assets screens can swap API with minimal change.
+ * @param opts.receivableOnly — receive picker: only coins Obiex can issue a deposit address for.
  */
-export async function getAppObiexAssets(userId: number) {
+export async function getAppObiexAssets(
+  userId: number,
+  opts?: { receivableOnly?: boolean }
+) {
   await assertObiexAppActive();
 
+  const receivableOnly = !!opts?.receivableOnly;
   const status = await getAppObiexStatus(userId);
   const statusAssets: any[] = status.currencies?.assets || [];
   const statusByCode = new Map(
     statusAssets.map((a: any) => [String(a.code || '').toUpperCase(), a])
   );
+  const receivableByCurrency: Record<string, string[]> =
+    status.currencies?.networksReceivableByCurrency || {};
 
   const maps: any[] = await listActiveObiexCurrencyMaps();
   const ledgerRows: any[] = await listObiexUserAssets(userId);
@@ -290,13 +319,31 @@ export async function getAppObiexAssets(userId: number) {
     seenObiex.add(obiexCode);
 
     const meta = statusByCode.get(obiexCode) || statusByCode.get(appCode);
+    const canDeposit = meta?.deposit === true;
+    const canWithdraw = meta?.withdraw === true;
+
+    // Drop coins Obiex cannot receive (no deposit address) when listing for Receive.
+    if (receivableOnly) {
+      if (!meta || !canDeposit) continue;
+    }
+
+    const receivableNets =
+      receivableByCurrency[obiexCode] ||
+      receivableByCurrency[appCode] ||
+      (canDeposit ? meta?.networks : null) ||
+      [];
     const netsFromMap = Array.isArray(row.networks) ? (row.networks as string[]) : null;
-    const networksRaw: string[] =
-      netsFromMap ||
-      meta?.networks ||
-      status.currencies?.networksByCurrency?.[obiexCode] ||
-      [obiexCode];
+    const networksRaw: string[] = receivableOnly
+      ? (receivableNets.length
+          ? receivableNets
+          : meta?.networks || [])
+      : netsFromMap ||
+        meta?.networks ||
+        status.currencies?.networksByCurrency?.[obiexCode] ||
+        [obiexCode];
     const networks = orderObiexNetworks(appCode, networksRaw);
+    if (receivableOnly && networks.length === 0) continue;
+
     // Always prefer native (BTC→BTC). Ignore provider meta.defaultNetwork when it is BSC/etc.
     const defaultNetwork = pickDefaultObiexNetwork(appCode, networks);
     const ledger = ledgerByCode.get(obiexCode);
@@ -310,6 +357,7 @@ export async function getAppObiexAssets(userId: number) {
     assets.push({
       id: -(assets.length + 1),
       currency: appCode,
+      code: appCode,
       blockchain: defaultNetwork || appCode,
       symbol: getObiexIconPath(appCode) || getObiexIconPath(obiexCode) || appCode,
       name: row.displayName || meta?.name || appCode,
@@ -324,6 +372,8 @@ export async function getAppObiexAssets(userId: number) {
       frozen: false,
       networks,
       defaultNetwork,
+      deposit: canDeposit,
+      withdraw: canWithdraw,
       obiexCurrency: obiexCode,
       icon: getObiexIconPath(appCode) || getObiexIconPath(obiexCode),
       image: getObiexIconPath(appCode) || getObiexIconPath(obiexCode),
@@ -331,40 +381,46 @@ export async function getAppObiexAssets(userId: number) {
     });
   }
 
-  // Include any ledger balances not in the map
-  for (const [code, ledger] of ledgerByCode.entries()) {
-    if (seenObiex.has(code)) continue;
-    seenObiex.add(code);
-    const available = formatAmountStr(Number((ledger as any).userAvailable ?? 0), 8);
-    const amt = parseFloat(available) || 0;
-    const isStable = ['USDT', 'USDC', 'USD'].includes(code);
-    const networks = orderObiexNetworks(
-      code,
-      status.currencies?.networksByCurrency?.[code] || [code]
-    );
-    const defaultNetwork = pickDefaultObiexNetwork(code, networks);
-    assets.push({
-      id: -(assets.length + 1),
-      currency: code,
-      blockchain: defaultNetwork || code,
-      symbol: getObiexIconPath(code) || code,
-      name: code,
-      balance: available,
-      availableBalance: available,
-      balanceUsd: isStable ? String(amt) : '0',
-      balanceNaira: '0',
-      price: '0',
-      nairaPrice: '0',
-      depositAddress: '',
-      active: true,
-      frozen: false,
-      networks,
-      defaultNetwork,
-      obiexCurrency: code,
-      icon: getObiexIconPath(code),
-      image: getObiexIconPath(code),
-      source: 'obiex' as const,
-    });
+  // Include any ledger balances not in the map (skip for receive — no deposit support).
+  if (!receivableOnly) {
+    for (const [code, ledger] of ledgerByCode.entries()) {
+      if (seenObiex.has(code)) continue;
+      seenObiex.add(code);
+      const meta = statusByCode.get(code);
+      const available = formatAmountStr(Number((ledger as any).userAvailable ?? 0), 8);
+      const amt = parseFloat(available) || 0;
+      const isStable = ['USDT', 'USDC', 'USD'].includes(code);
+      const networks = orderObiexNetworks(
+        code,
+        status.currencies?.networksByCurrency?.[code] || [code]
+      );
+      const defaultNetwork = pickDefaultObiexNetwork(code, networks);
+      assets.push({
+        id: -(assets.length + 1),
+        currency: code,
+        code,
+        blockchain: defaultNetwork || code,
+        symbol: getObiexIconPath(code) || code,
+        name: code,
+        balance: available,
+        availableBalance: available,
+        balanceUsd: isStable ? String(amt) : '0',
+        balanceNaira: '0',
+        price: '0',
+        nairaPrice: '0',
+        depositAddress: '',
+        active: true,
+        frozen: false,
+        networks,
+        defaultNetwork,
+        deposit: meta?.deposit === true,
+        withdraw: meta?.withdraw === true,
+        obiexCurrency: code,
+        icon: getObiexIconPath(code),
+        image: getObiexIconPath(code),
+        source: 'obiex' as const,
+      });
+    }
   }
 
   let totalUsd = 0;
@@ -383,6 +439,7 @@ export async function getAppObiexAssets(userId: number) {
     },
     count: assets.length,
     source: 'obiex' as const,
+    receivableOnly,
   };
 }
 
@@ -511,19 +568,44 @@ export async function getAppObiexDepositAddress(
   network: string
 ) {
   await assertObiexAppActive();
-  const code = String(currency).toUpperCase();
+  const appCode = String(currency).toUpperCase();
   const net = String(network).toUpperCase();
-  if (!code || !net) throw ApiError.badRequest('currency and network required');
+  if (!appCode || !net) throw ApiError.badRequest('currency and network required');
+
+  const ledgerCode = await resolveObiexLedgerCurrency(appCode);
+  const code = ledgerCode || appCode;
+
+  // Reject coins/networks Obiex cannot receive (avoids opaque "Failed to load deposit address").
+  try {
+    const networksRes = await obiexClient.getActiveNetworks();
+    const netMap = unwrapData(networksRes) || {};
+    const entry = netMap[code] || netMap[appCode];
+    const nets = Array.isArray(entry?.networks) ? entry.networks : [];
+    const receivable = extractObiexNetworkCodes(nets, (n) => !!n?.isReceivable);
+    if (!receivable.length) {
+      throw ApiError.badRequest(
+        `${appCode} deposits are not supported. Choose another asset.`
+      );
+    }
+    if (!receivable.includes(net)) {
+      throw ApiError.badRequest(
+        `Network ${net} is not available for ${appCode} deposits. Try: ${receivable.join(', ')}`
+      );
+    }
+  } catch (e: any) {
+    if (e instanceof ApiError) throw e;
+    console.warn('[Obiex deposit] network validation skipped', e?.message || e);
+  }
 
   const existing = await depositModel().findUnique({
     where: { userId_currency_network: { userId, currency: code, network: net } },
   });
   if (existing?.address) {
     return {
-      currency: code,
+      currency: appCode,
       network: net,
       address: existing.address,
-      icon: getObiexIconPath(code),
+      icon: getObiexIconPath(appCode),
     };
   }
 
@@ -555,10 +637,10 @@ export async function getAppObiexDepositAddress(
   });
 
   return {
-    currency: code,
+    currency: appCode,
     network: net,
     address: String(address),
-    icon: getObiexIconPath(code),
+    icon: getObiexIconPath(appCode),
   };
 }
 
