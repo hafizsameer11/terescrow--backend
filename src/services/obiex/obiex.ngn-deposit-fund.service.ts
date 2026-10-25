@@ -217,6 +217,12 @@ export async function fundObiexNgnxViaPalmpayForBuy(params: {
       /** Exact transfer — do not add fee on top. */
       amountSentEqualsIssueAmount: true,
     },
+    feesForAdmin: {
+      obiexNgnDepositFeeNgn: feeNgn,
+      grossSentToVaNgn: issueAmount,
+      netCreditedNgnx: expectedCreditNgn,
+      creditedNgnObserved: wait.credited,
+    },
     createdAt: new Date().toISOString(),
   };
 

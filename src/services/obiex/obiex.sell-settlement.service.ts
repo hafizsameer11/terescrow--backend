@@ -24,9 +24,26 @@ function unwrapData(res: any) {
   return res?.data ?? res;
 }
 
+/** Pull Obiex fiat-withdraw fee (NGN) from debit/fiat response for admin records. */
+export function extractObiexFiatWithdrawFeeNgn(data: any): number {
+  const candidates = [
+    data?.payout?.fee,
+    data?.fee,
+    data?.fees,
+    data?.payout?.fees,
+    data?.payoutFee,
+  ];
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n >= 0) return roundNgn(n);
+  }
+  return 0;
+}
+
 /**
  * After crypto→NGNX sell swap, withdraw NGNX to PalmPay business account via Obiex fiat debit.
  * Admin-only settlement note — user sell UX stays "credit Naira wallet".
+ * Records Obiex withdraw fee (if any) for admin.
  */
 export async function settleObiexSellNgnxToBusinessAccount(params: {
   amountNgn: number;
@@ -35,6 +52,10 @@ export async function settleObiexSellNgnxToBusinessAccount(params: {
   sourceCurrency: string;
 }): Promise<{
   status: 'success' | 'skipped' | 'failed';
+  /** Obiex withdraw fee in NGN (0 if none / skipped / failed before response). */
+  providerWithdrawFeeNgn: number;
+  /** Amount that should land on business account after fee (best-effort). */
+  netSettledToBusinessNgn: number | null;
   adminNote: Record<string, unknown>;
 }> {
   const skip =
@@ -47,11 +68,14 @@ export async function settleObiexSellNgnxToBusinessAccount(params: {
   if (skip) {
     return {
       status: 'skipped',
+      providerWithdrawFeeNgn: 0,
+      netSettledToBusinessNgn: null,
       adminNote: {
         kind: 'obiex_sell_ngnx_to_business',
         status: 'skipped',
         reason: 'OBIEX_SELL_SKIP_FIAT_WITHDRAW',
         amountNgn: amount,
+        providerWithdrawFeeNgn: 0,
         destination,
         tradeId: params.tradeId,
         userId: params.userId,
@@ -63,11 +87,14 @@ export async function settleObiexSellNgnxToBusinessAccount(params: {
   if (!Number.isFinite(amount) || amount <= 0) {
     return {
       status: 'failed',
+      providerWithdrawFeeNgn: 0,
+      netSettledToBusinessNgn: null,
       adminNote: {
         kind: 'obiex_sell_ngnx_to_business',
         status: 'failed',
         reason: 'invalid_amount',
         amountNgn: amount,
+        providerWithdrawFeeNgn: 0,
         tradeId: params.tradeId,
         createdAt: new Date().toISOString(),
       },
@@ -100,9 +127,16 @@ export async function settleObiexSellNgnxToBusinessAccount(params: {
       narration: `Sell settle ${params.sourceCurrency} ${params.tradeId}`.slice(0, 100),
     });
     const data = unwrapData(res);
+    const providerWithdrawFeeNgn = extractObiexFiatWithdrawFeeNgn(data);
+    const payoutAmountRaw = Number(data?.payout?.payoutAmount ?? data?.amount);
+    const netSettledToBusinessNgn = Number.isFinite(payoutAmountRaw)
+      ? roundNgn(payoutAmountRaw)
+      : roundNgn(Math.max(0, withdrawAmount - providerWithdrawFeeNgn));
 
     return {
       status: 'success',
+      providerWithdrawFeeNgn,
+      netSettledToBusinessNgn,
       adminNote: {
         kind: 'obiex_sell_ngnx_to_business',
         status: 'success',
@@ -111,6 +145,9 @@ export async function settleObiexSellNgnxToBusinessAccount(params: {
         sourceCurrency: params.sourceCurrency,
         swapNgnxAmount: amount,
         withdrawAmountNgn: withdrawAmount,
+        /** Fee Obiex charged on fiat withdraw — for admin P&L. */
+        providerWithdrawFeeNgn,
+        netSettledToBusinessNgn,
         feeBufferNgn: Number.isFinite(feeBuffer) && feeBuffer > 0 ? feeBuffer : 0,
         destination,
         withdraw: {
@@ -118,9 +155,14 @@ export async function settleObiexSellNgnxToBusinessAccount(params: {
           reference: data?.reference || null,
           amount: data?.amount ?? withdrawAmount,
           payoutStatus: data?.payout?.status || null,
-          payoutFee: data?.payout?.fee ?? null,
-          payoutAmount: data?.payout?.payoutAmount ?? null,
+          payoutFee: providerWithdrawFeeNgn,
+          payoutAmount: data?.payout?.payoutAmount ?? netSettledToBusinessNgn,
           transferReference: data?.payout?.transferReference || null,
+        },
+        feesForAdmin: {
+          obiexFiatWithdrawFeeNgn: providerWithdrawFeeNgn,
+          netOnBusinessAccountNgn: netSettledToBusinessNgn,
+          grossWithdrawnNgn: withdrawAmount,
         },
         createdAt: new Date().toISOString(),
       },
@@ -135,6 +177,8 @@ export async function settleObiexSellNgnxToBusinessAccount(params: {
     });
     return {
       status: 'failed',
+      providerWithdrawFeeNgn: 0,
+      netSettledToBusinessNgn: null,
       adminNote: {
         kind: 'obiex_sell_ngnx_to_business',
         status: 'failed',
@@ -143,8 +187,14 @@ export async function settleObiexSellNgnxToBusinessAccount(params: {
         sourceCurrency: params.sourceCurrency,
         swapNgnxAmount: amount,
         withdrawAmountNgn: withdrawAmount,
+        providerWithdrawFeeNgn: 0,
         destination,
         error: message,
+        feesForAdmin: {
+          obiexFiatWithdrawFeeNgn: 0,
+          netOnBusinessAccountNgn: null,
+          grossWithdrawnNgn: withdrawAmount,
+        },
         createdAt: new Date().toISOString(),
       },
     };

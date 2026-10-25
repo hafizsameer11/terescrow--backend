@@ -992,6 +992,7 @@ export async function executeAppObiexSell(
       throw ApiError.badRequest('Obiex sell swap returned no NGNX');
     }
     const userNgn = roundNgn(userSellCreditNgn(obiexNgn, resolved.percent));
+    const sellMarkupFeeNgn = roundNgn(Math.max(0, obiexNgn - userNgn));
 
     const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
     const fiatTxn = await prisma.fiatTransaction.create({
@@ -1003,7 +1004,8 @@ export async function executeAppObiexSell(
         status: 'completed',
         currency: 'NGN',
         amount: userNgn,
-        fees: roundNgn(Math.max(0, obiexNgn - userNgn)),
+        /** User-facing / markup fee only — Obiex withdraw fee is admin-only in metadata. */
+        fees: sellMarkupFeeNgn,
         totalAmount: userNgn,
         description: `Obiex sell ${source}`,
       },
@@ -1018,6 +1020,18 @@ export async function executeAppObiexSell(
       userId,
       sourceCurrency: source,
     });
+
+    const feesForAdmin = {
+      sellMarkupFeeNgn,
+      obiexFiatWithdrawFeeNgn: settlement.providerWithdrawFeeNgn,
+      totalProviderAndMarkupFeesNgn: roundNgn(
+        sellMarkupFeeNgn + settlement.providerWithdrawFeeNgn
+      ),
+      obiexSwapNgnxGross: roundNgn(obiexNgn),
+      userCreditNgn: userNgn,
+      netSettledToBusinessNgn: settlement.netSettledToBusinessNgn,
+      settlementStatus: settlement.status,
+    };
 
     await finalizeTradeRecon({
       tradeLogId: trade.id,
@@ -1040,6 +1054,7 @@ export async function executeAppObiexSell(
         providerResponse: {
           swap: swapData,
           settlement: settlement.adminNote,
+          feesForAdmin,
           markup: {
             sellMarkupPercent: resolved.percent,
             markupSource: resolved.source,
@@ -1056,6 +1071,7 @@ export async function executeAppObiexSell(
         data: {
           metadata: JSON.stringify({
             adminOnly: true,
+            feesForAdmin,
             obiexSellSettlement: settlement.adminNote,
           }),
         },
