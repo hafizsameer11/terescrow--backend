@@ -169,8 +169,8 @@ export async function getAppBushaProfile(userId: number) {
 }
 
 export async function submitAppBushaKyc(
-  userId: number,
-  input: {
+  _userId: number,
+  _input: {
     documentType: 'national-id' | 'passport' | 'drivers-license';
     documentNumber: string;
     selfieBase64: string;
@@ -178,14 +178,15 @@ export async function submitAppBushaKyc(
     birthDate?: string;
   }
 ) {
-  await assertBushaAppActive();
-  const customer = await ensureBushaCustomerForUser(userId);
-  return submitBushaCustomerKyc(customer.id, input);
+  // Block paid Busha KYC re-submit from app (Obiex migration). Existing accounts keep trade access.
+  throw ApiError.badRequest(
+    'Busha KYC submission is disabled. Existing crypto accounts remain available.'
+  );
 }
 
 export async function verifyAppBushaKyc(
   userId: number,
-  input?: {
+  _input?: {
     documentType: 'national-id' | 'passport' | 'drivers-license';
     documentNumber: string;
     selfieBase64: string;
@@ -194,13 +195,10 @@ export async function verifyAppBushaKyc(
   }
 ) {
   await assertBushaAppActive();
+  // Status check only for existing customers — no KYC document re-submit.
   const customer = await ensureBushaCustomerForUser(userId);
-  if (input?.documentType && input.documentNumber && input.selfieBase64) {
-    await submitBushaCustomerKyc(customer.id, input);
-  }
-  return verifyBushaCustomer(customer.id, input as any);
+  return verifyBushaCustomer(customer.id);
 }
-
 async function assertCustomerTradeReady(customerId: string, needPayout = false) {
   const customer = await bushaCustomerModel.findUnique({ where: { id: customerId } });
   if (!customer) throw ApiError.notFound('Crypto account not found');

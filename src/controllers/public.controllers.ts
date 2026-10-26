@@ -28,7 +28,6 @@ export const loginController = async (
   next: NextFunction
 ) => {
   try {
-    console.log(req.body);
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       throw ApiError.badRequest(
@@ -38,23 +37,54 @@ export const loginController = async (
     }
 
     const { email, password }: { email: string; password: string } = req.body;
-    console.log(email);
     if (!email || !password) {
       return next(ApiError.badRequest('Please enter valid credentials'));
     }
+    // Do NOT include KycStateTwo with orderBy here: prembly_payload JSON averages ~1MB+/row
+    // and MySQL filesort hits "Out of sort memory" (errno 1038) → login 500.
     const isUser = await prisma.user.findUnique({
       where: { email },
-      include: {
-        KycStateTwo: {
-          orderBy: {
-            createdAt: 'desc'
-          }
-        },
-      },
     });
     if (!isUser) {
       return next(ApiError.badRequest('This email is not registerd'));
     }
+    const latestKyc = await prisma.kycStateTwo.findFirst({
+      where: { userId: isUser.id },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        userId: true,
+        bvn: true,
+        surName: true,
+        firtName: true,
+        dob: true,
+        status: true,
+        createdAt: true,
+        state: true,
+        reason: true,
+        address: true,
+        country: true,
+        documentNumber: true,
+        documentType: true,
+        idDocumentUrl: true,
+        nin: true,
+        proofOfAddressUrl: true,
+        proofOfFundsUrl: true,
+        selfieUrl: true,
+        tier: true,
+        updatedAt: true,
+        premblyVerified: true,
+        premblyReference: true,
+        premblyNinConfidence: true,
+        premblyBvnConfidence: true,
+        premblyVerifiedFirstName: true,
+        premblyVerifiedLastName: true,
+        premblyVerifiedDob: true,
+        premblyPhone: true,
+        premblyGender: true,
+        // intentionally omit premblyPayload (huge JSON)
+      },
+    });
 
     if (v1Compat.enableBannedCustomerChecks && isUser.role === UserRoles.customer && isUserBanned(isUser.status)) {
       return next(ApiError.forbidden(BANNED_CUSTOMER_MESSAGE));
@@ -123,7 +153,7 @@ export const loginController = async (
       gender: isUser.gender,
       isVerified: isUser.isVerified,
       pinSet: !!isUser.pin,
-      KycStateTwo: isUser.KycStateTwo[0],
+      KycStateTwo: latestKyc || null,
       unReadNotification: getNotificationCount.length,
       needsEmailVerification: isUser.isVerified === false,
     };

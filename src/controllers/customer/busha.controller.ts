@@ -81,10 +81,15 @@ export async function startBushaKycController(req: Request, res: Response, next:
     const { firstName, lastName, birthDate, nin, selfieBase64 } = req.body ?? {};
     const uid = userId(req);
 
-    // Default: use Terescrow Tier 2 KYC already on file (one KYC in app)
+    // Save pending only — no new Busha customer create (Obiex migration).
+    // Existing Busha accounts keep access.
     if (!firstName && !lastName && !birthDate && !nin && !selfieBase64) {
       const data = await startBushaKycFromTerescrowProfile(uid);
-      return new ApiResponse(200, data, 'Crypto activation started using your Terescrow KYC').send(res);
+      return new ApiResponse(
+        200,
+        data,
+        'KYC details saved and pending review'
+      ).send(res);
     }
 
     if (!firstName || !lastName || !birthDate || !nin || !selfieBase64) {
@@ -100,7 +105,7 @@ export async function startBushaKycController(req: Request, res: Response, next:
       nin: String(nin),
       selfieBase64: String(selfieBase64),
     });
-    return new ApiResponse(200, data, 'Busha KYC submitted for processing').send(res);
+    return new ApiResponse(200, data, 'KYC details saved and pending review').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
     return next(ApiError.internal('Failed to start Busha KYC'));

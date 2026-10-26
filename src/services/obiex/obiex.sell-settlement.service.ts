@@ -14,9 +14,9 @@ function getSellSettlementDestination() {
     accountName: String(
       process.env.OBIEX_SELL_SETTLEMENT_ACCOUNT_NAME || 'TERCES SOLUTION LIMITED'
     ).trim(),
-    bankName: String(process.env.OBIEX_SELL_SETTLEMENT_BANK_NAME || 'PalmPay').trim(),
-    /** Obiex NGN bank list: PALMPAY uuid/sortCode = 100033 */
-    bankCode: String(process.env.OBIEX_SELL_SETTLEMENT_BANK_CODE || '100033').trim(),
+    bankName: String(process.env.OBIEX_SELL_SETTLEMENT_BANK_NAME || 'PALMPAY').trim(),
+    /** Obiex GET /ngn-payments/banks: PALMPAY uuid/sortCode = 0488 (not PalmPay's 100033). */
+    bankCode: String(process.env.OBIEX_SELL_SETTLEMENT_BANK_CODE || '0488').trim(),
   };
 }
 
@@ -124,7 +124,10 @@ export async function settleObiexSellNgnxToBusinessAccount(params: {
       },
       amount: withdrawAmount,
       currency: 'NGNX',
-      narration: `Sell settle ${params.sourceCurrency} ${params.tradeId}`.slice(0, 100),
+      // Obiex fiat debit: narration max 40 chars.
+      narration: `Sell ${params.sourceCurrency} ${String(params.tradeId)
+        .replace(/-/g, '')
+        .slice(0, 8)}`.slice(0, 40),
     });
     const data = unwrapData(res);
     const providerWithdrawFeeNgn = extractObiexFiatWithdrawFeeNgn(data);

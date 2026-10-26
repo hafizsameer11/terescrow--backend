@@ -30,10 +30,18 @@ class KycStatusService {
       orderBy: { tier: 'asc' },
     });
 
-    // Latest submission per tier (for pending / rejected display)
+    // Latest submission per tier (for pending / rejected display).
+    // Omit premblyPayload — average ~1MB+/row; ORDER BY with full rows blows MySQL sort_buffer.
     const latestSubmissions = await prisma.kycStateTwo.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        tier: true,
+        state: true,
+        reason: true,
+        createdAt: true,
+      },
     });
 
     const tiers = ['tier1', 'tier2', 'tier3'] as KycTier[];

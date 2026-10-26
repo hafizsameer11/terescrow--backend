@@ -5,6 +5,7 @@ import {
   executeObiexConvertController,
   executeObiexSellController,
   executeObiexSendController,
+  executeObiexSwapController,
   getObiexAssetDetailController,
   getObiexAssetsController,
   getObiexDepositAddressController,
@@ -12,11 +13,13 @@ import {
   getObiexStatusController,
   getObiexTradeController,
   getObiexWalletController,
+  listObiexSwapPairsController,
   listObiexTradesController,
   previewObiexBuyController,
   previewObiexConvertController,
   previewObiexSellController,
   previewObiexSendController,
+  previewObiexSwapController,
 } from '../../controllers/customer/obiex.controller';
 
 const router = Router();
@@ -37,11 +40,15 @@ router.post('/sell/quote', authenticateUser, previewObiexSellController);
 router.post('/sell/preview', authenticateUser, previewObiexSellController);
 router.post('/sell', authenticateUser, executeObiexSellController);
 
+// Crypto↔crypto swap (Busha-shaped). Dedicated Obiex-only paths.
+router.get('/swap/pairs', authenticateUser, listObiexSwapPairsController);
+router.post('/swap/preview', authenticateUser, previewObiexSwapController);
+router.post('/swap/quote', authenticateUser, previewObiexSwapController);
+router.post('/swap', authenticateUser, executeObiexSwapController);
+// Aliases for apps that used /convert (same handlers; does not touch Busha)
 router.post('/convert/preview', authenticateUser, previewObiexConvertController);
 router.post('/convert/quote', authenticateUser, previewObiexConvertController);
 router.post('/convert', authenticateUser, executeObiexConvertController);
-router.post('/swap/preview', authenticateUser, previewObiexConvertController);
-router.post('/swap', authenticateUser, executeObiexConvertController);
 
 router.post('/send/preview', authenticateUser, previewObiexSendController);
 router.post('/send', authenticateUser, executeObiexSendController);

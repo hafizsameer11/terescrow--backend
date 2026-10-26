@@ -23,6 +23,7 @@ import {
   splitObiexSellUserCredit,
 } from './obiex.markup';
 import {
+  isObiexCurrencyHidden,
   listActiveObiexCurrencyMaps,
   resolveObiexLedgerCurrency,
 } from './obiex.currency-map';
@@ -33,9 +34,19 @@ import {
 import { computeWithdrawFeeAmount } from '../busha/busha.ledger.service';
 import { fundObiexNgnxViaPalmpayForBuy } from './obiex.ngn-deposit-fund.service';
 import { settleObiexSellNgnxToBusinessAccount } from './obiex.sell-settlement.service';
+import { resolveObiexSwapLeg } from './obiex.swap.service';
 
 const tradeModel = () => (prisma as any).obiexTradeLog;
 const depositModel = () => (prisma as any).obiexDepositAddress;
+
+/** Block hidden coins (e.g. XRP) on deposit / buy / sell / send. */
+function assertObiexCurrencyVisible(currency: string) {
+  if (isObiexCurrencyHidden(currency)) {
+    throw ApiError.badRequest(
+      `${String(currency).toUpperCase()} is temporarily unavailable. Please choose another asset.`
+    );
+  }
+}
 
 /** Resolve Obiex network min/fee for a currency+network pair. */
 async function resolveObiexWithdrawNetwork(currency: string, network: string) {
@@ -83,11 +94,11 @@ function calcProviderNetworkFee(
 
 export async function assertObiexAppActive() {
   if (!obiexConfig.isConfigured()) {
-    throw ApiError.badRequest('Obiex is not configured');
+    throw ApiError.badRequest('Crypto trading is temporarily unavailable. Please try again later.');
   }
   const settings = await getObiexConfigRow();
   if (!settings?.isActive) {
-    throw ApiError.badRequest('Obiex is not active');
+    throw ApiError.badRequest('Crypto trading is temporarily unavailable. Please try again later.');
   }
   return settings;
 }
@@ -175,9 +186,10 @@ export async function getAppObiexStatus(userId: number) {
       crypto = list
         .filter((c: any) => c?.active !== false && String(c?.type || '').toUpperCase() !== 'FIAT')
         .map((c: any) => String(c.code || '').toUpperCase())
-        .filter(Boolean);
+        .filter((code: string) => !!code && !isObiexCurrencyHidden(code));
 
       for (const code of Object.keys(netMap)) {
+        if (isObiexCurrencyHidden(code)) continue;
         const entry = netMap[code];
         const nets = Array.isArray(entry?.networks) ? entry.networks : [];
         const upper = code.toUpperCase();
@@ -270,6 +282,118 @@ export async function getAppObiexPublicRates() {
   };
 }
 
+/** Fiat rates from Obiex are NGNX↔USDT only — not per-altcoin. */
+function isObiexUsdStable(currency: string): boolean {
+  return ['USDT', 'USDC', 'USD', 'NGNX', 'NGN'].includes(String(currency || '').toUpperCase());
+}
+
+/**
+ * Estimate crypto received for a buy of `obiexNgn` NGNX.
+ * Stables: NGNX fiat buy rate. Alts (TRX/BTC/…): live Obiex pair quote.
+ * Returns NGN-per-1-coin rate for UI.
+ */
+async function estimateObiexBuyFromNgnx(
+  targetCurrency: string,
+  obiexNgn: number
+): Promise<{ cryptoAmount: number; rawRateNgnPerCoin: number; quoteSource: string }> {
+  const target = String(targetCurrency || 'USDT').toUpperCase();
+  if (isObiexUsdStable(target) && target !== 'NGNX' && target !== 'NGN') {
+    const rates = await getAppObiexPublicRates();
+    const ngnRate = rates.rates.find((r: any) => String(r.currency).toUpperCase() === 'NGNX');
+    const rawBuy = Number(ngnRate?.rawBuyRate ?? ngnRate?.buyRate) || 0;
+    const cryptoAmount = rawBuy > 0 ? obiexNgn / rawBuy : 0;
+    return { cryptoAmount, rawRateNgnPerCoin: rawBuy, quoteSource: 'fiat_ngnx_usdt' };
+  }
+
+  const leg = await resolveObiexSwapLeg('NGNX', target, obiexNgn);
+  const quoteRes = await obiexClient.createQuote({
+    sourceId: leg.pairSource,
+    targetId: leg.pairTarget,
+    amount: leg.obiexAmount,
+    side: leg.side,
+  });
+  const quote = unwrapData(quoteRes);
+  const cryptoAmount = Number(quote?.amountReceived ?? 0);
+  if (!Number.isFinite(cryptoAmount) || cryptoAmount <= 0) {
+    throw ApiError.badRequest(`Could not quote ${target} buy right now. Please try again.`);
+  }
+  const rawRateNgnPerCoin = cryptoAmount > 0 ? obiexNgn / cryptoAmount : 0;
+  return { cryptoAmount, rawRateNgnPerCoin, quoteSource: 'obiex_pair_quote' };
+}
+
+/**
+ * Resolve how much NGN the user should pay for a buy.
+ * When usdAmount is set (app "Amount in USD" field), convert via NGNX/USDT fiat
+ * rate — never trust a client-computed NGN that used altcoin rates (e.g. TRX NGN
+ * price ÷ TRX USD ≈ 3× inflation).
+ */
+async function resolveObiexBuyUserNgn(params: {
+  sourceAmount?: string | number | null;
+  usdAmount?: string | number | null;
+}): Promise<{
+  userNgn: number;
+  usdNotional: number | null;
+  ngnPerUsd: number;
+  derivedFromUsd: boolean;
+}> {
+  const rates = await getAppObiexPublicRates();
+  const ngnRate = rates.rates.find((r: any) => String(r.currency).toUpperCase() === 'NGNX');
+  const ngnPerUsd = Number(ngnRate?.rawBuyRate ?? ngnRate?.buyRate) || 0;
+  if (!(ngnPerUsd > 0)) {
+    throw ApiError.badRequest('NGN rate unavailable. Please try again.');
+  }
+
+  const usdNotional = parseFloat(String(params.usdAmount ?? '').replace(/,/g, ''));
+  if (Number.isFinite(usdNotional) && usdNotional > 0) {
+    return {
+      userNgn: roundNgn(usdNotional * ngnPerUsd),
+      usdNotional,
+      ngnPerUsd,
+      derivedFromUsd: true,
+    };
+  }
+
+  const fromSource = parseFloat(String(params.sourceAmount ?? '').replace(/,/g, ''));
+  if (!Number.isFinite(fromSource) || fromSource <= 0) {
+    throw ApiError.badRequest('sourceAmount must be greater than 0');
+  }
+  return {
+    userNgn: roundNgn(fromSource),
+    usdNotional: null,
+    ngnPerUsd,
+    derivedFromUsd: false,
+  };
+}
+
+async function estimateObiexSellToNgnx(
+  sourceCurrency: string,
+  sourceAmount: number
+): Promise<{ obiexNgn: number; rawRateNgnPerCoin: number; quoteSource: string }> {
+  const source = String(sourceCurrency || 'USDT').toUpperCase();
+  if (isObiexUsdStable(source) && source !== 'NGNX' && source !== 'NGN') {
+    const rates = await getAppObiexPublicRates();
+    const ngnRate = rates.rates.find((r: any) => String(r.currency).toUpperCase() === 'NGNX');
+    const rawSell = Number(ngnRate?.rawSellRate ?? ngnRate?.sellRate) || 0;
+    const obiexNgn = roundNgn(sourceAmount * rawSell);
+    return { obiexNgn, rawRateNgnPerCoin: rawSell, quoteSource: 'fiat_ngnx_usdt' };
+  }
+
+  const leg = await resolveObiexSwapLeg(source, 'NGNX', sourceAmount);
+  const quoteRes = await obiexClient.createQuote({
+    sourceId: leg.pairSource,
+    targetId: leg.pairTarget,
+    amount: leg.obiexAmount,
+    side: leg.side,
+  });
+  const quote = unwrapData(quoteRes);
+  const obiexNgn = roundNgn(Number(quote?.amountReceived ?? 0));
+  if (!Number.isFinite(obiexNgn) || obiexNgn <= 0) {
+    throw ApiError.badRequest(`Could not quote ${source} sell right now. Please try again.`);
+  }
+  const rawRateNgnPerCoin = sourceAmount > 0 ? obiexNgn / sourceAmount : 0;
+  return { obiexNgn, rawRateNgnPerCoin, quoteSource: 'obiex_pair_quote' };
+}
+
 export async function getAppObiexWallet(userId: number) {
   await assertObiexAppActive();
   const assets = await listObiexUserAssets(userId);
@@ -316,6 +440,7 @@ export async function getAppObiexAssets(
     const appCode = String(row.appCurrency || '').toUpperCase();
     const obiexCode = String(row.obiexCurrency || appCode).toUpperCase();
     if (!appCode || seenObiex.has(obiexCode)) continue;
+    if (isObiexCurrencyHidden(appCode) || isObiexCurrencyHidden(obiexCode)) continue;
     seenObiex.add(obiexCode);
 
     const meta = statusByCode.get(obiexCode) || statusByCode.get(appCode);
@@ -384,7 +509,7 @@ export async function getAppObiexAssets(
   // Include any ledger balances not in the map (skip for receive — no deposit support).
   if (!receivableOnly) {
     for (const [code, ledger] of ledgerByCode.entries()) {
-      if (seenObiex.has(code)) continue;
+      if (seenObiex.has(code) || isObiexCurrencyHidden(code)) continue;
       seenObiex.add(code);
       const meta = statusByCode.get(code);
       const available = formatAmountStr(Number((ledger as any).userAvailable ?? 0), 8);
@@ -509,6 +634,7 @@ export async function getAppObiexAssetDetail(userId: number, currency: string) {
     .replace(/^USDT_.*/, 'USDT')
     .replace(/^USDC_.*/, 'USDC');
   if (!appCode) throw ApiError.badRequest('currency required');
+  assertObiexCurrencyVisible(appCode);
 
   const ledgerCode = await resolveObiexLedgerCurrency(appCode);
   // Prefer live ledger row so detail always matches credited balance.
@@ -571,6 +697,7 @@ export async function getAppObiexDepositAddress(
   const appCode = String(currency).toUpperCase();
   const net = String(network).toUpperCase();
   if (!appCode || !net) throw ApiError.badRequest('currency and network required');
+  assertObiexCurrencyVisible(appCode);
 
   const ledgerCode = await resolveObiexLedgerCurrency(appCode);
   const code = ledgerCode || appCode;
@@ -610,15 +737,42 @@ export async function getAppObiexDepositAddress(
   }
 
   const uid = uniqueUserId(userId);
-  const res = await obiexClient.createDepositAddress({
-    uniqueUserIdentifier: uid,
-    currency: code,
-    network: net,
-  });
+  let res: any;
+  try {
+    res = await obiexClient.createDepositAddress({
+      uniqueUserIdentifier: uid,
+      currency: code,
+      network: net,
+    });
+  } catch (error: any) {
+    if (error instanceof ObiexApiError) {
+      const detail = Array.isArray((error.data as any)?.errors)
+        ? (error.data as any).errors.map((e: any) => e?.message).filter(Boolean).join('; ')
+        : '';
+      const raw = String(detail || error.message || '')
+        .replace(/\bObiex\b/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      throw ApiError.badRequest(
+        raw || 'Could not generate a deposit address for this asset. Please try again.'
+      );
+    }
+    throw error;
+  }
   const data = unwrapData(res);
+  // Obiex broker addresses use `value` (not `address`) — see POST /addresses/broker.
   const address =
-    data?.address || data?.walletAddress || data?.depositAddress || data?.data?.address;
-  if (!address) throw ApiError.badRequest('Obiex did not return a deposit address');
+    data?.value ||
+    data?.address ||
+    data?.walletAddress ||
+    data?.depositAddress ||
+    data?.data?.value ||
+    data?.data?.address;
+  if (!address) {
+    throw ApiError.badRequest(
+      'Could not generate a deposit address for this asset. Please try again.'
+    );
+  }
 
   await depositModel().upsert({
     where: { userId_currency_network: { userId, currency: code, network: net } },
@@ -649,15 +803,15 @@ export async function previewAppObiexBuy(
   params: { sourceAmount: string; targetCurrency: string; usdAmount?: string | number | null }
 ) {
   const settings = await assertObiexAppActive();
-  const userNgn = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
-  if (!Number.isFinite(userNgn) || userNgn <= 0) {
-    throw ApiError.badRequest('sourceAmount must be greater than 0');
-  }
   const target = String(params.targetCurrency || 'USDT').toUpperCase();
-  const usdNotional = parseFloat(String(params.usdAmount ?? '').replace(/,/g, ''));
+  assertObiexCurrencyVisible(target);
+
+  const ngnResolved = await resolveObiexBuyUserNgn(params);
+  const userNgn = ngnResolved.userNgn;
+  const usdNotional = ngnResolved.usdNotional;
   const resolved = await resolveObiexMarkupForUsdAmount(
     'buy',
-    Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : userNgn / 1500
+    usdNotional && usdNotional > 0 ? usdNotional : userNgn / ngnResolved.ngnPerUsd
   );
   const flatFees = await getObiexFlatFeesNgn();
   const split = splitObiexBuyUserDebit({
@@ -667,12 +821,18 @@ export async function previewAppObiexBuy(
   });
   if (split.obiexNgn <= 0) throw ApiError.badRequest('Buy amount too small after fees');
 
-  const rates = await getAppObiexPublicRates();
-  const ngnRate = rates.rates.find((r: any) => String(r.currency).toUpperCase() === 'NGNX');
-  // % is applied on the rate only; crypto estimate uses raw Obiex rate × platform NGN after flat fee.
-  const rawBuy = Number(ngnRate?.rawBuyRate ?? ngnRate?.buyRate) || 0;
+  // Must quote the target asset — NGNX fiat rate is USDT-only, not TRX/BTC/etc.
+  let estimate: { cryptoAmount: number; rawRateNgnPerCoin: number; quoteSource: string };
+  try {
+    estimate = await estimateObiexBuyFromNgnx(target, split.obiexNgn);
+  } catch (e: any) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof ObiexApiError) throw ApiError.badRequest(e.message);
+    throw e;
+  }
+  const rawBuy = estimate.rawRateNgnPerCoin;
   const markedBuyRate = applySignedRateMarkup(rawBuy, resolved.percent);
-  const estimatedCrypto = rawBuy > 0 ? split.obiexNgn / rawBuy : 0;
+  const estimatedCrypto = estimate.cryptoAmount;
 
   return {
     buyMode: settings.buyMode,
@@ -681,11 +841,16 @@ export async function previewAppObiexBuy(
       target_currency: target,
       source_amount: formatAmountStr(userNgn, 2),
       target_amount: formatAmountStr(estimatedCrypto, 8),
-      /** Marked-up rate for UI (Obiex raw ± buy %). */
+      /** Marked-up NGN per 1 target coin (Obiex raw ± buy %). */
       rate: markedBuyRate,
       raw_rate: rawBuy,
       flat_fee_ngn: split.flatFeeNgn,
-      amount_after_flat_fee_ngn: formatAmountStr(userNgn - split.flatFeeNgn, 2),
+      amount_after_flat_fee_ngn: formatAmountStr(split.obiexNgn, 2),
+      /** USD notional when client sent usdAmount — NGN was derived via USDT rate. */
+      usd_amount:
+        usdNotional && usdNotional > 0 ? formatAmountStr(usdNotional, 2) : null,
+      ngn_per_usd: ngnResolved.ngnPerUsd,
+      derived_from_usd: ngnResolved.derivedFromUsd,
     },
     markup: {
       buyMarkupPercent: resolved.percent,
@@ -695,6 +860,7 @@ export async function previewAppObiexBuy(
       obiexSourceAmount: formatAmountStr(split.obiexNgn, 2),
       percentSpreadNgn: formatAmountStr(split.percentSpreadNgn, 2),
       platformSpreadNgn: formatAmountStr(split.grossPlatformProfitNgn, 2),
+      quoteSource: estimate.quoteSource,
     },
   };
 }
@@ -732,15 +898,16 @@ export async function executeAppObiexBuy(
   }
 ) {
   const settings = await assertObiexAppActive();
-  const userNgn = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
-  if (!Number.isFinite(userNgn) || userNgn <= 0) {
-    throw ApiError.badRequest('sourceAmount must be greater than 0');
-  }
   const target = String(params.targetCurrency || 'USDT').toUpperCase();
-  const usdNotional = parseFloat(String(params.usdAmount ?? '').replace(/,/g, ''));
+  assertObiexCurrencyVisible(target);
+
+  // Prefer usdAmount → NGN via USDT rate so a bad client NGN (altcoin mis-convert) cannot over-debit.
+  const ngnResolved = await resolveObiexBuyUserNgn(params);
+  const userNgn = ngnResolved.userNgn;
+  const usdNotional = ngnResolved.usdNotional;
   const resolved = await resolveObiexMarkupForUsdAmount(
     'buy',
-    Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : userNgn / 1500
+    usdNotional && usdNotional > 0 ? usdNotional : userNgn / ngnResolved.ngnPerUsd
   );
   const flatFees = await getObiexFlatFeesNgn();
   const split = splitObiexBuyUserDebit({
@@ -761,6 +928,10 @@ export async function executeAppObiexBuy(
     userSourceAmount: formatAmountStr(userNgn, 2),
     obiexSourceAmount: formatAmountStr(obiexNgn, 2),
     platformSpreadNgn: formatAmountStr(platformSpreadNgn, 2),
+    derivedFromUsd: ngnResolved.derivedFromUsd,
+    usdAmount: usdNotional,
+    ngnPerUsd: ngnResolved.ngnPerUsd,
+    clientSourceAmount: params.sourceAmount ?? null,
   };
 
   const buyMode = String(settings.buyMode || 'master_swap');
@@ -815,8 +986,12 @@ export async function executeAppObiexBuy(
 
   // master_swap
   const fiatWallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
-  const balance = parseFloat(String(fiatWallet.balance));
-  if (balance < userNgn) throw ApiError.badRequest('Insufficient NGN wallet balance');
+  const balance = parseFloat(String(fiatWallet.balance).replace(/,/g, ''));
+  if (!(Number.isFinite(balance) && balance + 1e-9 >= userNgn)) {
+    throw ApiError.badRequest(
+      `Insufficient NGN wallet balance (have ₦${Number.isFinite(balance) ? balance.toFixed(2) : '0'}, need ₦${userNgn.toFixed(2)})`
+    );
+  }
 
   const fiatTxn = await prisma.fiatTransaction.create({
     data: {
@@ -920,11 +1095,14 @@ export async function executeAppObiexBuy(
       }
     }
 
+    // Obiex pairs are oriented as CRYPTO/NGNX (e.g. USDT/NGNX). Spending NGNX
+    // for crypto is BUY on that pair — not NGNX→USDT SELL (pair does not exist).
+    const buyLeg = await resolveObiexSwapLeg('NGNX', ledgerCurrency, obiexNgn);
     const swap = await obiexClient.instantSwap({
-      sourceId: 'NGNX',
-      targetId: ledgerCurrency,
-      amount: obiexNgn,
-      side: 'SELL',
+      sourceId: buyLeg.pairSource,
+      targetId: buyLeg.pairTarget,
+      amount: buyLeg.obiexAmount,
+      side: buyLeg.side,
     });
     const swapData = unwrapData(swap);
     const received = Number(swapData?.amountReceived ?? swapData?.targetAmount ?? 0);
@@ -1028,6 +1206,7 @@ export async function previewAppObiexSell(
   if (!Number.isFinite(amount) || amount <= 0) {
     throw ApiError.badRequest('sourceAmount must be greater than 0');
   }
+  assertObiexCurrencyVisible(source);
   const available = await getObiexAvailable(userId, source);
   if (available + 1e-12 < amount) throw ApiError.badRequest(`Insufficient ${source}`);
 
@@ -1037,11 +1216,17 @@ export async function previewAppObiexSell(
     Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : amount
   );
 
-  const rates = await getAppObiexPublicRates();
-  const ngnRate = rates.rates.find((r: any) => String(r.currency).toUpperCase() === 'NGNX');
-  const rawSell = Number(ngnRate?.rawSellRate ?? ngnRate?.sellRate) || 0;
+  let sellEst: { obiexNgn: number; rawRateNgnPerCoin: number; quoteSource: string };
+  try {
+    sellEst = await estimateObiexSellToNgnx(source, amount);
+  } catch (e: any) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof ObiexApiError) throw ApiError.badRequest(e.message);
+    throw e;
+  }
+  const rawSell = sellEst.rawRateNgnPerCoin;
   const markedSellRate = applySignedRateMarkup(rawSell, resolved.percent);
-  const obiexNgn = roundNgn(amount * rawSell);
+  const obiexNgn = sellEst.obiexNgn;
   const flatFees = await getObiexFlatFeesNgn();
   const split = splitObiexSellUserCredit({
     obiexNgn,
@@ -1055,7 +1240,7 @@ export async function previewAppObiexSell(
       target_currency: 'NGN',
       source_amount: formatAmountStr(amount, 8),
       target_amount: formatAmountStr(split.userNgn, 2),
-      /** Marked-up rate for UI (Obiex raw ± sell %). Flat fee is separate. */
+      /** Marked-up NGN per 1 source coin (Obiex raw ± sell %). Flat fee is separate. */
       rate: markedSellRate,
       raw_rate: rawSell,
       flat_fee_ngn: split.flatFeeNgn,
@@ -1070,6 +1255,7 @@ export async function previewAppObiexSell(
       percentSpreadNgn: formatAmountStr(split.percentSpreadNgn, 2),
       platformSpreadNgn: formatAmountStr(split.grossPlatformProfitNgn, 2),
       userCreditNgn: formatAmountStr(split.userNgn, 2),
+      quoteSource: sellEst.quoteSource,
     },
   };
 }
@@ -1081,13 +1267,14 @@ export async function executeAppObiexSell(
   await assertObiexAppActive();
   const amount = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
   const sourceRaw = String(params.sourceCurrency || 'USDT').toUpperCase();
+  assertObiexCurrencyVisible(sourceRaw);
   const source = await resolveObiexLedgerCurrency(sourceRaw);
   if (!Number.isFinite(amount) || amount <= 0) {
     throw ApiError.badRequest('sourceAmount must be greater than 0');
   }
 
   const usdNotional = parseFloat(String(params.usdAmount ?? '').replace(/,/g, ''));
-  const resolved = await resolveObiexMarkupForUsdAmount(
+  let resolved = await resolveObiexMarkupForUsdAmount(
     'sell',
     Number.isFinite(usdNotional) && usdNotional > 0 ? usdNotional : amount
   );
@@ -1126,6 +1313,10 @@ export async function executeAppObiexSell(
     const obiexNgn = Number(swapData?.amountReceived ?? 0);
     if (!Number.isFinite(obiexNgn) || obiexNgn <= 0) {
       throw ApiError.badRequest('Obiex sell swap returned no NGNX');
+    }
+    // Re-tier markup from actual Obiex NGN when client usdAmount was missing/stale.
+    if (!(Number.isFinite(usdNotional) && usdNotional > 0) && obiexNgn > 0) {
+      resolved = await resolveObiexMarkupForUsdAmount('sell', obiexNgn / 1500);
     }
     const flatFees = await getObiexFlatFeesNgn();
     const split = splitObiexSellUserCredit({
@@ -1257,6 +1448,8 @@ export async function previewAppObiexConvert(
   await assertObiexAppActive();
   const source = String(params.sourceCurrency).toUpperCase();
   const target = String(params.targetCurrency).toUpperCase();
+  assertObiexCurrencyVisible(source);
+  assertObiexCurrencyVisible(target);
   const amount = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
   if (!Number.isFinite(amount) || amount <= 0) {
     throw ApiError.badRequest('sourceAmount must be greater than 0');
@@ -1280,6 +1473,8 @@ export async function executeAppObiexConvert(
   params: { sourceCurrency: string; targetCurrency: string; sourceAmount: string }
 ) {
   await assertObiexAppActive();
+  assertObiexCurrencyVisible(String(params.sourceCurrency || ''));
+  assertObiexCurrencyVisible(String(params.targetCurrency || ''));
   const source = await resolveObiexLedgerCurrency(String(params.sourceCurrency).toUpperCase());
   const target = await resolveObiexLedgerCurrency(String(params.targetCurrency).toUpperCase());
   const amount = parseFloat(String(params.sourceAmount).replace(/,/g, ''));
@@ -1373,6 +1568,7 @@ export async function previewAppObiexSend(
   await assertObiexAppActive();
   const currency = String(params.currency).toUpperCase();
   const network = String(params.network).toUpperCase();
+  assertObiexCurrencyVisible(currency);
   const amount = parseFloat(String(params.amount).replace(/,/g, ''));
   const address = String(params.address || '')
     .trim()
@@ -1466,6 +1662,7 @@ export async function executeAppObiexSend(
   params: { currency: string; amount: string; network: string; address: string }
 ) {
   await assertObiexAppActive();
+  assertObiexCurrencyVisible(String(params.currency || ''));
   const currency = await resolveObiexLedgerCurrency(String(params.currency).toUpperCase());
   const network = String(params.network).toUpperCase();
   const amount = parseFloat(String(params.amount).replace(/,/g, ''));

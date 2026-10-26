@@ -257,64 +257,52 @@ async function queueBushaKycApplication(userId: number, params: QueueBushaKycPar
   const applicationId = existingApp?.id || uuidv4();
   if (existingApp?.selfiePath) deleteTempSelfieCopy(existingApp.selfiePath);
 
-  const application = existingApp
-    ? await bushaKycApplicationModel.update({
-        where: { id: existingApp.id },
-        data: {
-          firstName: params.firstName,
-          lastName: params.lastName,
-          birthDate: params.birthDate,
-          nin: params.nin,
-          selfiePath: params.selfiePath,
-          idDocumentPath: params.idDocumentPath || null,
-          source: params.source || 'terescrow_kyc',
-          terescrowKycId: params.terescrowKycId ?? null,
-          status: 'pending',
-          errorMessage: null,
-          attempts: 0,
-          lastAttemptAt: null,
-          submittedAt: null,
-        },
-      })
-    : await bushaKycApplicationModel.create({
-        data: {
-          id: applicationId,
-          userId,
-          firstName: params.firstName,
-          lastName: params.lastName,
-          birthDate: params.birthDate,
-          nin: params.nin,
-          selfiePath: params.selfiePath,
-          idDocumentPath: params.idDocumentPath || null,
-          source: params.source || 'terescrow_kyc',
-          terescrowKycId: params.terescrowKycId ?? null,
-          status: 'pending',
-        },
-      });
-
-  setImmediate(() => {
-    processBushaKycApplication(application.id).catch((err) => {
-      console.error('[Busha KYC] immediate process error:', err?.message || err);
+  // Persist only — do not create/submit a Busha customer (Obiex migration).
+  // Existing Busha customers keep trading; this path no longer provisions new ones.
+  if (existingApp) {
+    await bushaKycApplicationModel.update({
+      where: { id: existingApp.id },
+      data: {
+        firstName: params.firstName,
+        lastName: params.lastName,
+        birthDate: params.birthDate,
+        nin: params.nin,
+        selfiePath: params.selfiePath,
+        idDocumentPath: params.idDocumentPath || null,
+        source: params.source || 'terescrow_kyc',
+        terescrowKycId: params.terescrowKycId ?? null,
+        status: 'pending',
+        errorMessage: 'Saved pending — Busha provisioning disabled (Obiex migration)',
+        attempts: 0,
+        lastAttemptAt: null,
+        submittedAt: null,
+      },
     });
-  });
-
-  try {
-    const { queueManager } = await import('../../queue/queue.manager');
-    await queueManager.addJob(
-      'busha',
-      'process-kyc',
-      { applicationId: application.id },
-      { attempts: 5, timeout: 180_000 }
-    );
-  } catch (err: any) {
-    console.warn('[Busha KYC] queue enqueue skipped:', err?.message || err);
+  } else {
+    await bushaKycApplicationModel.create({
+      data: {
+        id: applicationId,
+        userId,
+        firstName: params.firstName,
+        lastName: params.lastName,
+        birthDate: params.birthDate,
+        nin: params.nin,
+        selfiePath: params.selfiePath,
+        idDocumentPath: params.idDocumentPath || null,
+        source: params.source || 'terescrow_kyc',
+        terescrowKycId: params.terescrowKycId ?? null,
+        status: 'pending',
+        errorMessage: 'Saved pending — Busha provisioning disabled (Obiex migration)',
+      },
+    });
   }
 
   return getBushaKycStatusForUser(userId);
 }
 
 /**
- * Primary path: read approved Terescrow Tier 2 KYC from DB and send to Busha in background.
+ * Save activation request from Terescrow Tier 2 profile as pending.
+ * Does not create a Busha customer (Obiex migration).
  */
 export async function startBushaKycFromTerescrowProfile(userId: number) {
   await assertBushaAppActive();
@@ -373,156 +361,29 @@ export async function startBushaKycForUser(userId: number, input: StartBushaKycI
   });
 }
 
+/**
+ * Busha customer create/submit disabled (Obiex migration).
+ * Existing Busha customers are untouched; new apps stay pending locally.
+ */
 export async function processBushaKycApplication(applicationId: string) {
   const app = await bushaKycApplicationModel.findUnique({ where: { id: applicationId } });
   if (!app) return null;
   if (['submitted', 'in_review', 'active'].includes(app.status)) return app;
 
-  await bushaKycApplicationModel.update({
-    where: { id: applicationId },
-    data: {
-      status: 'processing',
-      attempts: { increment: 1 },
-      lastAttemptAt: new Date(),
-      errorMessage: null,
-    },
-  });
-
-  try {
-    const user = await prisma.user.findUnique({ where: { id: app.userId } });
-    if (!user) throw new Error('User not found');
-
-    // Reload full Tier 2 / Prembly profile so Busha gets every KYC detail
-    const terescrow = await getTerescrowKycProfileForBusha(app.userId);
-    const profile = terescrow.profile;
-
-    const email = user.email.trim().toLowerCase();
-    const phoneRaw = profile?.phone || user.phoneNumber || '+2348000000000';
-    const phone = normalizePhone(phoneRaw);
-    const selfieBase64 = readKycSelfieBase64(app.selfiePath || profile?.selfiePath || '');
-
-    const bushaAddress = splitAddressForBusha(profile?.address || null);
-    const birthDate = app.birthDate || (profile ? toBushaBirthDate(profile.birthDate) : undefined);
-
-    let customer = await bushaCustomerModel.findUnique({ where: { userId: app.userId } });
-
-    if (!customer) {
-      const created = await bushaClient.createCustomer({
-        email,
-        first_name: app.firstName,
-        last_name: app.lastName,
-        phone,
-        country_id: 'NG',
-        birth_date: birthDate || app.birthDate,
-        address: bushaAddress,
-      });
-
-      customer = await bushaCustomerModel.create({
-        data: {
-          id: uuidv4(),
-          bushaProfileId: created.id,
-          userId: app.userId,
-          email,
-          firstName: app.firstName,
-          lastName: app.lastName,
-          phone,
-          countryId: 'NG',
-          birthDate: birthDate || app.birthDate,
-          nin: app.nin,
-          status: created.status || 'inactive',
-          createdById: app.userId,
-          providerData: {
-            ...(created as any),
-            terescrowKyc: profile
-              ? {
-                  terescrowKycId: profile.terescrowKycId,
-                  premblyVerified: profile.premblyVerified,
-                  premblyReference: profile.premblyReference,
-                  bvn: profile.bvn,
-                  documentType: profile.documentType,
-                  documentNumber: profile.documentNumber,
-                  address: profile.address,
-                  gender: profile.gender,
-                }
-              : null,
-          } as any,
-        },
-      });
-    } else {
-      customer = await bushaCustomerModel.update({
-        where: { id: customer.id },
-        data: {
-          firstName: app.firstName,
-          lastName: app.lastName,
-          birthDate: birthDate || app.birthDate,
-          nin: app.nin,
-          phone,
-          providerData: {
-            ...((customer.providerData as object) || {}),
-            terescrowKyc: profile
-              ? {
-                  terescrowKycId: profile.terescrowKycId,
-                  premblyVerified: profile.premblyVerified,
-                  premblyReference: profile.premblyReference,
-                  bvn: profile.bvn,
-                  documentType: profile.documentType,
-                  documentNumber: profile.documentNumber,
-                  address: profile.address,
-                  gender: profile.gender,
-                }
-              : null,
-          } as any,
-        },
-      });
-    }
-
-    // Busha national-id: NIN number + selfie only (no NIN document scan).
-    await submitBushaCustomerKyc(customer.id, {
-      documentType: 'national-id',
-      documentNumber: app.nin,
-      selfieBase64,
-      birthDate: birthDate || app.birthDate,
-      firstName: app.firstName,
-      lastName: app.lastName,
-      phone,
-      address: bushaAddress,
-    });
-
-    const verified = await verifyBushaCustomer(customer.id);
-    const status = String(verified.status || 'in_review').toLowerCase();
-    const rejectReason =
-      status === 'rejected' ? extractBushaRejectionReason(verified) : null;
-
+  // Never create a new Busha customer from KYC. Keep row pending with data saved.
+  if (app.status === 'pending' || app.status === 'failed' || app.status === 'processing') {
     await bushaKycApplicationModel.update({
       where: { id: applicationId },
       data: {
-        bushaCustomerId: customer.id,
-        status: status === 'active' ? 'active' : status === 'rejected' ? 'rejected' : 'submitted',
-        submittedAt: new Date(),
-        errorMessage: rejectReason,
+        status: 'pending',
+        errorMessage:
+          app.errorMessage ||
+          'Saved pending — Busha provisioning disabled (Obiex migration)',
+        lastAttemptAt: new Date(),
       },
     });
-
-    if (status === 'active') {
-      await markTier2ApprovedAfterBusha(app.userId);
-    } else if (status === 'rejected') {
-      await markTier2RejectedAfterBusha(app.userId, rejectReason!);
-    }
-
-    deleteTempSelfieCopy(app.selfiePath);
-
-    return getBushaKycStatusForUser(app.userId);
-  } catch (error: any) {
-    const message = error?.message || 'Identity verification processing failed';
-    await bushaKycApplicationModel.update({
-      where: { id: applicationId },
-      data: {
-        status: 'failed',
-        errorMessage: message,
-      },
-    });
-    throw error;
   }
+  return getBushaKycStatusForUser(app.userId);
 }
 
 /** Sync submitted Busha apps — approve Tier 2 when customer becomes active. */
@@ -638,26 +499,11 @@ async function healOrphanedBushaKycOutcomes(limit = 20) {
   }
 }
 
-/** Poll pending/failed (retryable) KYC applications + sync in-review status. */
+/**
+ * No new Busha provisioning and no remote KYC API calls from the poller
+ * (avoids paid / quota usage). Local heal only for already-recorded outcomes.
+ */
 export async function pollPendingBushaKyc(limit = 10) {
-  const pending = await bushaKycApplicationModel.findMany({
-    where: {
-      status: { in: ['pending', 'failed'] },
-      attempts: { lt: 8 },
-    },
-    orderBy: { updatedAt: 'asc' },
-    take: limit,
-  });
-
-  for (const app of pending) {
-    try {
-      await processBushaKycApplication(app.id);
-    } catch (err: any) {
-      console.error(`[Busha KYC] poll failed for ${app.id}:`, err?.message || err);
-    }
-  }
-
-  await syncSubmittedBushaKycStatus(limit);
   await healOrphanedBushaKycOutcomes(limit);
-  return pending.length;
+  return 0;
 }

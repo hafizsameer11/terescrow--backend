@@ -303,6 +303,13 @@ class BushaClient {
   }
 
   createCustomer(input: CreateBushaCustomerInput): Promise<BushaCustomer> {
+    // Cost / migration guard: never provision new Busha customers unless explicitly enabled.
+    // Existing customers keep working; set BUSHA_ALLOW_CUSTOMER_CREATE=true only if needed.
+    if (String(process.env.BUSHA_ALLOW_CUSTOMER_CREATE || '').toLowerCase() !== 'true') {
+      throw ApiError.badRequest(
+        'Busha customer provisioning is disabled (Obiex migration). Existing Busha accounts are unaffected.'
+      );
+    }
     return this.request<BushaCustomer>('POST', '/v1/customers', {
       ...input,
       type: 'individual',

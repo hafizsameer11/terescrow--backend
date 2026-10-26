@@ -16,8 +16,9 @@ const DEFAULT_MAP: Array<{
   { appCurrency: 'SOL', obiexCurrency: 'SOL', displayName: 'Solana', sortOrder: 60 },
   { appCurrency: 'TRX', obiexCurrency: 'TRX', displayName: 'TRON', sortOrder: 70 },
   { appCurrency: 'DOGE', obiexCurrency: 'DOGE', displayName: 'Dogecoin', sortOrder: 80 },
-  { appCurrency: 'XRP', obiexCurrency: 'XRP', displayName: 'XRP', sortOrder: 90 },
+  // XRP omitted: Obiex receivable/withdrawable=false — hidden until they enable deposits.
   { appCurrency: 'TON', obiexCurrency: 'TON', displayName: 'Toncoin', sortOrder: 100 },
+
   { appCurrency: 'MATIC', obiexCurrency: 'MATIC', displayName: 'Polygon', sortOrder: 110 },
   { appCurrency: 'AVAX', obiexCurrency: 'AVAX', displayName: 'Avalanche', sortOrder: 120 },
   { appCurrency: 'LTC', obiexCurrency: 'LTC', displayName: 'Litecoin', sortOrder: 130 },
@@ -42,8 +43,35 @@ export async function ensureObiexCurrencyMapSeeded() {
   });
 }
 
+/**
+ * Currencies temporarily hidden from the app (backend-only — no app release needed).
+ * Obiex XRP: receivable=false / withdrawable=false; address create rejected.
+ */
+export const HIDDEN_OBIEX_CURRENCIES = new Set(['XRP', 'RIPPLE']);
+
+export function isObiexCurrencyHidden(currency: string | null | undefined): boolean {
+  const code = String(currency || '').trim().toUpperCase();
+  return !!code && HIDDEN_OBIEX_CURRENCIES.has(code);
+}
+
+/** Keep DB in sync so admin map / seeds don't resurface hidden coins. */
+export async function deactivateHiddenObiexCurrencies() {
+  await ensureObiexCurrencyMapSeeded();
+  await mapModel().updateMany({
+    where: {
+      OR: [
+        { appCurrency: { in: [...HIDDEN_OBIEX_CURRENCIES] } },
+        { obiexCurrency: { in: [...HIDDEN_OBIEX_CURRENCIES] } },
+      ],
+      isActive: true,
+    },
+    data: { isActive: false, updatedAt: new Date() },
+  });
+}
+
 export async function listActiveObiexCurrencyMaps() {
   await ensureObiexCurrencyMapSeeded();
+  await deactivateHiddenObiexCurrencies();
   return mapModel().findMany({
     where: { isActive: true },
     orderBy: [{ sortOrder: 'asc' }, { appCurrency: 'asc' }],

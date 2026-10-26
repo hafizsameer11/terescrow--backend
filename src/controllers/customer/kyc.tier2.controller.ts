@@ -8,8 +8,8 @@ import { notifyUserKycSubmitted } from '../../services/kyc/kyc.notification.serv
 
 /**
  * Submit Tier 2 KYC — async flow.
- * App sends name, DOB, NIN, selfie → immediate "submitted" response,
- * then NIN + selfie are forwarded to Busha (no Prembly middle step).
+ * App sends name, DOB, NIN, selfie → immediate "submitted" response.
+ * Data is saved pending admin review. No Prembly / Busha create (Obiex migration).
  */
 export const submitTier2Controller = async (
   req: Request,
@@ -78,7 +78,7 @@ export const submitTier2Controller = async (
         status: 'tier2',
         state: 'pending',
         premblyVerified: true,
-        reason: 'Submitted — awaiting crypto KYC approval',
+        reason: 'Submitted — awaiting admin review',
       },
     });
 
@@ -115,6 +115,28 @@ export const getTier2StatusController = async (
     const submission = await prisma.kycStateTwo.findFirst({
       where: { userId: user.id, tier: 'tier2' },
       orderBy: { createdAt: 'desc' },
+      // Omit premblyPayload — huge JSON causes MySQL sort_buffer OOM on ORDER BY.
+      select: {
+        id: true,
+        userId: true,
+        tier: true,
+        state: true,
+        reason: true,
+        createdAt: true,
+        updatedAt: true,
+        status: true,
+        nin: true,
+        bvn: true,
+        surName: true,
+        firtName: true,
+        dob: true,
+        selfieUrl: true,
+        idDocumentUrl: true,
+        documentType: true,
+        documentNumber: true,
+        premblyVerified: true,
+        premblyReference: true,
+      },
     });
 
     if (!submission) {

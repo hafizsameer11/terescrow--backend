@@ -10,17 +10,25 @@ import { palmpayConfig } from '../../services/palmpay/palmpay.config';
 import { getCustomerRestrictions, isFeatureFrozen, FEATURE_WITHDRAWAL } from '../../utils/customer.restrictions';
 import { assertPalmpayWithdrawEnabled } from '../../services/admin/platform.operation.settings.service';
 import { toCustomerSafeError } from '../../utils/customerSafeError';
-import { transferReferralToFiatWallet, assertReferralWithdrawAvailable } from '../../services/referral/referral.withdraw.service';
+import {
+  transferReferralToFiatWallet,
+  reverseReferralToFiatTransfer,
+  assertReferralWithdrawAvailable,
+} from '../../services/referral/referral.withdraw.service';
 import { palmpayKoboToNgn } from '../../services/palmpay/palmpay.merchant.service';
 
 /**
  * Network payout fee preview (provider returns exact fee+vat in kobo on payout).
  * Set PALMPAY_WITHDRAW_FEE_NGN for UI/balance preview when known commercially.
+ * Live history (queryPayStatus on past payouts): PalmPay charges a flat ₦50 (5000 kobo, vat 0)
+ * for every successful payout from ₦100–₦20,000 — use that as the default estimate.
  */
 function getConfiguredNetworkFeeNgn(): number {
-  const fromEnv = Number(process.env.PALMPAY_WITHDRAW_FEE_NGN);
+  const raw = process.env.PALMPAY_WITHDRAW_FEE_NGN;
+  if (raw === undefined || String(raw).trim() === '') return 50;
+  const fromEnv = Number(raw);
   if (Number.isFinite(fromEnv) && fromEnv >= 0) return fromEnv;
-  return 0;
+  return 50;
 }
 
 /** ₦50 service + ₦50 stamp on withdrawals above ₦10,000 (stacks on network fee). */
@@ -75,10 +83,16 @@ export const getWithdrawFeeController = async (
       new ApiResponse(
         200,
         {
+          /** Total the app should show / reserve (network estimate + app fee if any). */
           feeNgn: preview.feeNgn,
+          /** Estimated PalmPay payout fee (exact fee+vat applied from payout response). */
+          networkFeeNgn: preview.networkFeeNgn,
+          /** Terescrow ₦50+₦50 when amount > ₦10k; else 0. */
+          appFeeNgn: preview.appFeeNgn,
           currency: 'NGN',
-          /** Single total for the app — network fee + ₦50+₦50 when amount > ₦10k. */
           feeSource: 'combined',
+          feeNote:
+            'Includes estimated PalmPay network fee; the exact PalmPay fee is applied when the payout is sent.',
         },
         'Withdrawal fee retrieved successfully'
       )
@@ -337,9 +351,12 @@ export const initiatePayoutController = async (
 
     // Move referral funds into fiat only after validation so limit failures don't debit referral.
     // Transfer amount + preview fee; if PalmPay fee is higher we debit the difference after.
+    // If PalmPay (or later steps) fail, reverse this so funds do not stay in main NGN wallet.
+    let referralMovedAmount: number | null = null;
     if (isReferralSource) {
       try {
         await transferReferralToFiatWallet(user.id, previewTotalDebit);
+        referralMovedAmount = previewTotalDebit;
       } catch (err: any) {
         if (err instanceof ApiError) {
           return next(err);
@@ -351,136 +368,172 @@ export const initiatePayoutController = async (
     // Generate unique order ID
     const orderId = `payout_${uuidv4().replace(/-/g, '')}`.substring(0, 32);
 
-    // Create transaction record (fees finalized after PalmPay response)
-    const transaction = await prisma.fiatTransaction.create({
-      data: {
-        id: uuidv4(),
-        userId: user.id,
-        walletId: wallet.id,
-        type: 'WITHDRAW',
-        status: 'pending',
-        currency: currency.toUpperCase(),
-        amount: amountDecimal,
-        fees: previewFee,
-        totalAmount: previewTotalDebit,
-        description: isReferralSource
-          ? `Referral withdrawal to ${accountNumber}`
-          : `Withdrawal to ${accountNumber}`,
-        metadata: JSON.stringify({
-          walletSource: isReferralSource ? 'referral' : 'fiat',
-          withdrawalSource: isReferralSource ? 'referral' : 'fiat',
-          previewFeeNgn: previewFee,
-          appFeeNgn,
-          networkFeePreviewNgn: networkFeePreview,
-        }),
-        palmpayOrderId: orderId,
-        payeeName: accountName,
+    let transactionId: string | null = null;
+    try {
+      // Create transaction record (fees finalized after PalmPay response)
+      const transaction = await prisma.fiatTransaction.create({
+        data: {
+          id: uuidv4(),
+          userId: user.id,
+          walletId: wallet.id,
+          type: 'WITHDRAW',
+          status: 'pending',
+          currency: currency.toUpperCase(),
+          amount: amountDecimal,
+          fees: previewFee,
+          totalAmount: previewTotalDebit,
+          description: isReferralSource
+            ? `Referral withdrawal to ${accountNumber}`
+            : `Withdrawal to ${accountNumber}`,
+          metadata: JSON.stringify({
+            walletSource: isReferralSource ? 'referral' : 'fiat',
+            withdrawalSource: isReferralSource ? 'referral' : 'fiat',
+            previewFeeNgn: previewFee,
+            appFeeNgn,
+            networkFeePreviewNgn: networkFeePreview,
+          }),
+          palmpayOrderId: orderId,
+          payeeName: accountName,
+          payeeBankCode: bankCode,
+          payeeBankAccNo: accountNumber,
+          payeePhoneNo: phoneNumber,
+        },
+      });
+      transactionId = transaction.id;
+
+      // Call PalmPay API to initiate payout
+      const palmpayResponse = await palmpayPayout.initiatePayout({
+        orderId,
+        title: 'Withdrawal',
+        description: `Withdrawal to ${accountNumber}`,
+        payeeName: accountName || 'Unknown',
         payeeBankCode: bankCode,
         payeeBankAccNo: accountNumber,
         payeePhoneNo: phoneNumber,
-      },
-    });
+        currency: currency.toUpperCase(),
+        amount: amountInCents,
+        notifyUrl: palmpayConfig.getWebhookUrl(),
+        remark: `Withdrawal transaction for user ${user.id}`,
+      });
 
-    // Call PalmPay API to initiate payout
-    const palmpayResponse = await palmpayPayout.initiatePayout({
-      orderId,
-      title: 'Withdrawal',
-      description: `Withdrawal to ${accountNumber}`,
-      payeeName: accountName || 'Unknown',
-      payeeBankCode: bankCode,
-      payeeBankAccNo: accountNumber,
-      payeePhoneNo: phoneNumber,
-      currency: currency.toUpperCase(),
-      amount: amountInCents,
-      notifyUrl: palmpayConfig.getWebhookUrl(),
-      remark: `Withdrawal transaction for user ${user.id}`,
-    });
+      // Exact network fee from provider (kobo → NGN) + app ₦50+₦50 when amount > ₦10k.
+      const networkFeeActual = feeNgnFromPalmpayResponse(palmpayResponse);
+      const networkFeeNgn =
+        networkFeeActual != null && Number.isFinite(networkFeeActual)
+          ? networkFeeActual
+          : networkFeePreview;
+      const withdrawFee = networkFeeNgn + appFeeNgn;
+      const totalDebit = amountDecimal + withdrawFee;
 
-    // Exact network fee from provider (kobo → NGN) + app ₦50+₦50 when amount > ₦10k.
-    const networkFeeActual = feeNgnFromPalmpayResponse(palmpayResponse);
-    const networkFeeNgn =
-      networkFeeActual != null && Number.isFinite(networkFeeActual)
-        ? networkFeeActual
-        : networkFeePreview;
-    const withdrawFee = networkFeeNgn + appFeeNgn;
-    const totalDebit = amountDecimal + withdrawFee;
+      let meta: Record<string, unknown> = {
+        walletSource: isReferralSource ? 'referral' : 'fiat',
+        withdrawalSource: isReferralSource ? 'referral' : 'fiat',
+        previewFeeNgn: previewFee,
+        appFeeNgn,
+        networkFeePreviewNgn: networkFeePreview,
+        networkFeeRaw: palmpayResponse.fee ?? null,
+        networkFeeNgn,
+        withdrawFeeNgn: withdrawFee,
+      };
+      try {
+        const prev = transaction.metadata ? JSON.parse(String(transaction.metadata)) : {};
+        meta = { ...prev, ...meta };
+      } catch {
+        /* keep meta */
+      }
 
-    let meta: Record<string, unknown> = {
-      walletSource: isReferralSource ? 'referral' : 'fiat',
-      withdrawalSource: isReferralSource ? 'referral' : 'fiat',
-      previewFeeNgn: previewFee,
-      appFeeNgn,
-      networkFeePreviewNgn: networkFeePreview,
-      networkFeeRaw: palmpayResponse.fee ?? null,
-      networkFeeNgn,
-      withdrawFeeNgn: withdrawFee,
-    };
-    try {
-      const prev = transaction.metadata ? JSON.parse(String(transaction.metadata)) : {};
-      meta = { ...prev, ...meta };
-    } catch {
-      /* keep meta */
-    }
+      // Update transaction with PalmPay response + exact fee
+      await prisma.fiatTransaction.update({
+        where: { id: transaction.id },
+        data: {
+          palmpayOrderNo: palmpayResponse.orderNo,
+          palmpayStatus: palmpayResponse.orderStatus.toString(),
+          palmpaySessionId: palmpayResponse.sessionId,
+          fees: withdrawFee,
+          totalAmount: totalDebit,
+          metadata: JSON.stringify(meta),
+          status: palmpayResponse.orderStatus === 2 ? 'completed' : 'pending',
+          ...(palmpayResponse.orderStatus === 2 && { completedAt: new Date() }),
+        },
+      });
 
-    // Update transaction with PalmPay response + exact fee
-    await prisma.fiatTransaction.update({
-      where: { id: transaction.id },
-      data: {
-        palmpayOrderNo: palmpayResponse.orderNo,
-        palmpayStatus: palmpayResponse.orderStatus.toString(),
-        palmpaySessionId: palmpayResponse.sessionId,
-        fees: withdrawFee,
-        totalAmount: totalDebit,
-        metadata: JSON.stringify(meta),
-        status: palmpayResponse.orderStatus === 2 ? 'completed' : 'pending',
-        ...(palmpayResponse.orderStatus === 2 && { completedAt: new Date() }),
-      },
-    });
-
-    // If PalmPay fee exceeded preview, ensure wallet covers the difference (referral already moved preview).
-    if (withdrawFee > previewFee) {
-      const extra = withdrawFee - previewFee;
-      if (isReferralSource) {
-        try {
-          await transferReferralToFiatWallet(user.id, extra);
-        } catch (err: any) {
-          console.error('PalmPay fee exceeded referral preview hold:', {
+      // If PalmPay fee exceeded preview, ensure wallet covers the difference (referral already moved preview).
+      if (withdrawFee > previewFee) {
+        const extra = withdrawFee - previewFee;
+        if (isReferralSource) {
+          try {
+            await transferReferralToFiatWallet(user.id, extra);
+            referralMovedAmount = (referralMovedAmount ?? 0) + extra;
+          } catch (err: any) {
+            console.error('PalmPay fee exceeded referral preview hold:', {
+              transactionId: transaction.id,
+              previewFee,
+              withdrawFee,
+              err: err?.message,
+            });
+          }
+        }
+        const balance = await fiatWalletService.getBalance(wallet.id);
+        if (!balance || parseFloat(balance.balance) < totalDebit) {
+          console.error('PalmPay fee exceeds available balance after payout sent:', {
             transactionId: transaction.id,
+            amount: amountDecimal,
             previewFee,
             withdrawFee,
-            err: err?.message,
+            available: balance?.balance,
           });
         }
       }
-      const balance = await fiatWalletService.getBalance(wallet.id);
-      if (!balance || parseFloat(balance.balance) < totalDebit) {
-        console.error('PalmPay fee exceeds available balance after payout sent:', {
+
+      // Debit wallet for amount + exact PalmPay fee; bank receives amount only
+      await fiatWalletService.debitWallet(wallet.id, totalDebit, transaction.id);
+
+      return res.status(200).json(
+        new ApiResponse(200, {
           transactionId: transaction.id,
+          orderId: orderId,
+          orderNo: palmpayResponse.orderNo,
+          status: palmpayResponse.orderStatus === 2 ? 'completed' : 'pending',
           amount: amountDecimal,
-          previewFee,
-          withdrawFee,
-          available: balance?.balance,
-        });
+          fees: withdrawFee,
+          totalAmount: totalDebit,
+          currency: currency.toUpperCase(),
+          sessionId: palmpayResponse.sessionId,
+          feeSource: networkFeeActual != null ? 'network_plus_app' : 'preview_plus_app',
+        }, 'Payout initiated successfully')
+      );
+    } catch (payoutError: unknown) {
+      const errMsg =
+        payoutError instanceof Error ? payoutError.message : 'Payout initiation failed';
+
+      if (transactionId) {
+        await prisma.fiatTransaction
+          .update({
+            where: { id: transactionId },
+            data: {
+              status: 'failed',
+              errorMessage: errMsg.slice(0, 500),
+            },
+          })
+          .catch((e) => console.error('Failed to mark payout tx failed:', e));
       }
+
+      if (referralMovedAmount != null) {
+        try {
+          await reverseReferralToFiatTransfer(user.id, referralMovedAmount);
+          console.error(
+            `Reversed referral→fiat ₦${referralMovedAmount} for user ${user.id} after payout failure`
+          );
+        } catch (reverseErr) {
+          console.error(
+            `CRITICAL: could not reverse referral→fiat ₦${referralMovedAmount} for user ${user.id}:`,
+            reverseErr
+          );
+        }
+      }
+
+      return next(toCustomerSafeError(payoutError, 'Payout initiation error:'));
     }
-
-    // Debit wallet for amount + exact PalmPay fee; bank receives amount only
-    await fiatWalletService.debitWallet(wallet.id, totalDebit, transaction.id);
-
-    return res.status(200).json(
-      new ApiResponse(200, {
-        transactionId: transaction.id,
-        orderId: orderId,
-        orderNo: palmpayResponse.orderNo,
-        status: palmpayResponse.orderStatus === 2 ? 'completed' : 'pending',
-        amount: amountDecimal,
-        fees: withdrawFee,
-        totalAmount: totalDebit,
-        currency: currency.toUpperCase(),
-        sessionId: palmpayResponse.sessionId,
-        feeSource: networkFeeActual != null ? 'network_plus_app' : 'preview_plus_app',
-      }, 'Payout initiated successfully')
-    );
   } catch (error: unknown) {
     return next(toCustomerSafeError(error, 'Payout initiation error:'));
   }

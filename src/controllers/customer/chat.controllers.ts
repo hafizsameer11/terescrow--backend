@@ -1,4 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import {
@@ -11,8 +14,28 @@ import {
 } from '@prisma/client';
 import { getAgentSocketId, getCustomerSocketId, io } from '../../socketConfig';
 import { sendPushNotification } from '../../utils/pushService';
+import { isGiftCardSellDepartment } from '../../services/giftcard/giftcard.sell.notification.service';
 
 const prisma = new PrismaClient();
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+
+function isSellGiftOpenerText(text: string): boolean {
+  return /^i\s+want\s+to\s+sell\b/i.test(text.trim());
+}
+
+function fileContentHash(filePath: string): string | null {
+  try {
+    const buf = fs.readFileSync(filePath);
+    return crypto.createHash('md5').update(buf).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+function uploadedImageHash(filename: string): string | null {
+  if (!filename) return null;
+  return fileContentHash(path.join(UPLOADS_DIR, filename));
+}
 
 const sendMessageController = async (
   req: Request,
@@ -67,12 +90,127 @@ const sendMessageController = async (
               not: sender.id,
             },
           },
+          select: {
+            userId: true,
+            user: { select: { role: true } },
+          },
+        },
+        chatDetails: {
+          select: {
+            status: true,
+            department: { select: { niche: true, Type: true } },
+          },
         },
       },
     });
 
     if (!chat) {
       return next(ApiError.notFound('This chat does not exist'));
+    }
+
+    const trimmedMessage = (message || '').trim();
+    const isImageOnly = Boolean(image) && !trimmedMessage;
+    const isSellOpenerText = Boolean(trimmedMessage) && isSellGiftOpenerText(trimmedMessage);
+    const isOpener = isImageOnly || isSellOpenerText;
+
+    /**
+     * Active gift-card sell (pending or processing): app re-sends start image
+     * + "I want to sell…" on re-open / retry. Block duplicate openers for the
+     * whole active lifetime. Exact sell text match; image-only matched by
+     * file content hash (filenames always change on re-upload). Different
+     * card photo is allowed. Lifted once chat is successful / declined /
+     * unsuccessful.
+     */
+    const isActiveSellGift =
+      (chat.chatDetails?.status === ChatStatus.pending ||
+        chat.chatDetails?.status === ChatStatus.processing) &&
+      isGiftCardSellDepartment(chat.chatDetails?.department);
+
+    const incomingImageHash =
+      isImageOnly && req.file?.path
+        ? fileContentHash(req.file.path)
+        : null;
+
+    if (isActiveSellGift && isOpener) {
+      let existingOpener = null as Awaited<
+        ReturnType<typeof prisma.message.findFirst>
+      >;
+
+      if (isImageOnly && incomingImageHash) {
+        const priorImageOpeners = await prisma.message.findMany({
+          where: {
+            chatId: chat.id,
+            senderId: sender.id,
+            NOT: { image: null },
+            OR: [{ message: null }, { message: '' }],
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 30,
+        });
+        existingOpener =
+          priorImageOpeners.find(
+            (m) =>
+              Boolean(m.image) &&
+              uploadedImageHash(m.image as string) === incomingImageHash
+          ) ?? null;
+      } else if (isSellOpenerText) {
+        existingOpener = await prisma.message.findFirst({
+          where: {
+            chatId: chat.id,
+            senderId: sender.id,
+            message: trimmedMessage,
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+      }
+
+      if (existingOpener) {
+        console.log(
+          `[send-message] blocked active-sell opener chat=${chat.id} user=${sender.id} status=${chat.chatDetails?.status} matchedMsg=${existingOpener.id}`
+        );
+        return new ApiResponse(
+          200,
+          existingOpener,
+          'Opening message already sent for this chat'
+        ).send(res);
+      }
+    }
+
+    /**
+     * Short-window dedupe for double-tap / retry bursts (any chat).
+     */
+    const dedupeWindowMs = isImageOnly ? 8_000 : 20_000;
+    const since = new Date(Date.now() - dedupeWindowMs);
+    const recent = await prisma.message.findMany({
+      where: {
+        chatId: chat.id,
+        senderId: sender.id,
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+
+    const duplicate = recent.find((m) => {
+      const prevText = (m.message || '').trim();
+      if (trimmedMessage && prevText === trimmedMessage) return true;
+      if (
+        isImageOnly &&
+        !prevText &&
+        Boolean(m.image) &&
+        incomingImageHash &&
+        uploadedImageHash(m.image as string) === incomingImageHash
+      ) {
+        return true;
+      }
+      return false;
+    });
+
+    if (duplicate) {
+      console.log(
+        `[send-message] deduped chat=${chat.id} user=${sender.id} matchedMsg=${duplicate.id}`
+      );
+      return new ApiResponse(200, duplicate, 'Message already sent').send(res);
     }
 
     // Create new message
@@ -82,7 +220,7 @@ const sendMessageController = async (
         senderId: sender.id,
         receiverId: chat.participants[0].userId,
         image: image || undefined, // Include only if exists
-        message: message.trim() || '', // Include only if exists
+        message: trimmedMessage, // Include only if exists
       },
     });
     const receveNotication = await sendPushNotification({

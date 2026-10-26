@@ -375,16 +375,9 @@ export const getAllCustomerWithAgentsChats = async (
         },
         messages: {
           where: { OR: [{ message: { not: '' } }, { image: { not: null } }] },
-          take: 40,
+          take: 1,
           orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            message: true,
-            createdAt: true,
-            receiverId: true,
-            isRead: true,
-            senderId: true,
-          },
+          select: { id: true, message: true, createdAt: true, receiverId: true, isRead: true },
         },
         transactions: {
           take: 5,
@@ -413,59 +406,10 @@ export const getAllCustomerWithAgentsChats = async (
       return Number.isFinite(n) ? n : null;
     };
 
-    /** Agents often write "320k send boss" without logging a Transaction. */
-    const parseNairaFromMessages = (
-      messages: Array<{ message?: string | null; senderId?: number | null }>,
-      agentId?: number | null
-    ): number | null => {
-      const candidates: number[] = [];
-      for (const m of messages) {
-        const text = String(m.message || '').replace(/,/g, ' ').trim();
-        if (!text) continue;
-        const fromAgent = agentId != null && m.senderId === agentId;
-
-        // ₦320,000 / NGN 320000
-        const symbol = text.match(/(?:₦|ngn)\s*([\d]+(?:\.\d+)?)/i);
-        if (symbol) {
-          const n = Number(symbol[1]);
-          if (Number.isFinite(n) && n >= 100) candidates.push(n);
-        }
-
-        // 320k send / 215k paid / 22k
-        const kMatch = text.match(/(\d+(?:\.\d+)?)\s*k\b/i);
-        if (kMatch) {
-          const n = Math.round(parseFloat(kMatch[1]) * 1000);
-          if (Number.isFinite(n) && n >= 1000) {
-            // Prefer payout-style agent lines
-            if (fromAgent || /\b(send|sent|paid|pay|credit|transfer)\b/i.test(text)) {
-              return n;
-            }
-            candidates.push(n);
-          }
-        }
-      }
-      return candidates.length ? Math.max(...candidates) : null;
-    };
-
-    const parseUsdFromMessages = (
-      messages: Array<{ message?: string | null }>
-    ): number | null => {
-      for (const m of messages) {
-        const text = String(m.message || '');
-        const dollar = text.match(/\$\s*([\d]+(?:\.\d+)?)/);
-        if (dollar) {
-          const n = Number(dollar[1]);
-          if (Number.isFinite(n) && n > 0) return n;
-        }
-      }
-      return null;
-    };
-
+    /** Amount column: only logged Transaction or Rate — never scrape chat messages. */
     const pickAmountRow = (
       txs: Array<{ id: number; amount: unknown; amountNaira: unknown }>,
-      rates: Array<{ id: number; amount: unknown; amountNaira: unknown }>,
-      messages: Array<{ message?: string | null; senderId?: number | null }>,
-      agentId?: number | null
+      rates: Array<{ id: number; amount: unknown; amountNaira: unknown }>
     ) => {
       const fromTx =
         txs.find((t) => toNum(t.amount) != null || toNum(t.amountNaira) != null) || null;
@@ -485,37 +429,14 @@ export const getAllCustomerWithAgentsChats = async (
           amountNaira: toNum(fromRate.amountNaira),
         };
       }
-      const ngn = parseNairaFromMessages(messages, agentId);
-      const usd = parseUsdFromMessages(messages);
-      if (ngn != null || usd != null) {
-        return {
-          id: 0,
-          amount: usd,
-          amountNaira: ngn,
-        };
-      }
       return null;
     };
 
     const data = rows.map((chat) => {
-      const msgs = chat.messages || [];
-      const recentMessage = msgs[0]
-        ? {
-            id: msgs[0].id,
-            message: msgs[0].message,
-            createdAt: msgs[0].createdAt,
-            receiverId: msgs[0].receiverId,
-            isRead: msgs[0].isRead,
-          }
-        : null;
+      const recentMessage = chat.messages?.[0] || null;
       const customer = chat.participants.find(p => p.user.role === UserRoles.customer)?.user || null;
       const agent = chat.participants.find(p => p.user.role === UserRoles.agent)?.user || null;
-      const amountRow = pickAmountRow(
-        chat.transactions || [],
-        chat.rate || [],
-        msgs,
-        agent?.id ?? null
-      );
+      const amountRow = pickAmountRow(chat.transactions || [], chat.rate || []);
 
       return {
         id: chat.id,

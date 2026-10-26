@@ -1,8 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
-import ApiError from '../../utils/ApiError';
 import {
   executeAppObiexBuy,
-  executeAppObiexConvert,
   executeAppObiexSell,
   executeAppObiexSend,
   getAppObiexAssetDetail,
@@ -14,10 +12,16 @@ import {
   getAppObiexWallet,
   listAppObiexTrades,
   previewAppObiexBuy,
-  previewAppObiexConvert,
   previewAppObiexSell,
   previewAppObiexSend,
 } from '../../services/obiex/obiex.app.service';
+import {
+  executeAppObiexSwap,
+  listAppObiexSwapPairs,
+  previewAppObiexSwap,
+} from '../../services/obiex/obiex.swap.service';
+import ApiResponse from '../../utils/ApiResponse';
+import ApiError from '../../utils/ApiError';
 
 function userId(req: Request): number {
   return Number((req as any).user?.id || (req as any)._user?.id);
@@ -141,31 +145,79 @@ export const executeObiexSellController = async (
   }
 };
 
-export const previewObiexConvertController = async (
+export const listObiexSwapPairsController = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const data = await previewAppObiexConvert(userId(req), req.body || {});
-    res.json({ status: 'success', data });
+    const data = await listAppObiexSwapPairs();
+    return new ApiResponse(200, data, 'Swap pairs').send(res);
   } catch (e) {
-    next(e);
+    if (e instanceof ApiError) return next(e);
+    return next(e);
   }
 };
 
-export const executeObiexConvertController = async (
+export const previewObiexSwapController = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const data = await executeAppObiexConvert(userId(req), req.body || {});
-    res.json({ status: 'success', data });
+    const body = req.body || {};
+    const sourceCurrency = body.sourceCurrency || body.fromCurrency;
+    const targetCurrency = body.targetCurrency || body.toCurrency;
+    const sourceAmount = body.sourceAmount || body.fromAmount;
+    if (!sourceCurrency || !targetCurrency || sourceAmount == null || sourceAmount === '') {
+      throw ApiError.badRequest(
+        'sourceCurrency (or fromCurrency), targetCurrency (or toCurrency), and sourceAmount (or fromAmount) are required'
+      );
+    }
+    const data = await previewAppObiexSwap(userId(req), {
+      sourceCurrency: String(sourceCurrency),
+      targetCurrency: String(targetCurrency),
+      sourceAmount: String(sourceAmount),
+    });
+    return new ApiResponse(200, data, 'Swap preview').send(res);
   } catch (e) {
-    next(e);
+    if (e instanceof ApiError) return next(e);
+    return next(e);
   }
 };
+
+/** @deprecated alias — use previewObiexSwapController */
+export const previewObiexConvertController = previewObiexSwapController;
+
+export const executeObiexSwapController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const body = req.body || {};
+    const sourceCurrency = body.sourceCurrency || body.fromCurrency;
+    const targetCurrency = body.targetCurrency || body.toCurrency;
+    const sourceAmount = body.sourceAmount || body.fromAmount;
+    if (!sourceCurrency || !targetCurrency || sourceAmount == null || sourceAmount === '') {
+      throw ApiError.badRequest(
+        'sourceCurrency (or fromCurrency), targetCurrency (or toCurrency), and sourceAmount (or fromAmount) are required'
+      );
+    }
+    const data = await executeAppObiexSwap(userId(req), {
+      sourceCurrency: String(sourceCurrency),
+      targetCurrency: String(targetCurrency),
+      sourceAmount: String(sourceAmount),
+    });
+    return new ApiResponse(200, data, 'Swap completed').send(res);
+  } catch (e) {
+    if (e instanceof ApiError) return next(e);
+    return next(e);
+  }
+};
+
+/** @deprecated alias — use executeObiexSwapController */
+export const executeObiexConvertController = executeObiexSwapController;
 
 export const previewObiexSendController = async (
   req: Request,

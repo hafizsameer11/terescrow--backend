@@ -31,12 +31,14 @@ export async function processTier2BushaSubmission(submissionId: number): Promise
     return;
   }
 
-  // Mark ready for Busha (legacy column kept for older readers; no Prembly call).
+  // Save identity data and keep Tier 2 pending for admin review.
+  // Do NOT create / push a Busha customer — platform is shifting to Obiex.
+  // Users who already have a Busha account keep access via existing customer row.
   await prisma.kycStateTwo.update({
     where: { id: submissionId },
     data: {
       premblyVerified: true,
-      reason: 'Submitted — awaiting crypto KYC approval',
+      reason: 'Submitted — awaiting admin review',
       premblyVerifiedFirstName: firstName,
       premblyVerifiedLastName: lastName,
       premblyVerifiedDob: dob,
@@ -52,8 +54,6 @@ export async function processTier2BushaSubmission(submissionId: number): Promise
       ...(phone ? { phoneNumber: phone } : {}),
     },
   });
-
-  await queueBushaSubmission(user.id);
 }
 
 async function rejectTier2Submission(
@@ -72,32 +72,19 @@ async function rejectTier2Submission(
   await notifyUserKycRejected(userId, 'tier2', reason);
 }
 
-async function queueBushaSubmission(userId: number): Promise<void> {
-  try {
-    const { getBushaConfigRow } = await import('../busha/busha.trade.service');
-    const { bushaConfig } = await import('../busha/busha.config');
-    const settings = await getBushaConfigRow();
-    if (!bushaConfig.isConfigured() || !settings?.isActive) {
-      console.warn('[KYC→Busha] Busha not active — Tier 2 stays pending after submit');
-      return;
-    }
-    const { startBushaKycFromTerescrowProfile } = await import('../busha/busha.kyc.service');
-    await startBushaKycFromTerescrowProfile(userId);
-  } catch (err: any) {
-    console.warn('[KYC→Busha] queue after Tier 2 submit failed:', err?.message || err);
-  }
-}
-
 /** @deprecated Use enqueueTier2BushaProcessing */
 export function enqueueTier2PremblyProcessing(submissionId: number): void {
   enqueueTier2BushaProcessing(submissionId);
 }
 
-/** Fire-and-forget async Tier 2 → Busha processing. */
+/**
+ * Fire-and-forget: persist Tier 2 fields, leave state pending for admin.
+ * No Busha customer create / submit (Obiex migration).
+ */
 export function enqueueTier2BushaProcessing(submissionId: number): void {
   setImmediate(() => {
     processTier2BushaSubmission(submissionId).catch((err) => {
-      console.error(`[KYC Tier2] async Busha processing failed for submission ${submissionId}:`, err);
+      console.error(`[KYC Tier2] async processing failed for submission ${submissionId}:`, err);
     });
   });
 }

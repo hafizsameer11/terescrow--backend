@@ -25,7 +25,6 @@ export const loginController = async (
     next: NextFunction
 ) => {
     try {
-        console.log(req.body);
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
             throw ApiError.badRequest(
@@ -35,7 +34,6 @@ export const loginController = async (
         }
 
         const { email, password }: { email: string; password: string } = req.body;
-        console.log(email);
         if (!email || !password) {
             return next(ApiError.badRequest('Please enter valid credentials'));
         }

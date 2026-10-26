@@ -24,9 +24,6 @@ const registerCustomerController = async (
   next: NextFunction
 ) => {
   try {
-    console.log(req.body);
-    console.log(req.file);
-
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       throw ApiError.badRequest(
@@ -34,7 +31,6 @@ const registerCustomerController = async (
         errors.array()
       );
     }
-    console.log(req.body);
     const { termsAccepted = 'false' } = req.body;
     const isTermsAccepted = termsAccepted === 'true';
 
@@ -56,7 +52,6 @@ const registerCustomerController = async (
       referralCode: referralCodeFromBody,
       referral_code: referralCodeSnakeCase,
     } = req.body;
-    console.log(req.body)
     const profilePicture = req.file ? req.file.filename : '';
 
     const normalizedUsername = String(username || '').trim();
@@ -89,7 +84,6 @@ const registerCustomerController = async (
       );
     }
 
-    console.log(req.body);
     const hashedPassword = await hashPassword(password);
     const selectCountry = await prisma.country.findUnique({
       where: {
@@ -574,7 +568,6 @@ export const setNewPasswordController = async (
   next: NextFunction
 ) => {
   try {
-    console.log(req.body);
     //get the userId and new passowrd
     const { userId, password } = req.body;
     const hashedPassword = await hashPassword(password);
@@ -645,7 +638,6 @@ export const editProfileController = async (
     const existingUser = await prisma.user.findUnique({
       where: { id: user.id },
     });
-    console.log(req.body)
     if (!existingUser) {
       return next(ApiError.notFound('User not found'));
     }

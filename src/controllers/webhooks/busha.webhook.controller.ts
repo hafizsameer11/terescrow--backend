@@ -4,6 +4,7 @@ import { prisma } from '../../utils/prisma';
 import { settleBushaTradeIfNeeded } from '../../services/busha/busha.settlement.service';
 import { BUSHA_COMPLETED_STATUSES } from '../../services/busha/busha.trade.service';
 import { recordBushaExternalDepositFromWebhook } from '../../services/busha/busha.deposit.webhook.service';
+import { extractBushaRejectionReason } from '../../services/busha/busha.kyc.service';
 
 const bushaCustomerModel = (prisma as any).bushaCustomer;
 const bushaTradeLogModel = (prisma as any).bushaTradeLog;
@@ -124,12 +125,15 @@ async function handleCustomerEvent(event: string, data: any) {
           ? 'in_review'
           : undefined;
 
+  const rejectReason =
+    status === 'rejected' ? extractBushaRejectionReason(data) : null;
+
   if (appStatus) {
     await bushaKycApplicationModel.updateMany({
       where: { userId: customer.userId },
       data: {
         status: appStatus,
-        errorMessage: status === 'rejected' ? 'Verification was declined' : null,
+        errorMessage: status === 'rejected' ? rejectReason : null,
       },
     });
   }
@@ -146,7 +150,7 @@ async function handleCustomerEvent(event: string, data: any) {
       const { markTier2RejectedAfterBusha } = await import(
         '../../services/kyc/terescrow.kyc.profile.service'
       );
-      await markTier2RejectedAfterBusha(customer.userId, 'Identity verification was declined');
+      await markTier2RejectedAfterBusha(customer.userId, rejectReason!);
     }
   } catch (err: any) {
     console.error(

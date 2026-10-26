@@ -1,6 +1,13 @@
-import { ChatStatus, ChatType, PrismaClient, UserRoles } from '@prisma/client';
+import {
+  ChatStatus,
+  ChatType,
+  Prisma,
+  PrismaClient,
+  UserRoles,
+} from '@prisma/client';
 
 const primsa = new PrismaClient();
+type DbClient = PrismaClient | Prisma.TransactionClient;
 
 const getAgentDepartments = async (
   userId: number
@@ -42,6 +49,37 @@ const getAgentDepartments = async (
 };
 
 
+/** Active trade chat — do not open another for same dept/category. */
+const ACTIVE_CHAT_STATUSES: ChatStatus[] = [
+  ChatStatus.pending,
+  ChatStatus.processing,
+];
+
+async function findActiveCustomerChat(
+  customerId: number,
+  departmentId: number,
+  categoryId: number,
+  db: DbClient = primsa
+) {
+  return db.chat.findFirst({
+    where: {
+      AND: [
+        { participants: { some: { userId: customerId } } },
+        {
+          chatDetails: {
+            AND: [
+              { departmentId },
+              { categoryId },
+              { status: { in: ACTIVE_CHAT_STATUSES } },
+            ],
+          },
+        },
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
 const createCustomerToAgentChat = async (
   agentId: number,
   customerId: number,
@@ -53,27 +91,43 @@ const createCustomerToAgentChat = async (
       return null;
     }
 
-    const newChat = await primsa.chat.create({
-      data: {
-        chatType: ChatType.customer_to_agent,
-        participants: {
-          createMany: {
-            data: [{ userId: agentId }, { userId: customerId }],
+    // Re-check inside a transaction so double requestAssignment (blank twin
+    // chats) returns the existing active chat instead of creating another.
+    const chatId = await primsa.$transaction(async (tx) => {
+      const existing = await findActiveCustomerChat(
+        customerId,
+        departmentId,
+        categoryId,
+        tx
+      );
+      if (existing) {
+        console.log(
+          `[createChat] reuse active chat=${existing.id} customer=${customerId} dept=${departmentId} cat=${categoryId}`
+        );
+        return existing.id.toString();
+      }
+
+      const newChat = await tx.chat.create({
+        data: {
+          chatType: ChatType.customer_to_agent,
+          participants: {
+            createMany: {
+              data: [{ userId: agentId }, { userId: customerId }],
+            },
+          },
+          chatDetails: {
+            create: {
+              departmentId,
+              categoryId,
+              status: ChatStatus.pending,
+            },
           },
         },
-        chatDetails: {
-          create: {
-            departmentId,
-            categoryId,
-            status: ChatStatus.pending,
-          },
-        },
-      },
-    });
-    if (newChat) {
+      });
       return newChat.id.toString();
-    }
-    return null;
+    });
+
+    return chatId;
   } catch (error) {
     console.log(error);
     return null;
@@ -86,22 +140,13 @@ const checkPendingChat = async (
   categoryId: number
 ): Promise<string | null> => {
   try {
-    const chat = await primsa.chat.findFirst({
-      where: {
-        AND: [
-          { participants: { some: { userId: customerId } } },
-          {
-            chatDetails: {
-              AND: [
-                { departmentId: departmentId },
-                { categoryId: categoryId },
-                { status: ChatStatus.pending },
-              ],
-            },
-          },
-        ],
-      },
-    });
+    // Treat pending + processing as "already open" so customers cannot spawn
+    // a second sell chat while the first is still being worked.
+    const chat = await findActiveCustomerChat(
+      customerId,
+      departmentId,
+      categoryId
+    );
     if (chat) {
       return chat.id.toString();
     }

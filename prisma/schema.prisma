@@ -1833,6 +1833,33 @@ model TatumRawWebhook {
   @@map("tatum_raw_webhooks")
 }
 
+// Raw Obiex webhook storage (deposits / withdrawals / collections)
+model ObiexRawWebhook {
+  id           Int       @id @default(autoincrement())
+  eventType    String?   @map("event_type") @db.VarChar(40)
+  status       String?   @db.VarChar(40)
+  reference    String?   @db.VarChar(120)
+  transactionId String?  @map("transaction_id") @db.VarChar(120)
+  signatureOk  Boolean   @default(false) @map("signature_ok")
+  rawData      String    @map("raw_data") @db.LongText
+  headers      String?   @db.Text
+  ipAddress    String?   @map("ip_address") @db.VarChar(255)
+  userAgent    String?   @map("user_agent") @db.VarChar(500)
+  processed    Boolean   @default(false)
+  processedAt  DateTime? @map("processed_at")
+  resultJson   String?   @map("result_json") @db.Text
+  errorMessage String?   @map("error_message") @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([processed])
+  @@index([eventType])
+  @@index([reference])
+  @@index([transactionId])
+  @@index([createdAt])
+  @@map("obiex_raw_webhooks")
+}
+
 model ScamContractBlocklist {
   id              Int      @id @default(autoincrement())
   blockchain      String   @db.VarChar(50)

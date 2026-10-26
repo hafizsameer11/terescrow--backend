@@ -65,7 +65,14 @@ async function obiexRequest<T = any>(
   }
 
   if (!res.ok) {
+    const detail = Array.isArray(json?.errors)
+      ? json.errors
+          .map((e: any) => e?.message || e?.msg || e)
+          .filter(Boolean)
+          .join('; ')
+      : '';
     const msg =
+      detail ||
       json?.message ||
       json?.error ||
       json?.data?.message ||
@@ -120,4 +127,7 @@ export const obiexClient = {
     obiexRequest('POST', '/ngn-payments/deposits/accounts/issue', {
       amount: payload.amount,
     }),
+  /** Live transaction lookup — used to re-verify deposit webhooks. */
+  getTransaction: (transactionId: string) =>
+    obiexRequest('GET', `/transactions/${encodeURIComponent(transactionId)}`),
 };

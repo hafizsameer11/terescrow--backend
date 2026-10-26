@@ -3,7 +3,7 @@
 const ICON_CODES = new Set([
   'AAVE', 'ACT', 'ADA', 'ALGO', 'ALICE', 'APE', 'ARB', 'ARKM', 'ASTER', 'ATOM',
   'AVAX', 'AXS', 'BCH', 'BNB', 'BONK', 'BTC', 'BTT', 'C98', 'CAKE', 'CHZ',
-  'CNGN', 'DOGE', 'DOGS', 'DOT', 'ENJ', 'ENS', 'ETH', 'FIL', 'FLOKI', 'GALA',
+  'CNGN', 'DAI', 'DOGE', 'DOGS', 'DOT', 'EIGEN', 'ENJ', 'ENS', 'ETH', 'FIL', 'FLOKI', 'GALA',
   'GBP', 'GRAM', 'GRASS', 'HIVE', 'HOME', 'HYPE', 'JUP', 'KAITO', 'KES', 'LINK',
   'LTC', 'LUNA', 'LUNC', 'MANA', 'MATIC', 'MELANIA', 'MEME', 'MET', 'NGN', 'NGNT',
   'NGNX', 'NOT', 'PENGU', 'PEPE', 'PI', 'PLUME', 'PNUT', 'POL', 'RLUSD', 'RMT',

@@ -49,6 +49,10 @@ export async function creditObiexAsset(
   });
 }
 
+/**
+ * Atomic debit: single UPDATE … WHERE available >= amount.
+ * Prevents double-click / concurrent overspend (check-then-act race).
+ */
 export async function debitObiexAsset(
   userId: number,
   currency: string,
@@ -58,13 +62,22 @@ export async function debitObiexAsset(
     throw ApiError.badRequest('debit amount must be > 0');
   }
   const code = String(currency).toUpperCase();
-  const row = await getOrCreateObiexAsset(userId, code);
-  const available = toNum(row.userAvailable);
-  if (available + 1e-12 < amount) {
+  await getOrCreateObiexAsset(userId, code);
+  const amt = new Decimal(String(amount));
+  const result = await assetModel().updateMany({
+    where: {
+      userId,
+      currency: code,
+      userAvailable: { gte: amt },
+    },
+    data: {
+      userAvailable: { decrement: amt },
+    },
+  });
+  if (result.count !== 1) {
     throw ApiError.badRequest(`Insufficient ${code} balance`);
   }
-  return assetModel().update({
+  return assetModel().findUnique({
     where: { userId_currency: { userId, currency: code } },
-    data: { userAvailable: { decrement: new Decimal(amount) } },
   });
 }

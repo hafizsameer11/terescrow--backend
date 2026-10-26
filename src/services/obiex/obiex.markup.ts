@@ -164,11 +164,13 @@ export function splitObiexSellUserCredit(params: {
   grossPlatformProfitNgn: number;
 } {
   const obiexNgn = roundNgn(params.obiexNgn);
-  const afterPct = roundNgn(userSellCreditNgn(obiexNgn, params.sellMarkupPercent));
+  // Never bonus the user above Obiex proceeds (ignore accidental positive %).
+  const pct = Math.min(0, parseSignedPercent(params.sellMarkupPercent));
+  const afterPct = Math.min(roundNgn(userSellCreditNgn(obiexNgn, pct)), obiexNgn);
   // percentSpread: positive when we keep money (sell % stored as negative signed in resolve)
   const percentSpreadNgn = roundNgn(obiexNgn - afterPct);
   const flatFeeNgn = Math.min(parseFlatFeeNgn(params.sellFlatFeeNgn), Math.max(0, afterPct));
-  const userNgn = roundNgn(Math.max(0, afterPct - flatFeeNgn));
+  const userNgn = roundNgn(Math.max(0, Math.min(afterPct - flatFeeNgn, obiexNgn)));
   const grossPlatformProfitNgn = roundNgn(obiexNgn - userNgn);
   return { obiexNgn, flatFeeNgn, percentSpreadNgn, userNgn, grossPlatformProfitNgn };
 }

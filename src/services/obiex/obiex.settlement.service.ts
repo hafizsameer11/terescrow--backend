@@ -43,9 +43,18 @@ export async function handleObiexWithdrawalWebhook(event: any) {
 
   if (status === 'FAILED' || status === 'REJECTED') {
     if (trade.status !== 'failed' && trade.userId) {
-      const amount = parseFloat(String(trade.sourceAmount));
-      if (Number.isFinite(amount) && amount > 0) {
-        await creditObiexAsset(trade.userId, trade.sourceCurrency, amount);
+      // Refund full ledger debit (amount + fees), not only sourceAmount.
+      const fees = (trade.providerResponse as any)?.fees;
+      const totalDebit = parseFloat(String(fees?.totalDebit ?? ''));
+      const sourceAmt = parseFloat(String(trade.sourceAmount));
+      const refund =
+        Number.isFinite(totalDebit) && totalDebit > 0
+          ? totalDebit
+          : Number.isFinite(sourceAmt) && sourceAmt > 0
+            ? sourceAmt
+            : 0;
+      if (refund > 0) {
+        await creditObiexAsset(trade.userId, trade.sourceCurrency, refund);
       }
     }
     await tradeModel().update({
