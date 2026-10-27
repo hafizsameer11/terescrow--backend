@@ -291,12 +291,13 @@ export const createReloadlyUtilityBillOrderController = async (
     let orderStatus: number | null = null;
 
     try {
-      // DEBIT USER WALLET FIRST
+      // ALWAYS debit user wallet first — before provider call
       await fiatWalletService.debitWallet(
         wallet.id,
         amountNum,
         transaction.id,
-        `Utility payment: ${biller.name} - ${rechargeAccount} (reloadly)`
+        `Utility payment: ${biller.name} - ${rechargeAccount} (reloadly)`,
+        { leaveTransactionPending: true }
       );
 
       // Create Reloadly utility payment

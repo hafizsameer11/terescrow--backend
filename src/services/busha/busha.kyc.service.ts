@@ -7,11 +7,11 @@ import { bushaClient } from './busha.client';
 import { assertBushaAppActive, submitBushaCustomerKyc, verifyBushaCustomer } from './busha.trade.service';
 import {
   getTerescrowKycProfileForBusha,
-  markTier2ApprovedAfterBusha,
   markTier2RejectedAfterBusha,
   readUploadFileAsBase64,
   splitAddressForBusha,
 } from '../kyc/terescrow.kyc.profile.service';
+import { assertNinAvailable } from '../kyc/kyc.identity.guard.service';
 
 const bushaCustomerModel = (prisma as any).bushaCustomer;
 const bushaKycApplicationModel = (prisma as any).bushaKycApplication;
@@ -179,13 +179,8 @@ export async function getBushaKycStatusForUser(userId: number) {
   const needsKyc = !canTrade;
   const inProgress = ['pending', 'processing', 'submitted', 'in_review'].includes(appStatus);
 
-  if (canTrade) {
-    try {
-      await markTier2ApprovedAfterBusha(userId);
-    } catch {
-      // non-blocking
-    }
-  }
+  // Do NOT auto-approve Terescrow Tier 2 from Busha status.
+  // Existing Busha customers keep trading via canTrade; Tier 2 is admin-only (Obiex migration).
 
   let kycStatus: string = 'none';
   if (canTrade) kycStatus = 'active';
@@ -347,6 +342,8 @@ export async function startBushaKycForUser(userId: number, input: StartBushaKycI
     throw ApiError.badRequest('A real selfie photo is required');
   }
 
+  await assertNinAvailable(nin, userId);
+
   const applicationId = uuidv4();
   const selfiePath = writeSelfieFile(applicationId, selfieBase64);
 
@@ -409,11 +406,11 @@ async function syncSubmittedBushaKycStatus(limit = 10) {
       });
 
       if (status === 'active') {
+        // Keep Busha app/customer active for trading — do not auto-approve Terescrow Tier 2.
         await bushaKycApplicationModel.update({
           where: { id: app.id },
           data: { status: 'active', errorMessage: null },
         });
-        await markTier2ApprovedAfterBusha(app.userId);
       } else if (status === 'rejected') {
         const rejectReason = extractBushaRejectionReason(remote);
         await bushaKycApplicationModel.update({
@@ -479,29 +476,12 @@ async function healOrphanedBushaKycOutcomes(limit = 20) {
     }
   }
 
-  const activeApps = await bushaKycApplicationModel.findMany({
-    where: { status: 'active' },
-    orderBy: { updatedAt: 'desc' },
-    take: limit,
-  });
-
-  for (const app of activeApps) {
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: app.userId },
-        select: { kycTier2Verified: true },
-      });
-      if (user?.kycTier2Verified) continue;
-      await markTier2ApprovedAfterBusha(app.userId);
-    } catch (err: any) {
-      console.error(`[Busha KYC] approve heal failed for user ${app.userId}:`, err?.message || err);
-    }
-  }
+  // Active Busha apps: leave Terescrow Tier 2 alone (admin-only approval).
 }
 
 /**
  * No new Busha provisioning and no remote KYC API calls from the poller
- * (avoids paid / quota usage). Local heal only for already-recorded outcomes.
+ * (avoids paid / quota usage). Local heal only for rejected outcomes.
  */
 export async function pollPendingBushaKyc(limit = 10) {
   await healOrphanedBushaKycOutcomes(limit);

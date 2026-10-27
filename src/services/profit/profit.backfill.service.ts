@@ -2,6 +2,7 @@ import { CryptoTxStatus, CryptoTxType, Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import profitLedgerService from './profit.ledger.service';
 import { resolveCryptoSpreadProfitRatesFromStored } from './profit.crypto.rates';
+import { recordBillPaymentPlatformProfit } from './profit.bill.commission.service';
 
 export type LedgerSyncDryOptions = {
   limit?: number;
@@ -246,10 +247,17 @@ class ProfitBackfillService {
         skipped += 1;
         continue;
       }
-      const ledgerType = type === 'WITHDRAW' ? 'WITHDRAWAL' : type;
+      const ledgerType =
+        type === 'WITHDRAW'
+          ? 'WITHDRAWAL'
+          : type === 'BILL_PAYMENT' || type === 'BILLPAYMENT' || type === 'BILL'
+            ? 'BILL_PAYMENTS'
+            : type;
       const eventKey = `FIAT_TRANSACTION:${tx.id}:${ledgerType}`;
       const existing = await prisma.profitLedger.findUnique({ where: { eventKey } });
-      if (existing) {
+      // Bill rows: refresh from provider commission even if a zero-profit placeholder exists.
+      const isBill = ledgerType === 'BILL_PAYMENTS';
+      if (existing && !(isBill && Number(existing.profitNgn) === 0)) {
         skipped += 1;
         continue;
       }
@@ -259,6 +267,39 @@ class ProfitBackfillService {
       }
 
       const asOf = tx.completedAt ?? tx.createdAt;
+      if (isBill) {
+        const bp = await prisma.billPayment.findFirst({
+          where: { transactionId: tx.id },
+          select: {
+            id: true,
+            provider: true,
+            billType: true,
+            providerResponse: true,
+          },
+        });
+        if (bp) {
+          const recorded = await recordBillPaymentPlatformProfit({
+            fiatTransactionId: tx.id,
+            billPaymentId: bp.id,
+            amountNgn: Number(tx.amount),
+            billType: bp.billType || tx.billType,
+            provider: bp.provider,
+            providerResponse: bp.providerResponse,
+            merchantFeeNgn: Number(tx.fees) || 0,
+            asOf,
+          });
+          if (recorded && recorded.profitNgn > 0) {
+            created += 1;
+            continue;
+          }
+        }
+        // No commission/merchant fee → keep/skip zero placeholder (don't invent profit)
+        if (existing) {
+          skipped += 1;
+          continue;
+        }
+      }
+
       await profitLedgerService.record({
         sourceTransactionType: 'FIAT_TRANSACTION',
         sourceTransactionId: tx.id,

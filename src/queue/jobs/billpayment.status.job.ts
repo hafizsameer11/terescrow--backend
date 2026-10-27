@@ -5,6 +5,7 @@ import { PalmPayOrderStatus } from '../../types/palmpay.types';
 import palmpayLogger from '../../utils/palmpay.logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { creditReferralCommission, ReferralService } from '../../services/referral/referral.commission.service';
+import { recordBillPaymentPlatformProfit } from '../../services/profit/profit.bill.commission.service';
 
 /**
  * Bill Payment Status Check Job Data
@@ -265,6 +266,17 @@ export async function processBillPaymentStatusJob(
     if (newStatus === 'completed' && billPayment.userId) {
       creditReferralCommission(billPayment.userId, ReferralService.BILL_PAYMENT, Number(billPayment.amount))
         .catch((err) => console.error('[BillPaymentJob] Referral commission error:', err));
+      const fiatFees = billPayment.transaction ? Number((billPayment.transaction as any).fees) : 0;
+      recordBillPaymentPlatformProfit({
+        fiatTransactionId: billPayment.transactionId,
+        billPaymentId: billPayment.id,
+        amountNgn: Number(billPayment.amount),
+        billType: billPayment.billType || billPayment.sceneCode,
+        provider: billPayment.provider,
+        providerResponse: orderStatus,
+        merchantFeeNgn: Number.isFinite(fiatFees) ? fiatFees : 0,
+        asOf: orderStatus.completedTime ? new Date(orderStatus.completedTime) : new Date(),
+      }).catch((err) => console.error('[BillPaymentJob] Profit ledger error:', err));
     }
 
     palmpayLogger.transactionUpdate({

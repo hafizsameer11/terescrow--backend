@@ -13,6 +13,27 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { PalmPaySceneCode, PalmPayOrderStatus } from '../../types/palmpay.types';
 import { creditReferralCommission, ReferralService } from '../../services/referral/referral.commission.service';
 import { computeBillPaymentCharge } from '../../services/admin/platform.operation.settings.service';
+import { redisConfig } from '../../config/redis.config';
+import { palmpayMerchantService } from '../../services/palmpay/palmpay.merchant.service';
+import { sendSystemEmail } from '../../utils/systemEmail';
+import { assertMoneyOpRateLimit } from '../../utils/money.rate.limit';
+import { recordBillPaymentPlatformProfit } from '../../services/profit/profit.bill.commission.service';
+
+const OPS_ALERT_EMAIL = process.env.OPS_ALERT_EMAIL || 'hmstech11@gmail.com';
+
+async function alertRedisDown(context: string, err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(`[${context}] Redis unavailable:`, msg);
+  sendSystemEmail(
+    OPS_ALERT_EMAIL,
+    `[Tercescrow] Redis down — ${context}`,
+    `<p><b>Redis lock unavailable</b> on Tercescrow.</p>
+     <p>Context: <code>${context}</code></p>
+     <p>Error: <code>${msg}</code></p>
+     <p>Fallback: continuing with DB pending-check / wallet row-lock only.</p>
+     <p>Time: ${new Date().toISOString()}</p>`
+  ).catch(() => undefined);
+}
 
 function mapStroWalletStatus(status: 'completed' | 'pending' | 'failed'): number {
   if (status === 'completed') return 2;
@@ -31,6 +52,9 @@ async function completeBillPaymentIfSuccessful(params: {
   providerStatus: string;
   providerResponse: unknown;
   billReference?: string | null;
+  provider?: string | null;
+  billType?: string | null;
+  merchantFeeNgn?: number | null;
 }) {
   await prisma.fiatTransaction.update({
     where: { id: params.transactionId },
@@ -52,20 +76,31 @@ async function completeBillPaymentIfSuccessful(params: {
   });
 
   if (params.orderStatus === 2) {
+    const completedAt = new Date();
     await prisma.fiatTransaction.update({
       where: { id: params.transactionId },
-      data: { status: 'completed', completedAt: new Date() },
+      data: { status: 'completed', completedAt },
     });
     await prisma.billPayment.update({
       where: { id: params.billPaymentId },
       data: {
         status: 'completed',
-        completedAt: new Date(),
+        completedAt,
         billReference: params.billReference || params.orderNo || undefined,
       },
     });
     creditReferralCommission(params.userId, ReferralService.BILL_PAYMENT, params.amountNum)
       .catch((err) => console.error('[BillPayment] Referral commission error:', err));
+    recordBillPaymentPlatformProfit({
+      fiatTransactionId: params.transactionId,
+      billPaymentId: params.billPaymentId,
+      amountNgn: params.amountNum,
+      billType: params.billType,
+      provider: params.provider,
+      providerResponse: params.providerResponse,
+      merchantFeeNgn: params.merchantFeeNgn,
+      asOf: completedAt,
+    }).catch((err) => console.error('[BillPayment] Profit ledger error:', err));
   }
 }
 
@@ -274,6 +309,8 @@ export const createBillOrderController = async (
   res: Response,
   next: NextFunction
 ) => {
+  let billLockKey: string | null = null;
+  let billLockHeld = false;
   try {
     const user = req.body._user;
     const { sceneCode, billerId, itemId, rechargeAccount, amount, pin, provider = 'palmpay', phone, itemName } = req.body;
@@ -281,6 +318,44 @@ export const createBillOrderController = async (
     // Validate inputs
     if (!sceneCode || typeof sceneCode !== 'string') {
       return next(ApiError.badRequest('sceneCode is required and must be a string'));
+    }
+
+    // Rate limit money ops (blocks rapid sequential + burst spam)
+    try {
+      await assertMoneyOpRateLimit({ userId: user.id, kind: 'bill', sceneCode });
+    } catch (rateErr: any) {
+      if (rateErr instanceof ApiError) return next(rateErr);
+      throw rateErr;
+    }
+
+    // One in-flight bill payment per user (blocks parallel betting / refund races)
+    billLockKey = `billpay:lock:user:${user.id}`;
+    try {
+      const redis = redisConfig.getClient();
+      const got = await redis.set(billLockKey, String(Date.now()), 'EX', 120, 'NX');
+      if (got !== 'OK') {
+        return next(
+          ApiError.badRequest(
+            'Another bill payment is already in progress. Please wait for it to finish.'
+          )
+        );
+      }
+      billLockHeld = true;
+    } catch (lockErr: any) {
+      // Redis down: keep service up; DB pending-check + atomic wallet debit still protect
+      await alertRedisDown(`billpay_lock:${sceneCode}`, lockErr);
+      billLockHeld = false;
+    }
+
+    const inFlight = await prisma.billPayment.count({
+      where: { userId: user.id, status: 'pending' },
+    });
+    if (inFlight > 0) {
+      return next(
+        ApiError.badRequest(
+          'You already have a pending bill payment. Please wait for it to complete.'
+        )
+      );
     }
 
     const actualProvider = resolveBillPaymentProvider(sceneCode, typeof provider === 'string' ? provider : undefined);
@@ -432,13 +507,30 @@ export const createBillOrderController = async (
     let requestId: string | null = null;
 
     try {
-      // DEBIT USER WALLET FIRST (provider amount + merchant fee)
+      // ALWAYS debit user wallet first — before provider/merchant calls
       await fiatWalletService.debitWallet(
         wallet.id,
         totalDebitNgn,
         transaction.id,
-        `Bill payment: ${sceneCode} - ${billerId} (${actualProvider})`
+        `Bill payment: ${sceneCode} - ${billerId} (${actualProvider})`,
+        { leaveTransactionPending: true }
       );
+
+      // After debit: soft merchant-float guard (refund path runs if this throws)
+      if (actualProvider === 'palmpay') {
+        try {
+          const mBal = await palmpayMerchantService.queryMerchantBalance();
+          const available = Number(mBal?.availableBalanceNgn);
+          if (Number.isFinite(available) && available + 1e-9 < amountNum) {
+            throw new Error(
+              'Service temporarily unavailable due to low settlement balance. Please try again later.'
+            );
+          }
+        } catch (balErr: any) {
+          if (String(balErr?.message || '').includes('low settlement balance')) throw balErr;
+          console.warn('[BillPayment] merchant balance check skipped:', balErr?.message || balErr);
+        }
+      }
 
       if (actualProvider === 'strowallet') {
         const contactPhone = (phone || userRecord?.phoneNumber || rechargeAccount).toString();
@@ -518,6 +610,9 @@ export const createBillOrderController = async (
             (stroResult as { token?: string | null; pin?: string | null }).token ||
             (stroResult as { pin?: string | null }).pin ||
             null,
+          provider: 'strowallet',
+          billType: sceneCode,
+          merchantFeeNgn: feeNgn,
         });
       } else if (actualProvider === 'vtpass') {
         // Get meterType for electricity
@@ -568,11 +663,12 @@ export const createBillOrderController = async (
 
         // If order status is SUCCESS (2), mark transaction as completed
         if (vtpassResponse.orderStatus === 2) {
+          const completedAt = new Date();
           await prisma.fiatTransaction.update({
             where: { id: transaction.id },
             data: {
               status: 'completed',
-              completedAt: new Date(),
+              completedAt,
             },
           });
 
@@ -580,13 +676,23 @@ export const createBillOrderController = async (
             where: { id: billPayment.id },
             data: {
               status: 'completed',
-              completedAt: new Date(),
+              completedAt,
               billReference: orderNo,
             },
           });
 
           creditReferralCommission(user.id, ReferralService.BILL_PAYMENT, amountNum)
             .catch((err) => console.error('[BillPayment] Referral commission error:', err));
+          recordBillPaymentPlatformProfit({
+            fiatTransactionId: transaction.id,
+            billPaymentId: billPayment.id,
+            amountNgn: amountNum,
+            billType: sceneCode,
+            provider: 'vtpass',
+            providerResponse: { ...(typeof vtpassResponse === 'object' ? vtpassResponse : {}), ...feeMeta },
+            merchantFeeNgn: feeNgn,
+            asOf: completedAt,
+          }).catch((err) => console.error('[BillPayment] Profit ledger error:', err));
         }
       } else {
         // PalmPay flow
@@ -633,13 +739,14 @@ export const createBillOrderController = async (
           },
         });
 
-        // If order status is SUCCESS (2), mark transaction as completed
+        // SUCCESS = 2. Any other status must fail + refund (was leaving pending + keeping debit)
         if (palmpayResponse.orderStatus === 2) {
+          const completedAt = new Date();
           await prisma.fiatTransaction.update({
             where: { id: transaction.id },
             data: {
               status: 'completed',
-              completedAt: new Date(),
+              completedAt,
             },
           });
 
@@ -647,32 +754,39 @@ export const createBillOrderController = async (
             where: { id: billPayment.id },
             data: {
               status: 'completed',
-              completedAt: new Date(),
+              completedAt,
               billReference: palmpayResponse.orderNo,
             },
           });
 
           creditReferralCommission(user.id, ReferralService.BILL_PAYMENT, amountNum)
             .catch((err) => console.error('[BillPayment] Referral commission error:', err));
+          recordBillPaymentPlatformProfit({
+            fiatTransactionId: transaction.id,
+            billPaymentId: billPayment.id,
+            amountNgn: amountNum,
+            billType: sceneCode,
+            provider: 'palmpay',
+            providerResponse: { ...(typeof palmpayResponse === 'object' ? palmpayResponse : {}), ...feeMeta },
+            merchantFeeNgn: feeNgn,
+            asOf: completedAt,
+          }).catch((err) => console.error('[BillPayment] Profit ledger error:', err));
+        } else {
+          throw new Error(
+            `PalmPay bill payment not successful (orderStatus=${palmpayResponse.orderStatus})`
+          );
         }
       }
     } catch (error: any) {
-      // If provider order creation fails, REFUND the wallet
+      // If provider order creation fails, REFUND the wallet (atomic credit — no race)
       try {
-        // Get current wallet balance
-        const currentWallet = await prisma.fiatWallet.findUnique({
-          where: { id: wallet.id },
+        const alreadyRefunded = await prisma.billPayment.findUnique({
+          where: { id: billPayment.id },
+          select: { refunded: true },
         });
+        if (!alreadyRefunded?.refunded) {
+          await fiatWalletService.creditWalletAtomic(wallet.id, totalDebitNgn);
 
-        if (currentWallet) {
-          // Refund the full debit (provider amount + merchant fee)
-          const refundAmount = new Decimal(currentWallet.balance).plus(totalDebitNgn);
-          await prisma.fiatWallet.update({
-            where: { id: wallet.id },
-            data: { balance: refundAmount },
-          });
-
-          // Create refund transaction record
           await prisma.fiatTransaction.create({
             data: {
               id: uuidv4(),
@@ -694,6 +808,15 @@ export const createBillOrderController = async (
               }),
             },
           });
+
+          await prisma.billPayment.update({
+            where: { id: billPayment.id },
+            data: {
+              refunded: true,
+              refundedAt: new Date(),
+              refundReason: String(error.message || 'provider_failed').slice(0, 190),
+            },
+          }).catch(() => undefined);
         }
       } catch (refundError) {
         console.error(`Failed to refund wallet after ${provider} error:`, refundError);
@@ -744,6 +867,14 @@ export const createBillOrderController = async (
     );
   } catch (error: any) {
     next(ApiError.internal(error.message || 'Failed to create bill payment order'));
+  } finally {
+    if (billLockHeld && billLockKey) {
+      try {
+        await redisConfig.getClient().del(billLockKey);
+      } catch (_) {
+        /* ignore */
+      }
+    }
   }
 };
 

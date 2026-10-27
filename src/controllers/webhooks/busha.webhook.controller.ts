@@ -138,15 +138,10 @@ async function handleCustomerEvent(event: string, data: any) {
     });
   }
 
-  // Keep local Tier 2 in sync — webhook previously only updated Busha tables,
-  // so rejected apps never flipped KycStateTwo and poll skipped them forever.
+  // Rejected Busha → flip pending Tier 2. Do NOT auto-approve on active
+  // (Tier 2 is admin-only; existing Busha customers still trade via canTrade).
   try {
-    if (status === 'active') {
-      const { markTier2ApprovedAfterBusha } = await import(
-        '../../services/kyc/terescrow.kyc.profile.service'
-      );
-      await markTier2ApprovedAfterBusha(customer.userId);
-    } else if (status === 'rejected') {
+    if (status === 'rejected') {
       const { markTier2RejectedAfterBusha } = await import(
         '../../services/kyc/terescrow.kyc.profile.service'
       );

@@ -19,6 +19,7 @@ import {
   namesAreTotallyDifferent,
   verifyBvnBasicOnly,
 } from '../../services/prembly/prembly.kyc.service';
+import { assertBvnAvailable } from '../../services/kyc/kyc.identity.guard.service';
 import { toCustomerSafeError } from '../../utils/customerSafeError';
 
 /**
@@ -80,6 +81,7 @@ export const createPermanentVirtualAccountController = async (
     if (!/^\d{11}$/.test(bvn)) {
       return next(ApiError.badRequest('BVN must be exactly 11 digits'));
     }
+    await assertBvnAvailable(bvn, user.id);
 
     const enteredBvnName = String(
       req.body?.bvnFullName || req.body?.fullName || req.body?.accountName || ''

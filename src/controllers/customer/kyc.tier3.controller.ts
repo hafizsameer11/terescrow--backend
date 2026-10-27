@@ -4,6 +4,7 @@ import ApiResponse from '../../utils/ApiResponse';
 import { prisma } from '../../utils/prisma';
 import { kycStatusService } from '../../services/kyc/kyc.status.service';
 import { notifyUserKycSubmitted } from '../../services/kyc/kyc.notification.service';
+import { assertBvnAvailable } from '../../services/kyc/kyc.identity.guard.service';
 
 /**
  * Submit Tier 3 KYC — save only (manual review later).
@@ -39,6 +40,8 @@ export const submitTier3Controller = async (
     if (!bvn) {
       return next(ApiError.badRequest('BVN is required'));
     }
+    const bvnClean = String(bvn).replace(/\s+/g, '');
+    await assertBvnAvailable(bvnClean, user.id);
 
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
     const proofFile = files?.['proofOfAddress']?.[0];
@@ -70,7 +73,7 @@ export const submitTier3Controller = async (
       data: {
         userId: user.id,
         tier: 'tier3',
-        bvn: String(bvn).replace(/\s+/g, ''),
+        bvn: bvnClean,
         firtName: firstName,
         surName: lastName,
         dob,
@@ -100,6 +103,7 @@ export const submitTier3Controller = async (
       )
     );
   } catch (error: any) {
+    if (error instanceof ApiError) return next(error);
     console.error('Tier 3 submission error:', error);
     return next(ApiError.internal(error.message || 'Failed to submit Tier 3 KYC'));
   }

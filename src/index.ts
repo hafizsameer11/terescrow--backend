@@ -81,6 +81,7 @@ import profitAdminRouter from './routes/admin/profit.admin.router';
 import cryptoJobsRouter from './routes/admin/crypto.jobs.router';
 import depositFraudRouter from './routes/admin/deposit.fraud.router';
 import depositVerificationRouter from './routes/admin/deposit.verification.router';
+import vaDepositReviewRouter from './routes/admin/va.deposit.review.router';
 import scamContractRouter from './routes/admin/scam.contract.router';
 import platformSettingsRouter from './routes/admin/platform.settings.router';
 import merchantsRouter from './routes/admin/merchants.router';
@@ -129,6 +130,7 @@ const bodyParser = require('body-parser')
 import { startReloadlyUtilityStatusScheduler } from './schedulers/reloadly.utility.status.scheduler';
 import { startChangeNowSwapStatusScheduler } from './schedulers/changenow.swap.status.scheduler';
 import { startStroWalletAutoTopupScheduler } from './schedulers/strowallet.auto.topup.scheduler';
+import { startOpsHealthMonitorScheduler } from './schedulers/ops.health.monitor.scheduler';
 import rejectBannedCustomer from './middlewares/reject.banned.customer';
 
 const port = process.env.PORT || 5000;
@@ -318,6 +320,7 @@ app.use('/api/admin/profit-tracker', profitAdminRouter);
 app.use('/api/admin/crypto-jobs', cryptoJobsRouter);
 app.use('/api/admin/deposit-fraud', depositFraudRouter);
 app.use('/api/admin/deposit-verification', depositVerificationRouter);
+app.use('/api/admin/va-deposit-review', vaDepositReviewRouter);
 app.use('/api/admin/scam-contracts', scamContractRouter);
 
 // ============================================
@@ -553,6 +556,7 @@ httpServer.listen(port, () => {
   startReloadlyUtilityStatusScheduler();
   startChangeNowSwapStatusScheduler();
   startStroWalletAutoTopupScheduler();
+  startOpsHealthMonitorScheduler();
   startBushaSettlementPoller();
   startBushaKycPoller();
   startPalmPayPermanentVaPoller();

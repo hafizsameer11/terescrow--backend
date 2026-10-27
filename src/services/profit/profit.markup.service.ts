@@ -248,18 +248,21 @@ export async function getMarkupProfitOverview(params?: {
     }
   }
 
-  // Bill payment fees from fiat txns
+  // Bill payment merchant fees from fiat txns + provider (Strowallet/VTpass) commission from BillPayment payloads
   const billFeeWhere: any = {
     type: 'BILL_PAYMENT',
     fees: { gt: 0 },
   };
   if (where.createdAt) billFeeWhere.createdAt = where.createdAt;
 
+  const billPaymentWhere: any = { status: 'completed' };
+  if (where.createdAt) billPaymentWhere.createdAt = where.createdAt;
+
   // Gift card profit from agent Transaction.profit.
   // Match by department niche, chat department, OR cardType (create-card always sets it —
   // covers departments whose niche/Type were misconfigured).
   const giftCardDept = { niche: 'giftCard' as const };
-  const [billAgg, gcAgg] = await Promise.all([
+  const [billAgg, gcAgg, completedBills] = await Promise.all([
     prisma.fiatTransaction.aggregate({
       where: billFeeWhere,
       _sum: { fees: true },
@@ -294,10 +297,29 @@ export async function getMarkupProfitOverview(params?: {
       _sum: { profit: true },
       _count: true,
     }),
+    prisma.billPayment.findMany({
+      where: billPaymentWhere,
+      select: { id: true, providerResponse: true },
+      take: 20_000,
+    }),
   ]);
 
+  const { extractBillProviderCommission } = await import('./profit.bill.commission.service');
+  let billProviderCommissionNgn = 0;
+  let billPaymentsWithCommission = 0;
+  for (const bp of completedBills) {
+    const c = extractBillProviderCommission(bp.providerResponse).commissionNgn;
+    if (c > 0) {
+      billProviderCommissionNgn += c;
+      billPaymentsWithCommission += 1;
+    }
+  }
+  billProviderCommissionNgn = Math.round(billProviderCommissionNgn * 100) / 100;
+
   const giftCardSellProfitNgn = Math.round(parseAmt(gcAgg._sum.profit) * 100) / 100;
-  const billPaymentFeeNgn = Math.round(parseAmt(billAgg._sum.fees) * 100) / 100;
+  const billPaymentMerchantFeeNgn = Math.round(parseAmt(billAgg._sum.fees) * 100) / 100;
+  const billPaymentFeeNgn =
+    Math.round((billPaymentMerchantFeeNgn + billProviderCommissionNgn) * 100) / 100;
 
   const [bushaMarkup, obiexMarkup, obiexFlat, platform] = await Promise.all([
     getBushaMarkupPercents(),
@@ -316,7 +338,11 @@ export async function getMarkupProfitOverview(params?: {
       sellMarkupNgn: Math.round(sellMarkupNgn * 100) / 100,
       tradesWithMarkup,
       billPaymentFeeNgn,
-      billPaymentsWithFee: billAgg._count || 0,
+      billPaymentMerchantFeeNgn,
+      billProviderCommissionNgn,
+      billPaymentsWithFee: (billAgg._count || 0) + billPaymentsWithCommission,
+      billPaymentsWithMerchantFee: billAgg._count || 0,
+      billPaymentsWithCommission,
       giftCardSellProfitNgn,
       giftCardSellsWithProfit: gcAgg._count || 0,
       totalProfitNgn: Math.round((netCrypto + billPaymentFeeNgn + giftCardSellProfitNgn) * 100) / 100,

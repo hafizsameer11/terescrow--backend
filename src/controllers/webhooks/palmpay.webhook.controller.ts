@@ -367,26 +367,44 @@ export const palmpayWebhookController = async (
 
       return res.status(200).send("success");
     } else {
-      // Not a deposit webhook, might be payout or bill payment
-      palmpayLogger.info('PalmPay webhook: Not a deposit webhook, skipping deposit processing', {
+      // Payout (withdraw) or other non-deposit webhooks
+      const { handlePalmPayPayoutWebhook } = await import(
+        '../../services/palmpay/palmpay.payout.webhook.service'
+      );
+      const handledPayout = await handlePalmPayPayoutWebhook({
         orderId,
         orderNo,
-        hasOutOrderNo: !!webhookData.outOrderNo, // Bill payment has outOrderNo
+        orderStatus: Number(orderStatus),
+        errorMsg: webhookData.errorMsg || webhookData.message,
+        errorCode: webhookData.errorCode,
+        sessionId: webhookData.sessionId,
       });
 
-      // Mark as processed anyway
+      palmpayLogger.info(
+        handledPayout
+          ? 'PalmPay webhook: payout outcome processed'
+          : 'PalmPay webhook: Not a deposit/payout match, acknowledged',
+        {
+          orderId,
+          orderNo,
+          orderStatus,
+          handledPayout,
+          hasOutOrderNo: !!webhookData.outOrderNo,
+        }
+      );
+
       if (rawWebhookId) {
         await prisma.palmPayRawWebhook.update({
           where: { id: rawWebhookId },
           data: {
             processed: true,
             processedAt: new Date(),
-            errorMessage: 'Not a deposit webhook',
+            errorMessage: handledPayout ? null : 'Not a deposit/payout webhook',
           },
         });
       }
 
-      return res.status(200).send("success");
+      return res.status(200).send('success');
     }
   } catch (error: any) {
     palmpayLogger.exception('Process PalmPay webhook', error, {

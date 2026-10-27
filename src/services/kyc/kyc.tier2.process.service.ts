@@ -1,10 +1,14 @@
 import { prisma } from '../../utils/prisma';
-import { notifyUserKycRejected } from './kyc.notification.service';
+import { premblyConfig } from '../prembly/prembly.config';
+import { verifyTier2WithPrembly } from '../prembly/prembly.kyc.service';
+import { notifyUserKycApproved, notifyUserKycRejected } from './kyc.notification.service';
 
 /**
- * Async Tier 2 verification: submit NIN + selfie straight to Busha (no Prembly).
+ * Async Tier 2 verification: Prembly NIN + face only.
+ * No Busha customer create/submit (Obiex migration).
+ * Pass → approve Tier 2 + notify. Fail → reject + notify with reason.
  */
-export async function processTier2BushaSubmission(submissionId: number): Promise<void> {
+export async function processTier2PremblySubmission(submissionId: number): Promise<void> {
   const submission = await prisma.kycStateTwo.findUnique({ where: { id: submissionId } });
   if (!submission || submission.tier !== 'tier2') return;
   if (submission.state !== 'pending') return;
@@ -31,29 +35,97 @@ export async function processTier2BushaSubmission(submissionId: number): Promise
     return;
   }
 
-  // Save identity data and keep Tier 2 pending for admin review.
-  // Do NOT create / push a Busha customer — platform is shifting to Obiex.
-  // Users who already have a Busha account keep access via existing customer row.
+  if (!premblyConfig.isEnabled() || !premblyConfig.isConfigured()) {
+    console.error(
+      `[KYC Tier2] Prembly disabled/unconfigured — leaving submission ${submissionId} pending for admin`
+    );
+    await prisma.kycStateTwo.update({
+      where: { id: submissionId },
+      data: {
+        reason: 'Submitted — awaiting admin review (identity provider unavailable)',
+        premblyVerified: false,
+      },
+    });
+    return;
+  }
+
+  let premblyResult;
+  try {
+    premblyResult = await verifyTier2WithPrembly({
+      firstName,
+      lastName,
+      dob,
+      nin,
+      phone,
+      selfieRelativePath: selfieUrl,
+    });
+  } catch (error: any) {
+    await rejectTier2Submission(
+      submissionId,
+      user.id,
+      error?.message || 'Identity verification failed'
+    );
+    return;
+  }
+
+  if (!premblyResult.passed) {
+    const reason = premblyResult.failureReasons.join('; ') || 'Identity verification failed';
+    await prisma.kycStateTwo.update({
+      where: { id: submissionId },
+      data: {
+        state: 'rejected',
+        reason,
+        premblyVerified: false,
+        premblyReference: premblyResult.reference,
+        premblyNinConfidence: premblyResult.ninConfidence,
+        premblyPayload: premblyResult.raw as any,
+      },
+    });
+    await notifyUserKycRejected(user.id, 'tier2', reason);
+    return;
+  }
+
+  const verified = premblyResult.verified!;
+  const autoApprove = premblyConfig.autoApproveOnPass();
+
   await prisma.kycStateTwo.update({
     where: { id: submissionId },
     data: {
+      state: autoApprove ? 'approved' : 'pending',
+      reason: autoApprove
+        ? 'Verified via Prembly'
+        : 'Identity check passed; awaiting admin review',
+      firtName: verified.firstName,
+      surName: verified.lastName,
+      dob: verified.birthDate,
+      address: verified.residentialAddress || submission.address,
       premblyVerified: true,
-      reason: 'Submitted — awaiting admin review',
-      premblyVerifiedFirstName: firstName,
-      premblyVerifiedLastName: lastName,
-      premblyVerifiedDob: dob,
-      premblyPhone: phone,
+      premblyReference: premblyResult.reference,
+      premblyNinConfidence: premblyResult.ninConfidence,
+      premblyVerifiedFirstName: verified.firstName,
+      premblyVerifiedLastName: verified.lastName,
+      premblyVerifiedDob: verified.birthDate,
+      premblyPhone: verified.phone || phone,
+      premblyGender: verified.gender || null,
+      premblyPayload: premblyResult.raw as any,
     },
   });
 
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      firstname: firstName,
-      lastname: lastName,
-      ...(phone ? { phoneNumber: phone } : {}),
+      firstname: verified.firstName,
+      lastname: verified.lastName,
+      ...(verified.phone || phone ? { phoneNumber: verified.phone || phone || undefined } : {}),
+      ...(autoApprove
+        ? { kycTier2Verified: true, currentKycTier: 'tier2' }
+        : {}),
     },
   });
+
+  if (autoApprove) {
+    notifyUserKycApproved(user.id, 'tier2').catch(console.error);
+  }
 }
 
 async function rejectTier2Submission(
@@ -72,19 +144,18 @@ async function rejectTier2Submission(
   await notifyUserKycRejected(userId, 'tier2', reason);
 }
 
-/** @deprecated Use enqueueTier2BushaProcessing */
-export function enqueueTier2PremblyProcessing(submissionId: number): void {
-  enqueueTier2BushaProcessing(submissionId);
+/** @deprecated alias — Prembly is the Tier 2 verifier again */
+export function enqueueTier2BushaProcessing(submissionId: number): void {
+  enqueueTier2PremblyProcessing(submissionId);
 }
 
 /**
- * Fire-and-forget: persist Tier 2 fields, leave state pending for admin.
- * No Busha customer create / submit (Obiex migration).
+ * Fire-and-forget: Prembly NIN+face, then approve or reject + notify.
  */
-export function enqueueTier2BushaProcessing(submissionId: number): void {
+export function enqueueTier2PremblyProcessing(submissionId: number): void {
   setImmediate(() => {
-    processTier2BushaSubmission(submissionId).catch((err) => {
-      console.error(`[KYC Tier2] async processing failed for submission ${submissionId}:`, err);
+    processTier2PremblySubmission(submissionId).catch((err) => {
+      console.error(`[KYC Tier2] Prembly processing failed for submission ${submissionId}:`, err);
     });
   });
 }

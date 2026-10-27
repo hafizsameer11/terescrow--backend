@@ -16,6 +16,25 @@ import {
   assertReferralWithdrawAvailable,
 } from '../../services/referral/referral.withdraw.service';
 import { palmpayKoboToNgn } from '../../services/palmpay/palmpay.merchant.service';
+import { redisConfig } from '../../config/redis.config';
+import { sendSystemEmail } from '../../utils/systemEmail';
+import { assertMoneyOpRateLimit } from '../../utils/money.rate.limit';
+
+const OPS_ALERT_EMAIL = process.env.OPS_ALERT_EMAIL || 'hmstech11@gmail.com';
+
+async function alertRedisDown(context: string, err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(`[${context}] Redis unavailable:`, msg);
+  sendSystemEmail(
+    OPS_ALERT_EMAIL,
+    `[Tercescrow] Redis down — ${context}`,
+    `<p><b>Redis lock unavailable</b> on Tercescrow.</p>
+     <p>Context: <code>${context}</code></p>
+     <p>Error: <code>${msg}</code></p>
+     <p>Fallback: continuing with DB pending-check only (no Redis mutex).</p>
+     <p>Time: ${new Date().toISOString()}</p>`
+  ).catch(() => undefined);
+}
 
 /**
  * Network payout fee preview (provider returns exact fee+vat in kobo on payout).
@@ -31,15 +50,18 @@ function getConfiguredNetworkFeeNgn(): number {
   return 50;
 }
 
-/** ₦50 service + ₦50 stamp on withdrawals above ₦10,000 (stacks on network fee). */
-const WITHDRAW_SERVICE_FEE_NGN = 50;
-const WITHDRAW_STAMP_DUTY_NGN = 50;
-const WITHDRAW_STAMP_THRESHOLD_NGN = 10_000;
+/**
+ * App fee on top of PalmPay network (~₦50):
+ * - amount < ₦10,000 → ₦0 app (total ≈ ₦50 network)
+ * - amount ≥ ₦10,000 → ₦50 app (total ≈ ₦100, not ₦150)
+ */
+const WITHDRAW_APP_FEE_OVER_10K_NGN = 50;
+const WITHDRAW_APP_FEE_THRESHOLD_NGN = 10_000;
 
 function getAppWithdrawFeeNgn(amountNgn: number): number {
   if (!Number.isFinite(amountNgn) || amountNgn <= 0) return 0;
-  if (amountNgn > WITHDRAW_STAMP_THRESHOLD_NGN) {
-    return WITHDRAW_SERVICE_FEE_NGN + WITHDRAW_STAMP_DUTY_NGN;
+  if (amountNgn >= WITHDRAW_APP_FEE_THRESHOLD_NGN) {
+    return WITHDRAW_APP_FEE_OVER_10K_NGN;
   }
   return 0;
 }
@@ -87,7 +109,7 @@ export const getWithdrawFeeController = async (
           feeNgn: preview.feeNgn,
           /** Estimated PalmPay payout fee (exact fee+vat applied from payout response). */
           networkFeeNgn: preview.networkFeeNgn,
-          /** Terescrow ₦50+₦50 when amount > ₦10k; else 0. */
+          /** Terescrow ₦50 when amount > ₦10k; else 0 (total ≈ ₦100 with network). */
           appFeeNgn: preview.appFeeNgn,
           currency: 'NGN',
           feeSource: 'combined',
@@ -177,6 +199,8 @@ export const initiatePayoutController = async (
   res: Response,
   next: NextFunction
 ) => {
+  let withdrawLockKey: string | null = null;
+  let withdrawLockHeld = false;
   try {
     const user = (req as any).user || req.body._user;
     await assertPalmpayWithdrawEnabled();
@@ -187,6 +211,49 @@ export const initiatePayoutController = async (
     if (isFeatureFrozen(restrictions, FEATURE_WITHDRAWAL)) {
       return next(ApiError.forbidden('Withdrawal is temporarily disabled for your account.'));
     }
+
+    // Rate limit money ops (blocks rapid sequential + burst spam)
+    try {
+      await assertMoneyOpRateLimit({ userId: user.id, kind: 'withdraw' });
+    } catch (rateErr: any) {
+      if (rateErr instanceof ApiError) return next(rateErr);
+      throw rateErr;
+    }
+
+    // One in-flight withdraw per user (same race protection as bill payments)
+    withdrawLockKey = `withdraw:lock:user:${user.id}`;
+    try {
+      const redis = redisConfig.getClient();
+      const got = await redis.set(withdrawLockKey, String(Date.now()), 'EX', 120, 'NX');
+      if (got !== 'OK') {
+        return next(
+          ApiError.badRequest(
+            'Another withdrawal is already in progress. Please wait for it to finish.'
+          )
+        );
+      }
+      withdrawLockHeld = true;
+    } catch (lockErr: any) {
+      // Redis down: do not block money movement — DB pending check + debit lock still protect
+      await alertRedisDown('withdraw_lock', lockErr);
+      withdrawLockHeld = false;
+    }
+
+    const pendingWithdraw = await prisma.fiatTransaction.count({
+      where: {
+        userId: user.id,
+        type: 'WITHDRAW',
+        status: { in: ['pending', 'processing'] },
+      },
+    });
+    if (pendingWithdraw > 0) {
+      return next(
+        ApiError.badRequest(
+          'You already have a pending withdrawal. Please wait for it to complete.'
+        )
+      );
+    }
+
     const {
       amount,
       currency = 'NGN',
@@ -218,7 +285,7 @@ export const initiatePayoutController = async (
 
     const amountDecimal = parseFloat(amount);
     // Preview fee for balance check / referral hold (ignore any client-sent fee).
-    // Final debit = exact network fee from payout response + app fee (₦50+₦50 if > ₦10k).
+    // Final debit = exact network fee from payout response + app fee (₦50 if > ₦10k).
     const appFeeNgn = getAppWithdrawFeeNgn(amountDecimal);
     const networkFeePreview = getConfiguredNetworkFeeNgn();
     const previewFee = networkFeePreview + appFeeNgn;
@@ -369,6 +436,7 @@ export const initiatePayoutController = async (
     const orderId = `payout_${uuidv4().replace(/-/g, '')}`.substring(0, 32);
 
     let transactionId: string | null = null;
+    let debitedFromFiat = 0;
     try {
       // Create transaction record (fees finalized after PalmPay response)
       const transaction = await prisma.fiatTransaction.create({
@@ -401,7 +469,17 @@ export const initiatePayoutController = async (
       });
       transactionId = transaction.id;
 
-      // Call PalmPay API to initiate payout
+      // ALWAYS debit user first (preview amount+fee) before calling PalmPay
+      await fiatWalletService.debitWallet(
+        wallet.id,
+        previewTotalDebit,
+        transaction.id,
+        `Withdrawal hold: ${accountNumber}`,
+        { leaveTransactionPending: true }
+      );
+      debitedFromFiat = previewTotalDebit;
+
+      // Call PalmPay API to initiate payout (funds already held)
       const palmpayResponse = await palmpayPayout.initiatePayout({
         orderId,
         title: 'Withdrawal',
@@ -416,7 +494,7 @@ export const initiatePayoutController = async (
         remark: `Withdrawal transaction for user ${user.id}`,
       });
 
-      // Exact network fee from provider (kobo → NGN) + app ₦50+₦50 when amount > ₦10k.
+      // Exact network fee from provider (kobo → NGN) + app ₦50 when amount > ₦10k.
       const networkFeeActual = feeNgnFromPalmpayResponse(palmpayResponse);
       const networkFeeNgn =
         networkFeeActual != null && Number.isFinite(networkFeeActual)
@@ -434,12 +512,52 @@ export const initiatePayoutController = async (
         networkFeeRaw: palmpayResponse.fee ?? null,
         networkFeeNgn,
         withdrawFeeNgn: withdrawFee,
+        debitFirst: true,
       };
       try {
         const prev = transaction.metadata ? JSON.parse(String(transaction.metadata)) : {};
         meta = { ...prev, ...meta };
       } catch {
         /* keep meta */
+      }
+
+      // If PalmPay fee exceeded preview, debit the difference now (still before success finalize)
+      if (withdrawFee > previewFee) {
+        const extra = withdrawFee - previewFee;
+        if (isReferralSource) {
+          try {
+            await transferReferralToFiatWallet(user.id, extra);
+            referralMovedAmount = (referralMovedAmount ?? 0) + extra;
+          } catch (err: any) {
+            console.error('PalmPay fee exceeded referral preview hold:', {
+              transactionId: transaction.id,
+              previewFee,
+              withdrawFee,
+              err: err?.message,
+            });
+            throw new Error('Insufficient funds for final withdrawal fee');
+          }
+        }
+        await fiatWalletService.debitWallet(
+          wallet.id,
+          extra,
+          transaction.id,
+          `Withdrawal fee top-up: ${accountNumber}`,
+          { leaveTransactionPending: true, skipTransactionUpdate: true }
+        );
+        debitedFromFiat += extra;
+      } else if (withdrawFee < previewFee) {
+        // Refund unused preview fee hold
+        const creditBack = previewFee - withdrawFee;
+        await fiatWalletService.creditWalletAtomic(wallet.id, creditBack);
+        debitedFromFiat -= creditBack;
+      }
+
+      // Failed PalmPay status → refund held funds
+      if (palmpayResponse.orderStatus === 3 || palmpayResponse.orderStatus === 4) {
+        throw new Error(
+          `PalmPay payout not successful (orderStatus=${palmpayResponse.orderStatus})`
+        );
       }
 
       // Update transaction with PalmPay response + exact fee
@@ -456,37 +574,6 @@ export const initiatePayoutController = async (
           ...(palmpayResponse.orderStatus === 2 && { completedAt: new Date() }),
         },
       });
-
-      // If PalmPay fee exceeded preview, ensure wallet covers the difference (referral already moved preview).
-      if (withdrawFee > previewFee) {
-        const extra = withdrawFee - previewFee;
-        if (isReferralSource) {
-          try {
-            await transferReferralToFiatWallet(user.id, extra);
-            referralMovedAmount = (referralMovedAmount ?? 0) + extra;
-          } catch (err: any) {
-            console.error('PalmPay fee exceeded referral preview hold:', {
-              transactionId: transaction.id,
-              previewFee,
-              withdrawFee,
-              err: err?.message,
-            });
-          }
-        }
-        const balance = await fiatWalletService.getBalance(wallet.id);
-        if (!balance || parseFloat(balance.balance) < totalDebit) {
-          console.error('PalmPay fee exceeds available balance after payout sent:', {
-            transactionId: transaction.id,
-            amount: amountDecimal,
-            previewFee,
-            withdrawFee,
-            available: balance?.balance,
-          });
-        }
-      }
-
-      // Debit wallet for amount + exact PalmPay fee; bank receives amount only
-      await fiatWalletService.debitWallet(wallet.id, totalDebit, transaction.id);
 
       return res.status(200).json(
         new ApiResponse(200, {
@@ -518,6 +605,19 @@ export const initiatePayoutController = async (
           .catch((e) => console.error('Failed to mark payout tx failed:', e));
       }
 
+      // Refund fiat debit hold first, then reverse referral transfer
+      if (debitedFromFiat > 0) {
+        try {
+          await fiatWalletService.creditWalletAtomic(wallet.id, debitedFromFiat);
+          debitedFromFiat = 0;
+        } catch (refundErr) {
+          console.error(
+            `CRITICAL: could not refund fiat hold ₦${debitedFromFiat} for user ${user.id}:`,
+            refundErr
+          );
+        }
+      }
+
       if (referralMovedAmount != null) {
         try {
           await reverseReferralToFiatTransfer(user.id, referralMovedAmount);
@@ -536,6 +636,14 @@ export const initiatePayoutController = async (
     }
   } catch (error: unknown) {
     return next(toCustomerSafeError(error, 'Payout initiation error:'));
+  } finally {
+    if (withdrawLockHeld && withdrawLockKey) {
+      try {
+        await redisConfig.getClient().del(withdrawLockKey);
+      } catch (_) {
+        /* ignore */
+      }
+    }
   }
 };
 

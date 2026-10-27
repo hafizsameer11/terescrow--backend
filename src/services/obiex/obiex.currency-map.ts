@@ -20,7 +20,7 @@ const DEFAULT_MAP: Array<{
   { appCurrency: 'TON', obiexCurrency: 'TON', displayName: 'Toncoin', sortOrder: 100 },
 
   { appCurrency: 'MATIC', obiexCurrency: 'MATIC', displayName: 'Polygon', sortOrder: 110 },
-  { appCurrency: 'AVAX', obiexCurrency: 'AVAX', displayName: 'Avalanche', sortOrder: 120 },
+  // AVAX omitted: Obiex receivable/withdrawable=false — address create rejected.
   { appCurrency: 'LTC', obiexCurrency: 'LTC', displayName: 'Litecoin', sortOrder: 130 },
   { appCurrency: 'ADA', obiexCurrency: 'ADA', displayName: 'Cardano', sortOrder: 140 },
   { appCurrency: 'DOT', obiexCurrency: 'DOT', displayName: 'Polkadot', sortOrder: 150 },
@@ -45,9 +45,9 @@ export async function ensureObiexCurrencyMapSeeded() {
 
 /**
  * Currencies temporarily hidden from the app (backend-only — no app release needed).
- * Obiex XRP: receivable=false / withdrawable=false; address create rejected.
+ * Obiex XRP/AVAX: receivable=false / withdrawable=false; address create rejected.
  */
-export const HIDDEN_OBIEX_CURRENCIES = new Set(['XRP', 'RIPPLE']);
+export const HIDDEN_OBIEX_CURRENCIES = new Set(['XRP', 'RIPPLE', 'AVAX', 'AVALANCHE']);
 
 export function isObiexCurrencyHidden(currency: string | null | undefined): boolean {
   const code = String(currency || '').trim().toUpperCase();

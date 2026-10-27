@@ -283,12 +283,13 @@ export const createReloadlyBillOrderController = async (
     let orderStatus: number | null = null;
 
     try {
-      // DEBIT USER WALLET FIRST
+      // ALWAYS debit user wallet first — before provider call
       await fiatWalletService.debitWallet(
         wallet.id,
         amountNum,
         transaction.id,
-        `Airtime payment: ${billerId} - ${rechargeAccount} (reloadly)`
+        `Airtime payment: ${billerId} - ${rechargeAccount} (reloadly)`,
+        { leaveTransactionPending: true }
       );
 
       // Create Reloadly top-up

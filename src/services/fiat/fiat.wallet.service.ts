@@ -162,20 +162,26 @@ class FiatWalletService {
   }
 
   /**
-   * Debit wallet (subtract funds)
+   * Debit wallet (subtract funds).
+   * Uses row lock + conditional update to prevent concurrent overdraft races.
+   * Pass leaveTransactionPending=true for bill/payout flows that only complete after provider success.
    */
   async debitWallet(
     walletId: string,
     amount: number,
     transactionId: string,
-    description?: string
+    description?: string,
+    opts?: { leaveTransactionPending?: boolean; skipTransactionUpdate?: boolean }
   ) {
+    const leavePending = opts?.leaveTransactionPending === true;
+    const skipTxnUpdate = opts?.skipTransactionUpdate === true;
     const result = await prisma.$transaction(async (tx) => {
-      // Get wallet with lock
-      const wallet = await tx.fiatWallet.findUnique({
-        where: { id: walletId },
-      });
+      // Row lock so parallel debit/refund cannot read stale balance
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; balance: any; status: string }>
+      >`SELECT id, balance, status FROM FiatWallet WHERE id = ${walletId} FOR UPDATE`;
 
+      const wallet = locked[0];
       if (!wallet) {
         throw new Error('Wallet not found');
       }
@@ -184,30 +190,34 @@ class FiatWalletService {
         throw new Error('Wallet is not active');
       }
 
-      const balanceBefore = wallet.balance;
-      const balanceAfter = new Decimal(balanceBefore).minus(amount);
+      const balanceBefore = new Decimal(wallet.balance);
+      const balanceAfter = balanceBefore.minus(amount);
 
-      // Check if sufficient balance
       if (balanceAfter.lessThan(0)) {
         throw new Error('Insufficient balance');
       }
 
-      // Update wallet balance
-      await tx.fiatWallet.update({
-        where: { id: walletId },
-        data: { balance: balanceAfter },
-      });
+      const updated = await tx.$executeRaw`
+        UPDATE FiatWallet
+        SET balance = ${balanceAfter.toFixed(2)}, updatedAt = NOW(3)
+        WHERE id = ${walletId} AND balance >= ${amount}
+      `;
+      if (!updated) {
+        throw new Error('Insufficient balance');
+      }
 
-      // Update transaction
-      await tx.fiatTransaction.update({
-        where: { id: transactionId },
-        data: {
-          balanceBefore: balanceBefore,
-          balanceAfter: balanceAfter,
-          status: 'completed',
-          completedAt: new Date(),
-        },
-      });
+      if (!skipTxnUpdate) {
+        await tx.fiatTransaction.update({
+          where: { id: transactionId },
+          data: {
+            balanceBefore: balanceBefore,
+            balanceAfter: balanceAfter,
+            ...(leavePending
+              ? {}
+              : { status: 'completed', completedAt: new Date() }),
+          },
+        });
+      }
 
       return {
         walletId,
@@ -217,8 +227,34 @@ class FiatWalletService {
       };
     });
 
-    await this.recordProfitForFiatTransaction(transactionId);
+    if (!leavePending && !skipTxnUpdate) {
+      await this.recordProfitForFiatTransaction(transactionId);
+    }
     return result;
+  }
+
+  /**
+   * Credit wallet with row lock (safe under concurrent refunds).
+   */
+  async creditWalletAtomic(walletId: string, amount: number) {
+    return prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; balance: any; status: string }>
+      >`SELECT id, balance, status FROM FiatWallet WHERE id = ${walletId} FOR UPDATE`;
+      const wallet = locked[0];
+      if (!wallet) throw new Error('Wallet not found');
+      if (wallet.status !== 'active') throw new Error('Wallet is not active');
+      const balanceBefore = new Decimal(wallet.balance);
+      const balanceAfter = balanceBefore.plus(amount);
+      await tx.fiatWallet.update({
+        where: { id: walletId },
+        data: { balance: balanceAfter },
+      });
+      return {
+        balanceBefore: balanceBefore.toString(),
+        balanceAfter: balanceAfter.toString(),
+      };
+    });
   }
 
   /**

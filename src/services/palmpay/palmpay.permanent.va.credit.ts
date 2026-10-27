@@ -5,12 +5,19 @@ import { fiatWalletService } from '../fiat/fiat.wallet.service';
 import { sendPushNotification } from '../../utils/pushService';
 import palmpayLogger from '../../utils/palmpay.logger';
 import { resolvePermanentVaBankName } from './palmpay.permanent.va.lifecycle';
+import { isUserBanned } from '../../utils/customer.restrictions';
+import { appNameCompatibleWithBvnName } from '../prembly/prembly.kyc.service';
+import {
+  VA_DEPOSIT_HELD,
+  alertOpsHeldDeposit,
+} from './palmpay.va.deposit.review.service';
 
 const permanentVaModel = () => (prisma as any).palmPayPermanentVirtualAccount;
 
 /**
  * Credit wallet when funds hit a permanent personal VA.
  * Idempotent on palmpayOrderNo (or synthetic key from orderId + account).
+ * Soft name match: if payer name ≠ app profile name → hold for admin review (no credit).
  */
 export async function creditPermanentVaDeposit(payload: any): Promise<boolean> {
   const accountNumber = String(
@@ -25,6 +32,7 @@ export async function creditPermanentVaDeposit(payload: any): Promise<boolean> {
   if (!accountNumber) return false;
 
   // Prefer approved; still credit pending so a bad lifecycle sync cannot block pay-ins
+  // Never credit frozen/closed/suspended VAs
   let row = await permanentVaModel().findFirst({
     where: { accountNumber, status: 'approved' },
     orderBy: { createdAt: 'desc' },
@@ -36,6 +44,20 @@ export async function creditPermanentVaDeposit(payload: any): Promise<boolean> {
     });
   }
   if (!row) return false;
+
+  // Hard stop: banned / frozen accounts must not receive VA credits
+  const owner = await prisma.user.findUnique({
+    where: { id: row.userId },
+    select: { status: true, firstname: true, lastname: true, email: true },
+  });
+  if (isUserBanned(owner?.status) || String(owner?.status || '').toLowerCase() === 'frozen') {
+    palmpayLogger.warn('Permanent VA deposit ignored — user banned/frozen', {
+      userId: row.userId,
+      accountNumber,
+      orderNo: payload?.orderNo,
+    });
+    return false;
+  }
 
   // Heal: receiving funds proves the VA is live
   if (row.status !== 'approved') {
@@ -72,7 +94,7 @@ export async function creditPermanentVaDeposit(payload: any): Promise<boolean> {
       where: { palmpayOrderNo: orderNo },
     });
     if (existing) {
-      palmpayLogger.info('Permanent VA deposit already credited', { orderNo });
+      palmpayLogger.info('Permanent VA deposit already processed', { orderNo, status: existing.status });
       return true;
     }
   } else {
@@ -101,8 +123,98 @@ export async function creditPermanentVaDeposit(payload: any): Promise<boolean> {
     return false;
   }
 
+  const payerAccountName = String(payload?.payerAccountName || '').trim();
+  const payerBankName = String(payload?.payerBankName || '').trim() || null;
+  const appFirst = String(owner?.firstname || '').trim();
+  const appLast = String(owner?.lastname || '').trim();
+  const appName = `${appFirst} ${appLast}`.trim();
+
+  const nameOk =
+    !!payerAccountName &&
+    appNameCompatibleWithBvnName(appFirst, appLast, payerAccountName);
+
   const wallet = await fiatWalletService.getOrCreateWallet(row.userId, currency);
   const txId = uuidv4();
+
+  const baseMeta = {
+    source: 'palmpay_permanent_va',
+    permanentVaId: row.id,
+    accountNumber,
+    payerAccountName: payerAccountName || null,
+    payerBankName,
+    appName,
+    webhook: payload,
+  };
+
+  if (!nameOk) {
+    const transaction = await prisma.fiatTransaction.create({
+      data: {
+        id: txId,
+        userId: row.userId,
+        walletId: wallet.id,
+        type: 'DEPOSIT',
+        status: VA_DEPOSIT_HELD,
+        currency,
+        amount: amountNgn,
+        fees: 0,
+        totalAmount: amountNgn,
+        description: `Wallet top-up via permanent account ${accountNumber} (held — name review)`,
+        palmpayOrderId: idempotencyKey.substring(0, 255),
+        palmpayOrderNo: orderNo,
+        palmpayStatus: String(payload?.orderStatus ?? payload?.status ?? '2'),
+        errorMessage: 'Held for admin review: payer name does not match app profile',
+        metadata: JSON.stringify({
+          ...baseMeta,
+          holdReason: 'payer_name_mismatch',
+          reviewStatus: 'pending',
+        }),
+      },
+    });
+
+    const title = 'Deposit under review';
+    const body = `NGN ${amountNgn.toLocaleString('en-NG', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} was received but is held for review because the sender name does not match your profile.`;
+
+    await prisma.inAppNotification.create({
+      data: {
+        userId: row.userId,
+        title,
+        description: body,
+        type: InAppNotificationType.customeer,
+      },
+    });
+    await sendPushNotification({
+      userId: row.userId,
+      title,
+      body,
+      sound: 'default',
+      priority: 'high',
+      data: { type: 'deposit_held', transactionId: transaction.id },
+    });
+
+    alertOpsHeldDeposit({
+      userId: row.userId,
+      email: owner?.email,
+      amountNgn,
+      payerName: payerAccountName || '(missing)',
+      appName: appName || '(empty profile)',
+      transactionId: transaction.id,
+      orderNo,
+    });
+
+    palmpayLogger.warn('Permanent VA deposit HELD — payer name mismatch', {
+      userId: row.userId,
+      amountNgn,
+      accountNumber,
+      orderNo,
+      transactionId: transaction.id,
+      payerAccountName,
+      appName,
+    });
+    return true;
+  }
 
   const transaction = await prisma.fiatTransaction.create({
     data: {
@@ -120,10 +232,8 @@ export async function creditPermanentVaDeposit(payload: any): Promise<boolean> {
       palmpayOrderNo: orderNo,
       palmpayStatus: String(payload?.orderStatus ?? payload?.status ?? '2'),
       metadata: JSON.stringify({
-        source: 'palmpay_permanent_va',
-        permanentVaId: row.id,
-        accountNumber,
-        webhook: payload,
+        ...baseMeta,
+        nameMatch: true,
       }),
     },
   });
