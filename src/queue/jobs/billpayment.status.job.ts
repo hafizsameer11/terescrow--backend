@@ -137,7 +137,18 @@ export async function processBillPaymentStatusJob(
             return;
           }
 
-          const refundAmount = parseFloat(bp.amount.toString());
+          // Prefer fiat totalAmount (provider amount + merchant fee) over BillPayment.amount
+          const fiatTxn = bp.transactionId
+            ? await tx.fiatTransaction.findUnique({
+                where: { id: bp.transactionId },
+                select: { totalAmount: true },
+              })
+            : null;
+          const fromFiat = fiatTxn?.totalAmount != null ? parseFloat(String(fiatTxn.totalAmount)) : NaN;
+          const refundAmount =
+            Number.isFinite(fromFiat) && fromFiat > 0
+              ? fromFiat
+              : parseFloat(bp.amount.toString());
           const refundReason = orderStatus.orderStatus === PalmPayOrderStatus.FAILED 
             ? 'PalmPay payment failed' 
             : 'PalmPay payment cancelled';
@@ -150,6 +161,23 @@ export async function processBillPaymentStatusJob(
             userId: bp.userId,
             currency: bp.currency,
           });
+
+          // Claim refund under row lock before credit (races initiate-catch updateMany)
+          const claim = await tx.billPayment.updateMany({
+            where: { id: billPaymentId, refunded: false, status: 'pending' },
+            data: {
+              refunded: true,
+              refundedAt: new Date(),
+              refundReason: refundReason,
+              status: newStatus,
+            },
+          });
+          if (claim.count !== 1) {
+            palmpayLogger.warn(`Bill payment ${billPaymentId} refund claim lost (already claimed)`, {
+              billPaymentId,
+            });
+            return;
+          }
 
           // CRITICAL: Use atomic increment instead of calculating balance
           // This prevents race conditions with concurrent balance updates
@@ -193,17 +221,6 @@ export async function processBillPaymentStatusJob(
                 billPaymentId: bp.id,
               }),
               completedAt: new Date(),
-            },
-          });
-
-          // Mark as refunded and update status atomically using Prisma
-          await tx.billPayment.update({
-            where: { id: billPaymentId },
-            data: {
-              refunded: true,
-              refundedAt: new Date(),
-              refundReason: refundReason,
-              status: newStatus,
             },
           });
 

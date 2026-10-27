@@ -20,7 +20,6 @@ function amountsEqual(a: number, b: number, eps = 1e-8): boolean {
 /**
  * Re-fetch deposit from Obiex and require amount/currency/address/status match.
  * Protects against forged or tampered webhook bodies (signature still required upstream).
- * Fake / wrong-network tokens are Obiex's job: they only emit CONFIRMED for real credits.
  */
 async function verifyDepositAgainstObiex(event: any): Promise<{
   ok: boolean;
@@ -100,24 +99,42 @@ async function verifyDepositAgainstObiex(event: any): Promise<{
   };
 }
 
+/**
+ * Obiex sends PENDING then CONFIRMED for the same transactionId.
+ * Only CONFIRMED credits — once — via unique tx + claim pending→crediting.
+ */
 export async function handleObiexDepositWebhook(event: any) {
   if (String(event?.type || '').toUpperCase() !== 'DEPOSIT') {
     return { handled: false, reason: 'not_deposit' };
   }
-  if (String(event?.status || '').toUpperCase() !== 'CONFIRMED') {
-    return { handled: false, reason: 'not_confirmed' };
-  }
 
+  const providerStatus = String(event?.status || '').toUpperCase();
   const txId = event?.transactionId ? String(event.transactionId) : null;
   const reference = event?.reference ? String(event.reference) : null;
-  if (txId) {
-    const dup = await tradeModel().findFirst({
-      where: { obiexTransactionId: txId, side: 'receive' },
-    });
-    if (dup) return { handled: true, reason: 'duplicate', tradeId: dup.id };
+
+  // Status lifecycle (PENDING → CONFIRMED): ack non-final without crediting.
+  if (providerStatus !== 'CONFIRMED') {
+    return {
+      handled: true,
+      reason: 'status_ack',
+      providerStatus,
+      txId,
+    };
   }
 
-  // Re-verify with Obiex API before any ledger credit.
+  if (txId) {
+    const existing = await tradeModel().findFirst({
+      where: { obiexTransactionId: txId, side: 'receive' },
+    });
+    if (existing?.status === 'completed') {
+      return { handled: true, reason: 'duplicate', tradeId: existing.id };
+    }
+    if (existing?.status === 'crediting') {
+      // Another worker owns the credit, or crash mid-flight — do not credit again.
+      return { handled: true, reason: 'in_progress', tradeId: existing.id };
+    }
+  }
+
   const verified = await verifyDepositAgainstObiex(event);
   if (!verified.ok) {
     console.warn('[Obiex deposit] rejected —', verified.reason, {
@@ -133,7 +150,6 @@ export async function handleObiexDepositWebhook(event: any) {
   const currency = verified.currency!;
   const amount = verified.amount!;
 
-  // Prefer exact network match (same EVM address can exist for BSC/ETH/MATIC/AVAXC).
   let cached = verified.network
     ? await depositModel().findFirst({
         where: {
@@ -152,14 +168,11 @@ export async function handleObiexDepositWebhook(event: any) {
     return { handled: false, reason: 'unknown_address' };
   }
 
-  // Strict only when we found a row for that network earlier and it still disagrees
-  // (should not happen after the preferred lookup above).
   if (
     verified.network &&
     cached.network &&
     String(verified.network).toUpperCase() !== String(cached.network).toUpperCase()
   ) {
-    // Shared EVM address across networks — accept if user owns this address for the live network.
     const networkOwned = await depositModel().findFirst({
       where: {
         userId: cached.userId,
@@ -180,34 +193,67 @@ export async function handleObiexDepositWebhook(event: any) {
     }
   }
 
+  // Insert pending row first (unique on side+txId). Concurrent CONFIRMED → one winner.
+  let trade: any;
+  try {
+    trade = await tradeModel().create({
+      data: {
+        userId: cached.userId,
+        side: 'receive',
+        sourceCurrency: currency,
+        targetCurrency: currency,
+        sourceAmount: formatAmountStr(amount, 8),
+        targetAmount: formatAmountStr(amount, 8),
+        obiexReference: reference,
+        obiexTransactionId: txId,
+        obiexStatus: providerStatus,
+        cryptoDepositAddress: address,
+        cryptoDepositNetwork: verified.network || cached.network,
+        status: 'pending',
+        initiatedById: cached.userId,
+        providerResponse: {
+          webhook: event,
+          verifiedLive: verified.live,
+          verifiedAmount: amount,
+          verifiedCurrency: currency,
+          verifiedAddress: address,
+          verifiedNetwork: verified.network,
+        },
+      },
+    });
+  } catch (err: any) {
+    if (err?.code === 'P2002' && txId) {
+      const dup = await tradeModel().findFirst({
+        where: { obiexTransactionId: txId, side: 'receive' },
+      });
+      return {
+        handled: true,
+        reason: 'duplicate',
+        tradeId: dup?.id,
+      };
+    }
+    throw err;
+  }
+
+  // Claim before credit — only one concurrent worker proceeds
+  const claimed = await tradeModel().updateMany({
+    where: { id: trade.id, status: 'pending' },
+    data: { status: 'crediting', obiexStatus: providerStatus },
+  });
+  if (!claimed.count) {
+    return { handled: true, reason: 'claim_lost', tradeId: trade.id };
+  }
+
   const userLedgerBefore = await getObiexAvailable(cached.userId, currency);
   await creditObiexAsset(cached.userId, currency, amount);
   const userLedgerAfter = await getObiexAvailable(cached.userId, currency);
 
-  const trade = await tradeModel().create({
+  await tradeModel().update({
+    where: { id: trade.id },
     data: {
-      userId: cached.userId,
-      side: 'receive',
-      sourceCurrency: currency,
-      targetCurrency: currency,
-      sourceAmount: formatAmountStr(amount, 8),
-      targetAmount: formatAmountStr(amount, 8),
-      obiexReference: reference,
-      obiexTransactionId: txId,
-      obiexStatus: 'CONFIRMED',
-      cryptoDepositAddress: address,
-      cryptoDepositNetwork: verified.network || cached.network,
       status: 'completed',
+      obiexStatus: 'CONFIRMED',
       completedAt: new Date(),
-      initiatedById: cached.userId,
-      providerResponse: {
-        webhook: event,
-        verifiedLive: verified.live,
-        verifiedAmount: amount,
-        verifiedCurrency: currency,
-        verifiedAddress: address,
-        verifiedNetwork: verified.network,
-      },
     },
   });
 

@@ -83,6 +83,9 @@ export async function approveHeldVaDeposit(opts: {
 }) {
   const tx = await prisma.fiatTransaction.findUnique({ where: { id: opts.transactionId } });
   if (!tx || tx.type !== 'DEPOSIT') throw ApiError.notFound('Deposit not found');
+  if (tx.status === 'completed') {
+    throw ApiError.badRequest('Deposit already approved/credited');
+  }
   if (tx.status !== VA_DEPOSIT_HELD) {
     throw ApiError.badRequest(`Deposit is not held for review (status=${tx.status})`);
   }
@@ -96,14 +99,21 @@ export async function approveHeldVaDeposit(opts: {
   meta.reviewedBy = opts.adminUserId;
   if (opts.note) meta.reviewNote = String(opts.note).slice(0, 500);
 
-  await prisma.fiatTransaction.update({
-    where: { id: tx.id },
-    data: {
-      metadata: JSON.stringify(meta),
-      description: `${tx.description || 'Wallet top-up'} (admin approved name review)`,
-    },
-  });
+  // Atomic claim: only one approver wins (status must still be held)
+  const claimed = await prisma.$executeRaw`
+    UPDATE FiatTransaction
+    SET
+      status = 'pending',
+      metadata = ${JSON.stringify(meta)},
+      description = ${`${tx.description || 'Wallet top-up'} (admin approved name review)`},
+      updatedAt = NOW(3)
+    WHERE id = ${tx.id} AND status = ${VA_DEPOSIT_HELD}
+  `;
+  if (!claimed) {
+    throw ApiError.badRequest('Deposit already claimed or no longer held');
+  }
 
+  // creditWallet locks txn + wallet; second concurrent call is idempotent if completed
   await fiatWalletService.creditWallet(
     tx.walletId,
     amount,
@@ -141,6 +151,19 @@ export async function approveHeldVaDeposit(opts: {
     adminUserId: opts.adminUserId,
   });
 
+  try {
+    const { logAdminAction } = await import('../admin/admin.audit.service');
+    await logAdminAction({
+      adminUserId: opts.adminUserId,
+      action: 'va_deposit.approve',
+      path: `/api/admin/va-deposit-review/${tx.id}/approve`,
+      targetUserId: tx.userId,
+      meta: { transactionId: tx.id, amount, note: opts.note || null },
+    });
+  } catch {
+    /* ignore audit failures */
+  }
+
   return prisma.fiatTransaction.findUnique({ where: { id: tx.id } });
 }
 
@@ -162,15 +185,22 @@ export async function rejectHeldVaDeposit(opts: {
   meta.reviewedBy = opts.adminUserId;
   if (opts.note) meta.reviewNote = String(opts.note).slice(0, 500);
 
-  const updated = await prisma.fiatTransaction.update({
-    where: { id: tx.id },
-    data: {
-      status: VA_DEPOSIT_HELD_REJECTED,
-      metadata: JSON.stringify(meta),
-      errorMessage: 'Deposit held permanently — payer name mismatch (admin rejected)',
-      description: `${tx.description || 'Wallet top-up'} (held — admin rejected)`,
-    },
-  });
+  const claimed = await prisma.$executeRaw`
+    UPDATE FiatTransaction
+    SET
+      status = ${VA_DEPOSIT_HELD_REJECTED},
+      metadata = ${JSON.stringify(meta)},
+      errorMessage = ${'Deposit held permanently — payer name mismatch (admin rejected)'},
+      description = ${`${tx.description || 'Wallet top-up'} (held — admin rejected)`},
+      updatedAt = NOW(3)
+    WHERE id = ${tx.id} AND status = ${VA_DEPOSIT_HELD}
+  `;
+  if (!claimed) {
+    throw ApiError.badRequest('Deposit already claimed or no longer held');
+  }
+
+  const updated = await prisma.fiatTransaction.findUnique({ where: { id: tx.id } });
+  if (!updated) throw ApiError.notFound('Deposit not found');
 
   const amount = Number(tx.amount);
   const title = 'Deposit not released';
@@ -202,6 +232,19 @@ export async function rejectHeldVaDeposit(opts: {
     amount,
     adminUserId: opts.adminUserId,
   });
+
+  try {
+    const { logAdminAction } = await import('../admin/admin.audit.service');
+    await logAdminAction({
+      adminUserId: opts.adminUserId,
+      action: 'va_deposit.reject',
+      path: `/api/admin/va-deposit-review/${tx.id}/reject`,
+      targetUserId: tx.userId,
+      meta: { transactionId: tx.id, amount, note: opts.note || null },
+    });
+  } catch {
+    /* ignore audit failures */
+  }
 
   return updated;
 }

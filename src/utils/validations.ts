@@ -48,12 +48,32 @@ const driverRegisterValidation = [
     .withMessage('Passwords do not match'),
 ];
 
+/** Authenticated set-pin / update-pin — PIN only (user comes from session). */
 const pinValidation = [
-  body('email').isEmail().withMessage('A valid email is required'),
   body('pin')
     .isString()
     .notEmpty()
     .withMessage('PIN is required')
+    .isLength({ min: 4, max: 4 })
+    .withMessage('PIN must be exactly 4 digits')
+    .matches(/^\d{4}$/)
+    .withMessage('PIN must contain only digits'),
+];
+
+/** update-pin also requires current PIN. */
+const updatePinValidation = [
+  body('currentPin')
+    .isString()
+    .notEmpty()
+    .withMessage('Current PIN is required')
+    .isLength({ min: 4, max: 4 })
+    .withMessage('Current PIN must be exactly 4 digits')
+    .matches(/^\d{4}$/)
+    .withMessage('Current PIN must contain only digits'),
+  body('pin')
+    .isString()
+    .notEmpty()
+    .withMessage('New PIN is required')
     .isLength({ min: 4, max: 4 })
     .withMessage('PIN must be exactly 4 digits')
     .matches(/^\d{4}$/)
@@ -138,5 +158,6 @@ export {
   consignorRegisterValidation,
   driverRegisterValidation,
   pinValidation,
+  updatePinValidation,
   giftCardPurchaseValidation,
 };

@@ -7,41 +7,89 @@ import { UserRoles } from '@prisma/client';
 import { prisma } from './prisma';
 dotenv.config();
 
+export type AccessTokenPayload = {
+  id: number;
+  username: string;
+  role: UserRoles;
+  /** Session version — must match User.tokenVersion for single-device login */
+  tv: number;
+};
+
 // Token generation
-const generateToken = (userId: number, username: string, role: string) => {
-  // Create a JWT token with user information
+const generateToken = (
+  userId: number,
+  username: string,
+  role: string,
+  tokenVersion: number
+) => {
+  const secret = process.env.ACCESS_TOKEN_SECRET;
+  if (!secret) {
+    throw new Error('ACCESS_TOKEN_SECRET is not configured');
+  }
+  const expiresIn = (process.env.ACCESS_TOKEN_EXPIRY || '24h').trim() || '24h';
   const token = jwt.sign(
-    { id: userId, username, role },
-    process.env.ACCESS_TOKEN_SECRET as string,
-    // {
-    //   // expiresIn: process.env.ACCESS_TOKEN_EXPIRY as string,
-    // }
+    {
+      id: userId,
+      username,
+      role: role as UserRoles,
+      tv: tokenVersion,
+    } satisfies AccessTokenPayload,
+    secret,
+    {
+      algorithm: 'HS256',
+      expiresIn: expiresIn as jwt.SignOptions['expiresIn'],
+    }
   );
   return token;
 };
 
-// Token verification
+/**
+ * Invalidate all previous sessions and issue a new JWT.
+ * New login on another device immediately kicks the previous one.
+ */
+const issueSessionToken = async (user: {
+  id: number;
+  username: string;
+  role: UserRoles | string;
+}) => {
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { tokenVersion: { increment: 1 } },
+    select: { id: true, username: true, role: true, tokenVersion: true },
+  });
+  return generateToken(
+    updated.id,
+    updated.username,
+    updated.role,
+    updated.tokenVersion
+  );
+};
+
+/** True when JWT session version matches the user row (single active device). */
+const isSessionTokenCurrent = (
+  decoded: { tv?: number },
+  tokenVersion: number
+): boolean => {
+  return typeof decoded.tv === 'number' && decoded.tv === tokenVersion;
+};
+
+// Token verification (signature + expiry required)
 const verifyToken = async (token: string) => {
   try {
-    // const decoded = jwt.verify(
-    //   token,
-    //   process.env.ACCESS_TOKEN_SECRET as string
-    // );
-      const decoded = jwt.decode(token); // ❌ No signature check
+    const secret = process.env.ACCESS_TOKEN_SECRET;
+    if (!secret) {
+      throw ApiError.unauthorized('Invalid access token');
+    }
+    const decoded = jwt.verify(token, secret, {
+      algorithms: ['HS256'],
+    });
 
     if (!decoded || typeof decoded !== 'object') {
-      throw new Error('Token decode failed');
+      throw new Error('Token verify failed');
     }
-    // console.log(decoded);
-    // console.log('Decoded token:', decoded);
-    // console.log('token:', token);
-    return decoded as {
-      id: number;
-      username: string;
-      role: UserRoles;
-    };
+    return decoded as AccessTokenPayload;
   } catch (error) {
-    console.log(error);
+    if (error instanceof ApiError) throw error;
     throw ApiError.unauthorized('Invalid access token');
   }
 };
@@ -371,6 +419,8 @@ const getAgentIdFromUserId = async (userId: number): Promise<number> => {
 export {
   getAgentIdFromUserId,
   generateToken,
+  issueSessionToken,
+  isSessionTokenCurrent,
   verifyToken,
   hashPassword,
   comparePassword,

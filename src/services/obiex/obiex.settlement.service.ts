@@ -3,6 +3,10 @@ import { creditObiexAsset } from './obiex.ledger.service';
 
 const tradeModel = () => (prisma as any).obiexTradeLog;
 
+/**
+ * WITHDRAWAL webhooks: same transactionId gets APPROVED then SUCCESSFUL (or FAILED).
+ * Never debit here (already debited at send). Refund at most once on FAILED/REJECTED.
+ */
 export async function handleObiexWithdrawalWebhook(event: any) {
   if (String(event?.type || '').toUpperCase() !== 'WITHDRAWAL') {
     return { handled: false, reason: 'not_withdrawal' };
@@ -25,9 +29,24 @@ export async function handleObiexWithdrawalWebhook(event: any) {
 
   if (!trade) return { handled: false, reason: 'trade_not_found' };
 
+  // Attach provider tx id if we only matched by reference
+  if (txId && !trade.obiexTransactionId) {
+    try {
+      await tradeModel().update({
+        where: { id: trade.id },
+        data: { obiexTransactionId: txId },
+      });
+    } catch {
+      /* unique conflict — ignore */
+    }
+  }
+
   if (status === 'SUCCESSFUL') {
-    await tradeModel().update({
-      where: { id: trade.id },
+    await tradeModel().updateMany({
+      where: {
+        id: trade.id,
+        status: { notIn: ['failed', 'refunding'] },
+      },
       data: {
         status: 'completed',
         obiexStatus: status,
@@ -38,12 +57,38 @@ export async function handleObiexWithdrawalWebhook(event: any) {
         },
       },
     });
-    return { handled: true, tradeId: trade.id };
+    return { handled: true, tradeId: trade.id, reason: 'completed' };
   }
 
   if (status === 'FAILED' || status === 'REJECTED') {
-    if (trade.status !== 'failed' && trade.userId) {
-      // Refund full ledger debit (amount + fees), not only sourceAmount.
+    // Claim once — only from in-flight states (not after SUCCESSFUL completed, not already failed)
+    const claimed = await tradeModel().updateMany({
+      where: {
+        id: trade.id,
+        status: { in: ['pending', 'processing'] },
+      },
+      data: {
+        status: 'refunding',
+        obiexStatus: status,
+        errorMessage: `Withdrawal ${status}`,
+        providerResponse: {
+          ...((trade.providerResponse as object) || {}),
+          withdrawalWebhook: event,
+        },
+      },
+    });
+
+    if (!claimed.count) {
+      // Already completed successfully, already refunding/failed, or unknown — no second refund
+      return {
+        handled: true,
+        tradeId: trade.id,
+        reason: 'refund_skipped',
+        status: trade.status,
+      };
+    }
+
+    if (trade.userId) {
       const fees = (trade.providerResponse as any)?.fees;
       const totalDebit = parseFloat(String(fees?.totalDebit ?? ''));
       const sourceAmt = parseFloat(String(trade.sourceAmount));
@@ -57,23 +102,24 @@ export async function handleObiexWithdrawalWebhook(event: any) {
         await creditObiexAsset(trade.userId, trade.sourceCurrency, refund);
       }
     }
+
     await tradeModel().update({
       where: { id: trade.id },
       data: {
         status: 'failed',
         obiexStatus: status,
         errorMessage: `Withdrawal ${status}`,
-        providerResponse: {
-          ...((trade.providerResponse as object) || {}),
-          withdrawalWebhook: event,
-        },
       },
     });
-    return { handled: true, tradeId: trade.id };
+    return { handled: true, tradeId: trade.id, reason: 'refunded' };
   }
 
-  await tradeModel().update({
-    where: { id: trade.id },
+  // APPROVED / PENDING / PROCESSING — status update only, never move balances
+  await tradeModel().updateMany({
+    where: {
+      id: trade.id,
+      status: { notIn: ['completed', 'failed', 'refunding'] },
+    },
     data: {
       obiexStatus: status,
       status: 'processing',
@@ -83,5 +129,5 @@ export async function handleObiexWithdrawalWebhook(event: any) {
       },
     },
   });
-  return { handled: true, tradeId: trade.id };
+  return { handled: true, tradeId: trade.id, reason: 'status_ack', providerStatus: status };
 }

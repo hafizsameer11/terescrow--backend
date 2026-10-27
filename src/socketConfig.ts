@@ -1,7 +1,7 @@
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import express, { Application } from 'express';
-import { verifyToken } from './utils/authUtils';
+import { isSessionTokenCurrent, verifyToken } from './utils/authUtils';
 import {
   checkPendingChat,
   createCustomerToAgentChat,
@@ -73,12 +73,16 @@ io.on('connection', async (socket) => {
     userRole = role;
     if (!role) return socket.disconnect();
 
+    const sessionUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true, tokenVersion: true },
+    });
+    if (!sessionUser || !isSessionTokenCurrent(decoded, sessionUser.tokenVersion)) {
+      return socket.disconnect();
+    }
+
     if (v1Compat.enableBannedCustomerChecks && role === UserRoles.customer) {
-      const customer = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { status: true },
-      });
-      if (isUserBanned(customer?.status)) {
+      if (isUserBanned(sessionUser.status)) {
         return socket.disconnect();
       }
     }

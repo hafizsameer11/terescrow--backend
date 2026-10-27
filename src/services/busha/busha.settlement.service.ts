@@ -136,6 +136,18 @@ export async function settleBushaTradeIfNeeded(tradeId: string) {
 async function creditSellToUserWallet(trade: any, remote: any) {
   if (trade.status === 'wallet_credited') return trade;
 
+  // Claim once — concurrent poller/webhook cannot both credit
+  const claimed = await bushaTradeLogModel.updateMany({
+    where: {
+      id: trade.id,
+      status: { notIn: ['wallet_credited', 'buy_reversed'] },
+    },
+    data: { status: 'crediting_ngn' },
+  });
+  if (!claimed.count) {
+    return bushaTradeLogModel.findUnique({ where: { id: trade.id } });
+  }
+
   const bushaNgn = parseFloat(String(remote.target_amount || trade.targetAmount || '0'));
   const markup = (trade.providerResponse as any)?.markup;
   const storedUserCredit = parseFloat(String(markup?.userCreditNgn || ''));
@@ -250,8 +262,33 @@ async function creditSellToUserWallet(trade: any, remote: any) {
 }
 
 async function reverseBuyIfNeeded(trade: any) {
+  const claimedTrade = await bushaTradeLogModel.updateMany({
+    where: {
+      id: trade.id,
+      status: { notIn: ['buy_reversed', 'wallet_credited'] },
+    },
+    data: { status: 'reversing_buy' },
+  });
+  if (!claimedTrade.count) return;
+
   const fiatTxn = await prisma.fiatTransaction.findUnique({ where: { id: trade.fiatTransactionId } });
   if (!fiatTxn || fiatTxn.status === 'failed') {
+    await bushaTradeLogModel.update({
+      where: { id: trade.id },
+      data: { status: 'buy_reversed' },
+    });
+    return;
+  }
+
+  // Claim original debit once
+  const claimedFiat = await prisma.fiatTransaction.updateMany({
+    where: {
+      id: fiatTxn.id,
+      status: { in: ['pending', 'completed', 'successful'] },
+    },
+    data: { status: 'failed' },
+  });
+  if (!claimedFiat.count) {
     await bushaTradeLogModel.update({
       where: { id: trade.id },
       data: { status: 'buy_reversed' },
@@ -278,10 +315,6 @@ async function reverseBuyIfNeeded(trade: any) {
     },
   });
   await fiatWalletService.creditWallet(wallet.id, amountNgn, refundTxn.id);
-  await prisma.fiatTransaction.update({
-    where: { id: fiatTxn.id },
-    data: { status: 'failed' },
-  });
   await bushaTradeLogModel.update({
     where: { id: trade.id },
     data: { status: 'buy_reversed' },

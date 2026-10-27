@@ -12,10 +12,20 @@ import { Request, Response, NextFunction } from 'express';
 import { validationResult } from 'express-validator';
 import { profile } from 'console';
 import ApiError from '../../utils/ApiError';
-import { comparePassword, generateToken } from '../../utils/authUtils';
+import { comparePassword, issueSessionToken } from '../../utils/authUtils';
 import ApiResponse from '../../utils/ApiResponse';
 import { isAppleReviewUser } from '../../utils/apple.review.user';
 import { v1Compat } from '../../config/v1.compat.config';
+import {
+  assertLoginRateLimit,
+  clearLoginRateLimit,
+} from '../../utils/auth.rate.limit';
+import {
+  assertNotLoginLocked,
+  clearLoginLockout,
+  recordFailedLogin,
+  LOGIN_LOCK_MAX,
+} from '../../utils/login.lockout';
 
 const prisma = new PrismaClient();
 
@@ -37,6 +47,9 @@ export const loginController = async (
         if (!email || !password) {
             return next(ApiError.badRequest('Please enter valid credentials'));
         }
+
+        await assertLoginRateLimit({ identifier: email, req });
+
         const isUser = await prisma.user.findUnique({
             where: { email },
             include: {
@@ -78,6 +91,8 @@ export const loginController = async (
         if (!isUser) {
             return next(ApiError.badRequest('This email is not registerd'));
         }
+
+        assertNotLoginLocked(isUser);
         
         if (v1Compat.blockUnverifiedLogin && isUser.isVerified === false) {
             return next(ApiError.badRequest('Your account is not verified. Please verify your email with the OTP sent to your email address'));
@@ -85,9 +100,20 @@ export const loginController = async (
         
         const isMatch = await comparePassword(password, isUser.password);
         if (!isMatch) {
+            const fail = await recordFailedLogin(isUser.id);
+            if (fail.locked) {
+                return next(
+                    ApiError.tooManyRequests(
+                        `Account temporarily locked after ${LOGIN_LOCK_MAX} failed login attempts. Try again later or reset your password.`
+                    )
+                );
+            }
             return next(ApiError.badRequest('Your password is not correct'));
         }
-        const token = generateToken(isUser.id, isUser.username, isUser.role);
+
+        await clearLoginRateLimit(email);
+        await clearLoginLockout(isUser.id);
+        const token = await issueSessionToken(isUser);
         res.cookie('token', token, {
             httpOnly: true,
             secure: true,

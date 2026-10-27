@@ -22,9 +22,32 @@ import {
 } from '../../services/obiex/obiex.swap.service';
 import ApiResponse from '../../utils/ApiResponse';
 import ApiError from '../../utils/ApiError';
+import { assertMoneyOpRateLimit } from '../../utils/money.rate.limit';
+import { withObiexUserTradeLock } from '../../utils/obiex.trade.lock';
+import {
+  FEATURE_CRYPTO,
+  forbiddenMessageForRestrictions,
+  getCustomerRestrictions,
+} from '../../utils/customer.restrictions';
 
 function userId(req: Request): number {
   return Number((req as any).user?.id || (req as any)._user?.id);
+}
+
+async function assertObiexCryptoAllowed(uid: number, label = 'Crypto') {
+  const restrictions = await getCustomerRestrictions(uid);
+  const message = forbiddenMessageForRestrictions(restrictions, FEATURE_CRYPTO, label);
+  if (message) throw ApiError.forbidden(message);
+}
+
+async function runObiexMoneyTrade<T>(
+  req: Request,
+  fn: (uid: number) => Promise<T>
+): Promise<T> {
+  const uid = userId(req);
+  await assertObiexCryptoAllowed(uid);
+  await assertMoneyOpRateLimit({ userId: uid, kind: 'crypto' });
+  return withObiexUserTradeLock(uid, () => fn(uid));
 }
 
 export const getObiexStatusController = async (req: Request, res: Response, next: NextFunction) => {
@@ -92,9 +115,11 @@ export const getObiexDepositAddressController = async (
   next: NextFunction
 ) => {
   try {
+    const uid = userId(req);
+    await assertObiexCryptoAllowed(uid, 'Crypto deposit');
     const currency = String(req.query.currency || req.body?.currency || '');
     const network = String(req.query.network || req.body?.network || '');
-    const data = await getAppObiexDepositAddress(userId(req), currency, network);
+    const data = await getAppObiexDepositAddress(uid, currency, network);
     res.json({ status: 'success', data });
   } catch (e) {
     next(e);
@@ -112,7 +137,9 @@ export const previewObiexBuyController = async (req: Request, res: Response, nex
 
 export const executeObiexBuyController = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const data = await executeAppObiexBuy(userId(req), req.body || {});
+    const data = await runObiexMoneyTrade(req, (uid) =>
+      executeAppObiexBuy(uid, req.body || {})
+    );
     res.json({ status: 'success', data });
   } catch (e) {
     next(e);
@@ -138,7 +165,9 @@ export const executeObiexSellController = async (
   next: NextFunction
 ) => {
   try {
-    const data = await executeAppObiexSell(userId(req), req.body || {});
+    const data = await runObiexMoneyTrade(req, (uid) =>
+      executeAppObiexSell(uid, req.body || {})
+    );
     res.json({ status: 'success', data });
   } catch (e) {
     next(e);
@@ -204,11 +233,13 @@ export const executeObiexSwapController = async (
         'sourceCurrency (or fromCurrency), targetCurrency (or toCurrency), and sourceAmount (or fromAmount) are required'
       );
     }
-    const data = await executeAppObiexSwap(userId(req), {
-      sourceCurrency: String(sourceCurrency),
-      targetCurrency: String(targetCurrency),
-      sourceAmount: String(sourceAmount),
-    });
+    const data = await runObiexMoneyTrade(req, (uid) =>
+      executeAppObiexSwap(uid, {
+        sourceCurrency: String(sourceCurrency),
+        targetCurrency: String(targetCurrency),
+        sourceAmount: String(sourceAmount),
+      })
+    );
     return new ApiResponse(200, data, 'Swap completed').send(res);
   } catch (e) {
     if (e instanceof ApiError) return next(e);
@@ -238,7 +269,9 @@ export const executeObiexSendController = async (
   next: NextFunction
 ) => {
   try {
-    const data = await executeAppObiexSend(userId(req), req.body || {});
+    const data = await runObiexMoneyTrade(req, (uid) =>
+      executeAppObiexSend(uid, req.body || {})
+    );
     res.json({ status: 'success', data });
   } catch (e) {
     next(e);

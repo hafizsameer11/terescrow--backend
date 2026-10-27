@@ -24,7 +24,7 @@ import { editCustomer } from '../../controllers/admin/admin.operation.controller
 // import { editCustomer } from '../../controllers/admin/admin.operation.controller';
 import { kycTierTwoRequest } from '../../controllers/customer/utilities.controller';
 import upload from '../../middlewares/multer.middleware';
-import { pinValidation } from '../../utils/validations';
+import { pinValidation, updatePinValidation } from '../../utils/validations';
 // import authController from '../controllers/auth.controller';
 const authRouter = express.Router();
 
@@ -355,11 +355,12 @@ authRouter.get('/get-all-notifications', authenticateUser, getAllNotifcications)
  *           schema:
  *             type: object
  *             required:
- *               - userId
+ *               - resetToken
  *               - password
  *             properties:
- *               userId:
- *                 type: integer
+ *               resetToken:
+ *                 type: string
+ *                 description: One-time token from verify-forgot-password-otp
  *               password:
  *                 type: string
  *                 minLength: 8
@@ -406,8 +407,11 @@ authRouter.get('/delete-customer', authenticateUser, deleteCustomerController);
  *     summary: Set 4-digit PIN for user
  *     tags: [V2 - PIN Management]
  *     description: |
- *       **V2 API** - Set a new 4-digit PIN for user account.
- *       PIN is stored securely and linked to user email.
+ *       **V2 API** - Set a new 4-digit PIN for the authenticated user.
+ *       Requires Bearer/session auth. Fails if PIN already set (use update-pin).
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -415,12 +419,8 @@ authRouter.get('/delete-customer', authenticateUser, deleteCustomerController);
  *           schema:
  *             type: object
  *             required:
- *               - email
  *               - pin
  *             properties:
- *               email:
- *                 type: string
- *                 format: email
  *               pin:
  *                 type: string
  *                 pattern: '^\d{4}$'
@@ -431,8 +431,10 @@ authRouter.get('/delete-customer', authenticateUser, deleteCustomerController);
  *         description: PIN set successfully
  *       400:
  *         description: Validation error
+ *       401:
+ *         description: Unauthorized
  */
-authRouter.post('/set-pin', pinValidation, setPinController);
+authRouter.post('/set-pin', authenticateUser, pinValidation, setPinController);
 
 /**
  * @swagger
@@ -441,8 +443,11 @@ authRouter.post('/set-pin', pinValidation, setPinController);
  *     summary: Update existing PIN
  *     tags: [V2 - PIN Management]
  *     description: |
- *       **V2 API** - Update an existing 4-digit PIN for user account.
- *       Requires user to have an existing PIN set.
+ *       **V2 API** - Update PIN for the authenticated user.
+ *       Requires current PIN proof.
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -450,24 +455,32 @@ authRouter.post('/set-pin', pinValidation, setPinController);
  *           schema:
  *             type: object
  *             required:
- *               - email
+ *               - currentPin
  *               - pin
  *             properties:
- *               email:
+ *               currentPin:
  *                 type: string
- *                 format: email
+ *                 pattern: '^\d{4}$'
+ *                 example: "1234"
  *               pin:
  *                 type: string
  *                 pattern: '^\d{4}$'
  *                 example: "5678"
- *                 description: Must be exactly 4 digits
+ *                 description: New 4-digit PIN
  *     responses:
  *       200:
  *         description: PIN updated successfully
  *       400:
  *         description: Validation error
+ *       401:
+ *         description: Unauthorized
  */
-authRouter.post('/update-pin', pinValidation, updatePinController);
+authRouter.post(
+  '/update-pin',
+  authenticateUser,
+  updatePinValidation,
+  updatePinController
+);
 
 /**
  * @swagger

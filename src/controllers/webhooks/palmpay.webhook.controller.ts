@@ -62,11 +62,43 @@ export const palmpayWebhookController = async (
   try {
     const webhookData = req.body as any; // Use any to handle extra fields like transType, orderType, etc.
 
-    // Skip signature validation for now (as requested)
-    // const signature = webhookData.sign;
-    // if (!signature) return res.status(200).send("success");
-    // const isValid = palmpayAuth.verifyWebhookSignature(webhookData, signature);
-    // if (!isValid) return res.status(200).send("success");
+    // Require valid PalmPay RSA signature before any credit/payout handling
+    const signature = webhookData?.sign;
+    if (!signature || typeof signature !== 'string') {
+      if (rawWebhookId) {
+        await prisma.palmPayRawWebhook.update({
+          where: { id: rawWebhookId },
+          data: {
+            processed: true,
+            processedAt: new Date(),
+            errorMessage: 'Missing webhook signature',
+          },
+        }).catch(() => undefined);
+      }
+      palmpayLogger.warn('PalmPay webhook rejected: missing signature', {
+        rawWebhookId,
+        orderNo: webhookData?.orderNo,
+      });
+      return res.status(401).send('invalid signature');
+    }
+    const isValid = palmpayAuth.verifyWebhookSignature(webhookData, signature);
+    if (!isValid) {
+      if (rawWebhookId) {
+        await prisma.palmPayRawWebhook.update({
+          where: { id: rawWebhookId },
+          data: {
+            processed: true,
+            processedAt: new Date(),
+            errorMessage: 'Invalid webhook signature',
+          },
+        }).catch(() => undefined);
+      }
+      palmpayLogger.warn('PalmPay webhook rejected: invalid signature', {
+        rawWebhookId,
+        orderNo: webhookData?.orderNo,
+      });
+      return res.status(401).send('invalid signature');
+    }
 
     const orderId = webhookData.orderId; // This is the merchantOrderId
     const orderNo = webhookData.orderNo;

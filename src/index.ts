@@ -2,8 +2,6 @@ import express, { NextFunction, Request, Response, urlencoded } from 'express';
 import { app, httpServer } from './socketConfig';
 import cors from 'cors';
 import cookie from 'cookie-parser';
-import swaggerUi from 'swagger-ui-express';
-import { swaggerSpec } from './config/swagger.config';
 import path from 'path';
 import ApiError from './utils/ApiError';
 import upload from './middlewares/multer.middleware';
@@ -132,6 +130,11 @@ import { startChangeNowSwapStatusScheduler } from './schedulers/changenow.swap.s
 import { startStroWalletAutoTopupScheduler } from './schedulers/strowallet.auto.topup.scheduler';
 import { startOpsHealthMonitorScheduler } from './schedulers/ops.health.monitor.scheduler';
 import rejectBannedCustomer from './middlewares/reject.banned.customer';
+import adminAuditMiddleware from './middlewares/admin.audit.middleware';
+import adminAuditRouter from './routes/admin/audit.router';
+// NOTE: global /api/admin deny-by-default temporarily disabled so legacy admin panel
+// (no auth headers) keeps working. Re-enable when admin app ships JWT:
+//   import authenticateUser + authenticateAdminOrAgent and app.use('/api/admin', ...)
 
 const port = process.env.PORT || 5000;
 
@@ -289,18 +292,26 @@ app.use('/api/v2/referrals', referralRouter);
 app.use('/api/v2/webhooks', palmpayWebhookRouter);
 
 // ============================================
-// Testing Routes
+// Testing Routes (off unless ENABLE_TEST_ROUTES=true)
 // ============================================
-app.use('/api/testing/gas', gasEstimationRouter);
-app.use('/api/v2/test/vtpass', vtpassTestRouter);
-app.use('/api/v2/test/vtpass/data', vtpassDataTestRouter);
-app.use('/api/v2/test/vtpass/cable', vtpassCableTestRouter);
-app.use('/api/v2/test/vtpass/electricity', vtpassElectricityTestRouter);
-app.use('/api/v2/test/vtpass/education', vtpassEducationTestRouter);
+if (process.env.ENABLE_TEST_ROUTES === 'true') {
+  app.use('/api/testing/gas', gasEstimationRouter);
+  app.use('/api/v2/test/vtpass', vtpassTestRouter);
+  app.use('/api/v2/test/vtpass/data', vtpassDataTestRouter);
+  app.use('/api/v2/test/vtpass/cable', vtpassCableTestRouter);
+  app.use('/api/v2/test/vtpass/electricity', vtpassElectricityTestRouter);
+  app.use('/api/v2/test/vtpass/education', vtpassEducationTestRouter);
+}
 
 // ============================================
 // V2 API Routes - Admin (Crypto)
 // ============================================
+// TEMP: no global /api/admin auth gate — legacy admin panel has no JWT yet.
+// Routes that already had authenticateUser keep it; previously-open ops/wallet stay open.
+// TODO: restore deny-by-default (authenticateUser + authenticateAdminOrAgent) when admin app updated.
+// Append-only audit of mutating admin API calls
+app.use('/api/admin', adminAuditMiddleware);
+app.use('/api/admin', adminAuditRouter);
 app.use('/api/admin/crypto', cryptoRateRouter);
 app.use('/api/admin/master-wallet', masterWalletRouter);
 app.use('/api/admin/transactions', transactionsAdminRouter);
@@ -353,171 +364,8 @@ app.use('/api/auth', authRouter);
 app.use('/api/public', publicRouter);
 app.use('/.well-known', express.static(path.join(__dirname, '../public/.well-known')));
 
-// Swagger API Documentation - Custom tag sorter to put V2 routes first
-const customTagsSorter = (a: string, b: string) => {
-  // Priority order: Testing routes first, then V2 routes, then Admin, then others
-  const getPriority = (tag: string) => {
-    // Top priority routes (appear first)
-    if (tag.startsWith('Testing')) return -10; // Testing routes at the very top
-    if (tag === 'V2 - Bank Accounts') return -2;
-    if (tag === 'V2 - Referrals') return -1;
-    if (tag === 'V2 - Crypto - Wallet Generation') return -0.8; // Wallet Generation at the top of crypto sections
-    if (tag === 'V2 - PalmPay Merchant Order') return -0.5;
-    // V2 Crypto flows in specific order
-    if (tag === 'V2 - Crypto - Buy') return 0;
-    if (tag === 'V2 - Crypto - Sell') return 1;
-    if (tag === 'V2 - Crypto - Assets') return 2;
-    if (tag === 'V2 - Crypto - Transactions') return 3;
-    if (tag === 'V2 - Crypto - Wallets') return 4;
-    if (tag.startsWith('V2 -')) return 5;
-    if (tag.startsWith('Admin -')) return 6;
-    if (tag.startsWith('Admin')) return 7;
-    if (tag.startsWith('Agent')) return 8;
-    if (tag.startsWith('Customer')) return 9;
-    if (tag.startsWith('Public')) return 10;
-    if (tag.startsWith('Testing')) return 11; // Testing routes after Public
-    if (tag.startsWith('Webhooks')) return 5.5; // After V2 but before Admin
-    return 20; // Others at the end
-  };
-  
-  const priorityA = getPriority(a);
-  const priorityB = getPriority(b);
-  
-  if (priorityA !== priorityB) {
-    return priorityA - priorityB;
-  }
-  
-  // If same priority, sort alphabetically
-  return a.localeCompare(b);
-};
-
-// Custom operations sorter to maintain flow order within each tag
-const customOperationsSorter = (a: any, b: any) => {
-  const pathA = a.get('path') || '';
-  const pathB = b.get('path') || '';
-  const methodA = a.get('method') || '';
-  const methodB = b.get('method') || '';
-  const tagA = a.get('tags')?.[0] || '';
-  const tagB = b.get('tags')?.[0] || '';
-  // Try to get x-order from the operation object
-  const orderA = (a.get && a.get('x-order')) || (a.getIn && a.getIn(['x-order'])) || null;
-  const orderB = (b.get && b.get('x-order')) || (b.getIn && b.getIn(['x-order'])) || null;
-
-  // If both have x-order, use that
-  if (orderA !== null && orderB !== null) {
-    return orderA - orderB;
-  }
-
-  // Only apply custom sorting for V2 Crypto tags
-  if (tagA.startsWith('V2 - Crypto -') && tagB.startsWith('V2 - Crypto -') && tagA === tagB) {
-    // If x-order is available, use it (highest priority)
-    if (orderA !== null && orderB !== null) {
-      return orderA - orderB;
-    }
-    
-    // Buy Crypto Flow
-    if (tagA === 'V2 - Crypto - Buy') {
-      const order: Record<string, number> = { '/buy/currencies': 1, '/buy/quote': 2, '/buy/preview': 3, '/buy': 4 };
-      const keyA = Object.keys(order).find(k => pathA.includes(k));
-      const keyB = Object.keys(order).find(k => pathB.includes(k));
-      const orderA = keyA && keyA in order ? order[keyA] : 10;
-      const orderB = keyB && keyB in order ? order[keyB] : 10;
-      if (orderA !== orderB) return orderA - orderB;
-    }
-    // Sell Crypto Flow
-    if (tagA === 'V2 - Crypto - Sell') {
-      const order: Record<string, number> = { '/sell/currencies': 1, '/sell/quote': 2, '/sell/preview': 3, '/sell': 4 };
-      const keyA = Object.keys(order).find(k => pathA.includes(k));
-      const keyB = Object.keys(order).find(k => pathB.includes(k));
-      const orderA = keyA && keyA in order ? order[keyA] : 10;
-      const orderB = keyB && keyB in order ? order[keyB] : 10;
-      if (orderA !== orderB) return orderA - orderB;
-    }
-    // Swap Crypto Flow
-    if (tagA === 'V2 - Crypto - Swap') {
-      const order: Record<string, number> = { '/swap/currencies': 1, '/swap/quote': 2, '/swap/preview': 3, '/swap': 4 };
-      const keyA = Object.keys(order).find(k => pathA.includes(k));
-      const keyB = Object.keys(order).find(k => pathB.includes(k));
-      const orderA = keyA && keyA in order ? order[keyA] : 10;
-      const orderB = keyB && keyB in order ? order[keyB] : 10;
-      if (orderA !== orderB) return orderA - orderB;
-    }
-    // Assets Flow
-    if (tagA === 'V2 - Crypto - Assets') {
-      const order = { '/assets': 1, '/assets/': 2, '/deposit-address/': 3, '/receive/': 4 };
-      const getOrder = (path: string) => {
-        if (path.includes('/assets') && !path.includes('/transactions') && !path.includes('/receive') && !path.includes('/deposit-address')) {
-          return path.includes('/assets/') && path.match(/\/assets\/\d+$/) ? 2 : 1;
-        }
-        if (path.includes('/deposit-address/')) return 3;
-        if (path.includes('/receive/')) return 4;
-        return 10;
-      };
-      const orderA = getOrder(pathA);
-      const orderB = getOrder(pathB);
-      if (orderA !== orderB) return orderA - orderB;
-    }
-    // Transactions Flow
-    if (tagA === 'V2 - Crypto - Transactions') {
-      const order = { '/transactions': 1, '/transactions/': 2, '/assets/': 3 };
-      const getOrder = (path: string) => {
-        if (path.includes('/transactions') && !path.includes('/assets/')) {
-          return path.match(/\/transactions\/[^/]+$/) ? 2 : 1;
-        }
-        if (path.includes('/assets/') && path.includes('/transactions')) return 3;
-        return 10;
-      };
-      const orderA = getOrder(pathA);
-      const orderB = getOrder(pathB);
-      if (orderA !== orderB) return orderA - orderB;
-    }
-    // Wallets Flow
-    if (tagA === 'V2 - Crypto - Wallets') {
-      const order = { '/wallets': 1, '/wallets/export': 2, '/wallets/export-key': 3 };
-      const getOrder = (path: string) => {
-        if (path.includes('/wallets/export-key')) return 3;
-        if (path.includes('/wallets/export') && !path.includes('/export-key')) return 2;
-        if (path.includes('/wallets') && !path.includes('/export')) return 1;
-        return 10;
-      };
-      const orderA = getOrder(pathA);
-      const orderB = getOrder(pathB);
-      if (orderA !== orderB) return orderA - orderB;
-    }
-  }
-
-  // PalmPay Payout Flow
-  if (tagA === 'V2 - PalmPay Payout' && tagB === 'V2 - PalmPay Payout') {
-    const getPayoutOrder = (path: string) => {
-      if (path.includes('/banks')) return 1;
-      if (path.includes('/verify-account')) return 2;
-      if (path.includes('/payout/initiate')) return 3;
-      if (path.includes('/payout/') && !path.includes('/payout/initiate')) return 4; // /payout/:transactionId
-      return 10;
-    };
-    const orderA = getPayoutOrder(pathA);
-    const orderB = getPayoutOrder(pathB);
-    if (orderA !== orderB) return orderA - orderB;
-  }
-
-  // Default: method first (GET before POST), then alphabetical
-  if (methodA !== methodB) {
-    const methodOrder: { [key: string]: number } = { 'get': 1, 'post': 2, 'put': 3, 'delete': 4 };
-    return (methodOrder[methodA.toLowerCase()] || 10) - (methodOrder[methodB.toLowerCase()] || 10);
-  }
-  return pathA.localeCompare(pathB);
-};
-
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'TereScrow API Documentation',
-  swaggerOptions: {
-    tagsSorter: customTagsSorter as any,
-    operationsSorter: customOperationsSorter as any,
-    docExpansion: 'list',
-  },
-}));
-
+// TEMP: keep /api/file open for legacy admin uploads (same as before lockdown).
+// TODO: require authenticateUser + staff role when admin app updated.
 app.post('/api/file', upload.single('file'), (req: Request, res: Response) => {
   if (req?.file) {
     return res.status(201).json({

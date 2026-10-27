@@ -107,7 +107,9 @@ class FiatWalletService {
   }
 
   /**
-   * Credit wallet (add funds)
+   * Credit wallet (add funds).
+   * Row-locks wallet + transaction; idempotent if txn already completed
+   * (blocks double-credit from concurrent webhooks / double-approve).
    */
   async creditWallet(
     walletId: string,
@@ -116,11 +118,51 @@ class FiatWalletService {
     description?: string
   ) {
     const result = await prisma.$transaction(async (tx) => {
-      // Get wallet with lock
-      const wallet = await tx.fiatWallet.findUnique({
-        where: { id: walletId },
-      });
+      const lockedTxn = await tx.$queryRaw<
+        Array<{ id: string; status: string; walletId: string }>
+      >`SELECT id, status, walletId FROM FiatTransaction WHERE id = ${transactionId} FOR UPDATE`;
+      const txnRow = lockedTxn[0];
+      if (!txnRow) {
+        throw new Error('Transaction not found');
+      }
+      if (txnRow.walletId !== walletId) {
+        throw new Error('Wallet does not match transaction');
+      }
 
+      // Already credited — safe no-op for retries / races
+      if (txnRow.status === 'completed') {
+        const walletNow = await tx.fiatWallet.findUnique({
+          where: { id: walletId },
+          select: { balance: true },
+        });
+        const bal = walletNow?.balance?.toString() || '0';
+        return {
+          walletId,
+          balanceBefore: bal,
+          balanceAfter: bal,
+          amount: amount.toString(),
+          alreadyCompleted: true as const,
+        };
+      }
+
+      const status = String(txnRow.status || '').toLowerCase();
+      const creditable = new Set([
+        'pending',
+        'held',
+        'processing',
+        'successful',
+      ]);
+      if (!creditable.has(status)) {
+        throw new Error(
+          `Cannot credit transaction in status=${txnRow.status}`
+        );
+      }
+
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; balance: any; status: string }>
+      >`SELECT id, balance, status FROM FiatWallet WHERE id = ${walletId} FOR UPDATE`;
+
+      const wallet = locked[0];
       if (!wallet) {
         throw new Error('Wallet not found');
       }
@@ -129,16 +171,16 @@ class FiatWalletService {
         throw new Error('Wallet is not active');
       }
 
-      const balanceBefore = wallet.balance;
-      const balanceAfter = new Decimal(balanceBefore).plus(amount);
+      const balanceBefore = new Decimal(wallet.balance);
+      const balanceAfter = balanceBefore.plus(amount);
 
-      // Update wallet balance
-      await tx.fiatWallet.update({
-        where: { id: walletId },
-        data: { balance: balanceAfter },
-      });
+      // Atomic increment under row lock (avoids lost updates vs absolute write races)
+      await tx.$executeRaw`
+        UPDATE FiatWallet
+        SET balance = balance + ${amount}, updatedAt = NOW(3)
+        WHERE id = ${walletId}
+      `;
 
-      // Update transaction
       await tx.fiatTransaction.update({
         where: { id: transactionId },
         data: {
@@ -146,6 +188,7 @@ class FiatWalletService {
           balanceAfter: balanceAfter,
           status: 'completed',
           completedAt: new Date(),
+          ...(description ? { description } : {}),
         },
       });
 
@@ -154,10 +197,13 @@ class FiatWalletService {
         balanceBefore: balanceBefore.toString(),
         balanceAfter: balanceAfter.toString(),
         amount: amount.toString(),
+        alreadyCompleted: false as const,
       };
     });
 
-    await this.recordProfitForFiatTransaction(transactionId);
+    if (!(result as { alreadyCompleted?: boolean }).alreadyCompleted) {
+      await this.recordProfitForFiatTransaction(transactionId);
+    }
     return result;
   }
 
@@ -235,6 +281,7 @@ class FiatWalletService {
 
   /**
    * Credit wallet with row lock (safe under concurrent refunds).
+   * No FiatTransaction row required — for fail-path refunds that create a separate txn after.
    */
   async creditWalletAtomic(walletId: string, amount: number) {
     return prisma.$transaction(async (tx) => {
@@ -246,10 +293,11 @@ class FiatWalletService {
       if (wallet.status !== 'active') throw new Error('Wallet is not active');
       const balanceBefore = new Decimal(wallet.balance);
       const balanceAfter = balanceBefore.plus(amount);
-      await tx.fiatWallet.update({
-        where: { id: walletId },
-        data: { balance: balanceAfter },
-      });
+      await tx.$executeRaw`
+        UPDATE FiatWallet
+        SET balance = balance + ${amount}, updatedAt = NOW(3)
+        WHERE id = ${walletId}
+      `;
       return {
         balanceBefore: balanceBefore.toString(),
         balanceAfter: balanceAfter.toString(),

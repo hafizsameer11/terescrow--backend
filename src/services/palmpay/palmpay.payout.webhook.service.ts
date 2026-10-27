@@ -115,6 +115,10 @@ export async function refundFailedPayoutTransaction(
     errorCode?: string;
     sessionId?: string;
     orderNo?: string;
+    /** Prefer exact debit hold when initiate catch races the fail webhook. */
+    amountOverride?: number;
+    /** Suppress push/in-app when caller notifies separately. */
+    skipNotify?: boolean;
   }
 ): Promise<{ refunded: boolean; amount: number }> {
   const statusLabel = opts.orderStatus === 4 ? 'cancelled' : 'failed';
@@ -122,14 +126,28 @@ export async function refundFailedPayoutTransaction(
     String(opts.errorMsg || opts.errorCode || `PalmPay payout ${statusLabel}`).slice(0, 500);
 
   const result = await prisma.$transaction(async (tx) => {
-    const txn = await tx.fiatTransaction.findUnique({ where: { id: transactionId } });
+    // Serialize concurrent fail webhooks + initiate-catch refunds on the same withdraw row
+    const locked = await tx.$queryRaw<
+      Array<{
+        id: string;
+        type: string;
+        status: string;
+        walletId: string;
+        userId: number;
+        totalAmount: any;
+        metadata: string | null;
+        palmpayOrderNo: string | null;
+      }>
+    >`SELECT id, type, status, walletId, userId, totalAmount, metadata, palmpayOrderNo
+      FROM FiatTransaction WHERE id = ${transactionId} FOR UPDATE`;
+
+    const txn = locked[0];
     if (!txn || txn.type !== 'WITHDRAW') {
       return { refunded: false, amount: 0, userId: 0 };
     }
 
     const meta = parseMeta(txn.metadata);
-    if (meta.payoutRefundedAt) {
-      // Already refunded — normalize app status for older rows that stayed "failed"
+    if (meta.payoutRefundedAt || txn.status === 'refunded') {
       if (txn.status !== 'refunded') {
         await tx.fiatTransaction.update({
           where: { id: txn.id },
@@ -143,7 +161,12 @@ export async function refundFailedPayoutTransaction(
       };
     }
 
-    const refundAmount = new Decimal(txn.totalAmount || 0);
+    const override =
+      opts.amountOverride != null && Number.isFinite(opts.amountOverride)
+        ? Number(opts.amountOverride)
+        : null;
+    const refundAmount =
+      override != null && override > 0 ? new Decimal(override) : new Decimal(txn.totalAmount || 0);
     const amountNum = refundAmount.toNumber();
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
       await tx.fiatTransaction.update({
@@ -164,19 +187,27 @@ export async function refundFailedPayoutTransaction(
       return { refunded: false, amount: 0, userId: txn.userId };
     }
 
-    // Only refund if we had debited (completed/pending)
+    // Debited holds: pending/completed/successful. Also allow `failed` so initiate-catch
+    // and fail-webhook can race safely under the payoutRefundedAt claim (no double credit).
     const shouldRefund =
-      txn.status === 'completed' || txn.status === 'pending' || txn.status === 'successful';
+      txn.status === 'completed' ||
+      txn.status === 'pending' ||
+      txn.status === 'successful' ||
+      txn.status === 'failed';
 
     let balanceAfterRefund: Decimal | null = null;
     if (shouldRefund) {
-      const wallet = await tx.fiatWallet.findUnique({ where: { id: txn.walletId } });
+      const walletLocked = await tx.$queryRaw<
+        Array<{ id: string; balance: any; status: string }>
+      >`SELECT id, balance, status FROM FiatWallet WHERE id = ${txn.walletId} FOR UPDATE`;
+      const wallet = walletLocked[0];
       if (!wallet) throw new Error('Wallet not found for payout refund');
       balanceAfterRefund = new Decimal(wallet.balance).plus(refundAmount);
-      await tx.fiatWallet.update({
-        where: { id: wallet.id },
-        data: { balance: balanceAfterRefund },
-      });
+      await tx.$executeRaw`
+        UPDATE FiatWallet
+        SET balance = balance + ${amountNum}, updatedAt = NOW(3)
+        WHERE id = ${wallet.id}
+      `;
     }
 
     await tx.fiatTransaction.update({
@@ -210,7 +241,7 @@ export async function refundFailedPayoutTransaction(
     };
   });
 
-  if (result.refunded && result.userId) {
+  if (result.refunded && result.userId && !opts.skipNotify) {
     const userId = result.userId;
     const amountStr = Number(result.amount).toLocaleString('en-NG', {
       minimumFractionDigits: 0,

@@ -6,7 +6,7 @@ import { Gender, OtpType, User, UserRoles } from '@prisma/client';
 import {
   comparePassword,
   generateOTP,
-  generateToken,
+  issueSessionToken,
   hashPassword,
   sendVerificationEmail,
   sendWelcomeEmail,
@@ -187,7 +187,7 @@ const registerCustomerController = async (
 
     await sendVerificationEmail(email, otp);
     await sendWelcomeEmail(email, firstName);
-    const token = generateToken(newUser.id, newUser.username, newUser.role);
+    const token = await issueSessionToken(newUser);
     res.cookie('token', token, {
       secure: true,
       httpOnly: true,
@@ -266,6 +266,14 @@ const verifyUserController = async (
   try {
     const user: User = req.body._user;
     const otp: string = req.body.otp;
+
+    const { assertOtpVerifyRateLimit, freezeOnOtpAttemptsExhausted } = await import(
+      '../../utils/auth.rate.limit'
+    );
+    if (user?.email) {
+      await assertOtpVerifyRateLimit(user.email);
+    }
+
     const userOTP = await prisma.userOTP.findUnique({
       where: {
         userId: user.id,
@@ -288,6 +296,7 @@ const verifyUserController = async (
     }
 
     if (userOTP.attempts >= 5) {
+      await freezeOnOtpAttemptsExhausted(user.id);
       await prisma.userOTP.delete({
         where: {
           userId: user.id,
@@ -297,7 +306,7 @@ const verifyUserController = async (
     }
 
     if (userOTP.otp !== otp) {
-      await prisma.userOTP.update({
+      const updated = await prisma.userOTP.update({
         where: {
           userId: user.id,
         },
@@ -305,6 +314,9 @@ const verifyUserController = async (
           attempts: { increment: 1 },
         },
       });
+      if ((updated.attempts || 0) >= 5) {
+        await freezeOnOtpAttemptsExhausted(user.id);
+      }
       throw ApiError.badRequest('Invalid OTP');
     }
     const updateUser = await prisma.user.update({
@@ -357,6 +369,12 @@ const verifyForgotPasswordOtp = async (
   try {
     // console.log('reached');
     const { email, otp } = req.body as { email: string; otp: string };
+
+    const { assertOtpVerifyRateLimit, freezeOnOtpAttemptsExhausted } = await import(
+      '../../utils/auth.rate.limit'
+    );
+    await assertOtpVerifyRateLimit(email);
+
     const user = await prisma.user.findUnique({
       where: {
         email,
@@ -386,6 +404,7 @@ const verifyForgotPasswordOtp = async (
     }
 
     if (isUserOtp.attempts >= 5) {
+      await freezeOnOtpAttemptsExhausted(user.id);
       await prisma.userOTP.delete({
         where: {
           userId: user.id,
@@ -395,7 +414,7 @@ const verifyForgotPasswordOtp = async (
     }
 
     if (isUserOtp.otp !== otp) {
-      await prisma.userOTP.update({
+      const updated = await prisma.userOTP.update({
         where: {
           userId: user.id,
         },
@@ -403,6 +422,9 @@ const verifyForgotPasswordOtp = async (
           attempts: { increment: 1 },
         },
       });
+      if ((updated.attempts || 0) >= 5) {
+        await freezeOnOtpAttemptsExhausted(user.id);
+      }
       return next(ApiError.badRequest('Invalid OTP'));
     }
 
@@ -411,11 +433,29 @@ const verifyForgotPasswordOtp = async (
         userId: user.id,
       },
     });
-    // console.log('fulfilled');
-    //return userId
-    const resData = {
-      userId: user.id
+
+    // One-time password-reset token (required by set-new-password). Do not accept bare userId.
+    const crypto = await import('crypto');
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    try {
+      const { redisConfig } = await import('../../config/redis.config');
+      await redisConfig.getClient().set(
+        `pwdreset:${resetToken}`,
+        String(user.id),
+        'EX',
+        600
+      );
+    } catch (redisErr) {
+      console.error('[forgot-password] Redis reset token failed:', redisErr);
+      return next(
+        ApiError.internal('Unable to issue password reset token. Please try again.')
+      );
     }
+
+    const resData = {
+      resetToken,
+      expiresInSec: 600,
+    };
     return new ApiResponse(200, resData, 'Otp verified successfully.').send(res);
   } catch (error) {
     if (error instanceof ApiError) {
@@ -441,6 +481,11 @@ const resendOtpController = async (
       return next(ApiError.badRequest('Token or email is required'));
     }
 
+    const { assertOtpSendRateLimit } = await import('../../utils/auth.rate.limit');
+    if (email) {
+      await assertOtpSendRateLimit(email);
+    }
+
     const newOtp = generateOTP(4);
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
@@ -454,6 +499,9 @@ const resendOtpController = async (
 
     if (!user) {
       return next(ApiError.badRequest('User not found'));
+    }
+    if (!email) {
+      await assertOtpSendRateLimit(user.email);
     }
 
     // Default: email verification for incomplete signup; password reset when already verified + email-only.
@@ -514,6 +562,9 @@ const sendPasswordOtpController = async (
       return next(ApiError.badRequest('Invalid request credentials'));
     }
 
+    const { assertOtpSendRateLimit } = await import('../../utils/auth.rate.limit');
+    await assertOtpSendRateLimit(email);
+
     const isUser = await prisma.user.findUnique({
       where: {
         email,
@@ -568,34 +619,70 @@ export const setNewPasswordController = async (
   next: NextFunction
 ) => {
   try {
-    //get the userId and new passowrd
-    const { userId, password } = req.body;
-    const hashedPassword = await hashPassword(password);
-    //first check if user exists
+    const { resetToken, password } = req.body as {
+      resetToken?: string;
+      password?: string;
+      userId?: unknown;
+    };
+
+    // Reject legacy takeover shape: { userId, password } with no reset proof
+    if (!resetToken || typeof resetToken !== 'string' || resetToken.length < 32) {
+      return next(
+        ApiError.badRequest(
+          'Valid resetToken is required. Verify forgot-password OTP first.'
+        )
+      );
+    }
+    if (!password || typeof password !== 'string' || password.length < 8) {
+      return next(ApiError.badRequest('Password must be at least 8 characters'));
+    }
+
+    let userIdNum: number | null = null;
+    try {
+      const { redisConfig } = await import('../../config/redis.config');
+      const redis = redisConfig.getClient();
+      const key = `pwdreset:${resetToken}`;
+      const raw = await redis.get(key);
+      if (!raw) {
+        return next(ApiError.badRequest('Reset token is invalid or expired'));
+      }
+      // Consume immediately (one-time)
+      await redis.del(key);
+      userIdNum = parseInt(raw, 10);
+    } catch (redisErr) {
+      console.error('[set-new-password] Redis reset token failed:', redisErr);
+      return next(ApiError.internal('Unable to validate reset token. Please try again.'));
+    }
+
+    if (!Number.isFinite(userIdNum) || !userIdNum) {
+      return next(ApiError.badRequest('Reset token is invalid or expired'));
+    }
+
     const user = await prisma.user.findUnique({
-      where: {
-        id: userId,
-      },
+      where: { id: userIdNum },
+      select: { id: true, email: true },
     });
     if (!user) {
       return next(ApiError.badRequest('User not found'));
     }
-    const updatedUser = await prisma.user.update({
-      where: {
-        id: userId,
-      },
+
+    const hashedPassword = await hashPassword(password);
+    await prisma.user.update({
+      where: { id: user.id },
       data: {
         password: hashedPassword,
+        // Invalidate all existing sessions after password reset
+        tokenVersion: { increment: 1 },
+        failedLoginCount: 0,
+        lockedUntil: null,
       },
     });
-    //send success message
+
     return new ApiResponse(
       200,
-      updatedUser,
+      { email: user.email },
       'Password changed successfully'
     ).send(res);
-
-
   } catch (error) {
     console.log(error);
     if (error instanceof ApiError) {
@@ -603,7 +690,7 @@ export const setNewPasswordController = async (
     }
     return next(ApiError.internal('Internal Server Error!'));
   }
-}
+};
 export const editProfileController = async (
   req: Request,
   res: Response,
@@ -820,23 +907,40 @@ export const setPinController = async (
       );
     }
 
-    const { email, pin } = req.body as { email: string; pin: string };
+    const sessionUser = (req as any).user || req.body._user;
+    if (!sessionUser?.id) {
+      return next(ApiError.unauthorized('You are not logged in'));
+    }
+
+    const { pin } = req.body as { pin: string };
+
+    const { hashPin, isValidPinFormat } = await import('../../utils/pin.utils');
+    if (!isValidPinFormat(pin)) {
+      return next(ApiError.badRequest('Invalid PIN. Must be exactly 4 digits'));
+    }
 
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { id: Number(sessionUser.id) },
+      select: { id: true, email: true, pin: true },
     });
 
     if (!user) {
       return next(ApiError.notFound('User not found'));
     }
 
+    if (user.pin) {
+      return next(
+        ApiError.badRequest('PIN already set. Use update-pin with your current PIN.')
+      );
+    }
+
+    const pinHash = await hashPin(pin);
     const updatedUser = await prisma.user.update({
       where: { id: user.id },
-      data: { pin },
+      data: { pin: pinHash },
       select: {
         id: true,
         email: true,
-        pin: true,
       },
     });
 
@@ -868,23 +972,51 @@ export const updatePinController = async (
       );
     }
 
-    const { email, pin } = req.body as { email: string; pin: string };
+    const sessionUser = (req as any).user || req.body._user;
+    if (!sessionUser?.id) {
+      return next(ApiError.unauthorized('You are not logged in'));
+    }
+
+    const { pin, currentPin } = req.body as { pin: string; currentPin: string };
+
+    const { hashPin, isValidPinFormat, verifyAndMaybeUpgradePin } = await import(
+      '../../utils/pin.utils'
+    );
+    if (!isValidPinFormat(pin) || !isValidPinFormat(currentPin)) {
+      return next(ApiError.badRequest('Invalid PIN. Must be exactly 4 digits'));
+    }
 
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { id: Number(sessionUser.id) },
+      select: { id: true, email: true, pin: true },
     });
 
     if (!user) {
       return next(ApiError.notFound('User not found'));
     }
 
+    if (!user.pin) {
+      return next(ApiError.badRequest('No PIN set. Use set-pin first.'));
+    }
+
+    const { assertPinRateLimit, clearPinRateLimit } = await import(
+      '../../utils/auth.rate.limit'
+    );
+    await assertPinRateLimit(user.id);
+
+    const currentOk = await verifyAndMaybeUpgradePin(user.id, user.pin, currentPin);
+    if (!currentOk) {
+      return next(ApiError.badRequest('Current PIN is incorrect'));
+    }
+    await clearPinRateLimit(user.id);
+
+    const pinHash = await hashPin(pin);
     const updatedUser = await prisma.user.update({
       where: { id: user.id },
-      data: { pin },
+      data: { pin: pinHash },
       select: {
         id: true,
         email: true,
-        pin: true,
       },
     });
 
@@ -942,6 +1074,11 @@ export const verifyPinController = async (
       return next(ApiError.badRequest('Invalid PIN. Must be exactly 4 digits'));
     }
 
+    const { assertPinRateLimit, clearPinRateLimit } = await import(
+      '../../utils/auth.rate.limit'
+    );
+    await assertPinRateLimit(authenticatedUser.id);
+
     // Get user with PIN
     const user = await prisma.user.findUnique({
       where: {
@@ -963,10 +1100,13 @@ export const verifyPinController = async (
       return next(ApiError.badRequest('PIN not set. Please set a PIN first.'));
     }
 
-    // Verify PIN
-    if (user.pin !== pin) {
+    const { verifyAndMaybeUpgradePin } = await import('../../utils/pin.utils');
+    const pinOk = await verifyAndMaybeUpgradePin(user.id, user.pin, pin);
+    if (!pinOk) {
       return next(ApiError.unauthorized('Invalid PIN'));
     }
+
+    await clearPinRateLimit(authenticatedUser.id);
 
     return new ApiResponse(
       200,

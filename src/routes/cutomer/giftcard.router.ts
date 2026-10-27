@@ -25,6 +25,8 @@ import {
 import {
   giftCardPurchaseValidation,
 } from '../../utils/validations';
+import { requireCustomerFeature } from '../../middlewares/require.customer.feature';
+import { FEATURE_GIFT_CARD } from '../../utils/customer.restrictions';
 
 const giftCardRouter = express.Router();
 
@@ -578,6 +580,7 @@ giftCardRouter.get('/products/:productId/types', getProductCardTypesController);
 giftCardRouter.post(
   '/purchase',
   authenticateUser,
+  requireCustomerFeature(FEATURE_GIFT_CARD, 'Gift card purchase'),
   giftCardPurchaseValidation,
   purchaseController
 );

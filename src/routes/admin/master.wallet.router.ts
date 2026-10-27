@@ -58,6 +58,8 @@ const staffOps = [authenticateUser, authenticateAdminOrAgent];
  *       201:
  *         description: Master wallet created successfully
  */
+// TEMP: create/list/balances left open for legacy admin panel (had no auth before lockdown).
+// staffOps routes below still require admin/agent JWT.
 masterWalletRouter.post(
   '/',
   [

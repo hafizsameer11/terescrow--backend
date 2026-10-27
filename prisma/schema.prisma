@@ -27,7 +27,13 @@ model User {
   status               String              @default("active")
   meansId              Int?
   fcmToken             String?
-  pin                  String?             @db.VarChar(4)
+  pin                  String?             @db.VarChar(255)
+  /// Bumped on each login; JWT must carry matching tv (single active device/session).
+  tokenVersion         Int                 @default(0)
+  /// Failed password attempts (cleared on success). Triggers lockedUntil at threshold.
+  failedLoginCount     Int                 @default(0)
+  /// Account login lock — survives Redis; cleared on success or when expired + successful path.
+  lockedUntil          DateTime?
   currentKycTier       KycTier?
   kycTier1Verified     Boolean             @default(false)
   kycTier2Verified     Boolean             @default(false)
@@ -89,11 +95,34 @@ model User {
   obiexTradesInitiated             ObiexTradeLog[]     @relation("ObiexTradeInitiatedBy")
   obiexDepositAddresses            ObiexDepositAddress[]
   obiexTradeReconciliations        ObiexTradeReconciliation[]
+  adminAuditLogs                   AdminAuditLog[]
 
   @@index([customRoleId], map: "User_customRoleId_fkey")
   @@index([meansId], map: "User_meansId_fkey")
   @@index([referralCode])
   @@index([referredBy])
+}
+
+/// Append-only admin action log (who did what, when) — for dispute / non-repudiation.
+model AdminAuditLog {
+  id           String   @id @default(uuid())
+  adminUserId  Int
+  action       String   @db.VarChar(100)
+  method       String   @db.VarChar(10)
+  path         String   @db.VarChar(500)
+  targetUserId Int?
+  statusCode   Int?
+  ip           String?  @db.VarChar(64)
+  userAgent    String?  @db.VarChar(500)
+  requestMeta  String?  @db.LongText
+  createdAt    DateTime @default(now())
+  admin        User     @relation(fields: [adminUserId], references: [id])
+
+  @@index([adminUserId])
+  @@index([action])
+  @@index([targetUserId])
+  @@index([createdAt])
+  @@index([path])
 }
 
 model CustomRole {
@@ -1140,6 +1169,8 @@ model ObiexTradeLog {
   @@index([userId])
   @@index([obiexReference])
   @@index([obiexTransactionId])
+  /// One provider tx per side — blocks double insert on webhook resend (NULLs still allowed).
+  @@unique([side, obiexTransactionId], map: "obiex_trade_logs_side_tx_unique")
   @@map("obiex_trade_logs")
 }
 

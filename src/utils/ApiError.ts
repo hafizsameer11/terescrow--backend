@@ -4,6 +4,7 @@ enum HttpStatusCodes {
   FORBIDDEN = 403,
   NOT_FOUND = 404,
   CONFLICT = 409,
+  TOO_MANY_REQUESTS = 429,
   INTERNAL_SERVER_ERROR = 500,
 }
 
@@ -42,6 +43,10 @@ class ApiError extends Error {
 
   static conflict(message: string, data?: any) {
     return new ApiError(HttpStatusCodes.CONFLICT, message, data);
+  }
+
+  static tooManyRequests(message: string, data?: any) {
+    return new ApiError(HttpStatusCodes.TOO_MANY_REQUESTS, message, data);
   }
 }
 

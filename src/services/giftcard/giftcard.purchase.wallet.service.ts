@@ -18,16 +18,23 @@ export async function refundGiftCardWalletDebit(input: {
   errorMessage: string;
 }) {
   const { userId, walletId, amountNgn, originalFiatTxId, errorMessage } = input;
-  const currentWallet = await prisma.fiatWallet.findUnique({ where: { id: walletId } });
-  if (!currentWallet) {
-    console.error('[GiftCard] Refund skipped: wallet not found', walletId);
-    return;
-  }
-  const refundBalance = new Decimal(currentWallet.balance).plus(amountNgn);
-  await prisma.fiatWallet.update({
-    where: { id: walletId },
-    data: { balance: refundBalance },
+
+  // Claim original debit once — concurrent refunds cannot both win
+  const claimed = await prisma.fiatTransaction.updateMany({
+    where: {
+      id: originalFiatTxId,
+      status: { in: ['pending', 'completed', 'successful'] },
+    },
+    data: {
+      status: 'failed',
+      errorMessage: errorMessage.slice(0, 500),
+    },
   });
+  if (!claimed.count) {
+    return; // already failed/refunded
+  }
+
+  await fiatWalletService.creditWalletAtomic(walletId, amountNgn);
   await prisma.fiatTransaction.create({
     data: {
       id: uuidv4(),
@@ -44,13 +51,6 @@ export async function refundGiftCardWalletDebit(input: {
         refundFor: originalFiatTxId,
         error: errorMessage,
       }),
-    },
-  });
-  await prisma.fiatTransaction.update({
-    where: { id: originalFiatTxId },
-    data: {
-      status: 'failed',
-      errorMessage: errorMessage.slice(0, 500),
     },
   });
 }

@@ -392,13 +392,15 @@ export const createBillOrderController = async (
       return next(ApiError.badRequest('Invalid PIN. Must be 4 digits'));
     }
 
-    // Verify PIN
     const userRecord = await prisma.user.findUnique({
       where: { id: user.id },
       select: { pin: true, phoneNumber: true },
     });
-
-    if (!userRecord?.pin || userRecord.pin !== pin) {
+    const { verifyAndMaybeUpgradePin } = await import('../../utils/pin.utils');
+    if (
+      !userRecord?.pin ||
+      !(await verifyAndMaybeUpgradePin(user.id, userRecord.pin, pin))
+    ) {
       return next(ApiError.unauthorized('Invalid PIN'));
     }
 
@@ -778,45 +780,51 @@ export const createBillOrderController = async (
         }
       }
     } catch (error: any) {
-      // If provider order creation fails, REFUND the wallet (atomic credit — no race)
+      // Claim refund flag first (same as status job) so catch vs webhook cannot double-credit
       try {
-        const alreadyRefunded = await prisma.billPayment.findUnique({
-          where: { id: billPayment.id },
-          select: { refunded: true },
+        const claim = await prisma.billPayment.updateMany({
+          where: { id: billPayment.id, refunded: false },
+          data: {
+            refunded: true,
+            refundedAt: new Date(),
+            refundReason: String(error.message || 'provider_failed').slice(0, 190),
+          },
         });
-        if (!alreadyRefunded?.refunded) {
-          await fiatWalletService.creditWalletAtomic(wallet.id, totalDebitNgn);
+        if (claim.count === 1) {
+          try {
+            await fiatWalletService.creditWalletAtomic(wallet.id, totalDebitNgn);
 
-          await prisma.fiatTransaction.create({
-            data: {
-              id: uuidv4(),
-              userId: user.id,
-              walletId: wallet.id,
-              type: 'BILL_PAYMENT',
-              status: 'completed',
-              currency: 'NGN',
-              amount: totalDebitNgn,
-              fees: 0,
-              totalAmount: totalDebitNgn,
-              description: `Refund for failed bill payment: ${transaction.id}`,
-              metadata: JSON.stringify({
-                refundFor: transaction.id,
-                reason: error.message,
-                provider: actualProvider,
-                refundedFeeNgn: feeNgn,
-                refundedProviderAmountNgn: amountNum,
-              }),
-            },
-          });
-
-          await prisma.billPayment.update({
-            where: { id: billPayment.id },
-            data: {
-              refunded: true,
-              refundedAt: new Date(),
-              refundReason: String(error.message || 'provider_failed').slice(0, 190),
-            },
-          }).catch(() => undefined);
+            await prisma.fiatTransaction.create({
+              data: {
+                id: uuidv4(),
+                userId: user.id,
+                walletId: wallet.id,
+                type: 'BILL_PAYMENT',
+                status: 'completed',
+                currency: 'NGN',
+                amount: totalDebitNgn,
+                fees: 0,
+                totalAmount: totalDebitNgn,
+                description: `Refund for failed bill payment: ${transaction.id}`,
+                metadata: JSON.stringify({
+                  refundFor: transaction.id,
+                  reason: error.message,
+                  provider: actualProvider,
+                  refundedFeeNgn: feeNgn,
+                  refundedProviderAmountNgn: amountNum,
+                }),
+              },
+            });
+          } catch (creditErr) {
+            // Release claim so status job / retry can refund
+            await prisma.billPayment
+              .update({
+                where: { id: billPayment.id },
+                data: { refunded: false, refundedAt: null, refundReason: null },
+              })
+              .catch(() => undefined);
+            throw creditErr;
+          }
         }
       } catch (refundError) {
         console.error(`Failed to refund wallet after ${provider} error:`, refundError);

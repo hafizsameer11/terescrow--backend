@@ -1,11 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import { UserRoles } from '@prisma/client';
 import ApiError from '../utils/ApiError';
-import { verifyToken } from '../utils/authUtils';
+import { isSessionTokenCurrent, verifyToken } from '../utils/authUtils';
 import { BANNED_CUSTOMER_MESSAGE, isUserBanned } from '../utils/customer.restrictions';
 import { prisma } from '../utils/prisma';
 import { isAppleReviewUser, isReadOnlyHttpMethod } from '../utils/apple.review.user';
 import { v1Compat } from '../config/v1.compat.config';
+
+const SESSION_REPLACED_MESSAGE =
+  'You have been logged out because your account was signed in on another device. Please log in again.';
 
 const authenticateUser = async (
   req: Request,
@@ -35,6 +38,11 @@ const authenticateUser = async (
 
     if (!isUser) {
       throw ApiError.unauthorized('You are not logged in');
+    }
+
+    // Single active session: new login bumps tokenVersion and invalidates older JWTs
+    if (!isSessionTokenCurrent(decoded, isUser.tokenVersion)) {
+      throw ApiError.unauthorized(SESSION_REPLACED_MESSAGE);
     }
 
     if (v1Compat.enableBannedCustomerChecks && isUser.role === UserRoles.customer && isUserBanned(isUser.status)) {

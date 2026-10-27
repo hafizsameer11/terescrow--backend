@@ -1,5 +1,6 @@
 import express from 'express';
 import authenticateUser from '../../middlewares/authenticate.user';
+import authenticateAdmin from '../../middlewares/authenticate.admin';
 // import {
 //   getAllChatsController,
 //   getChatDetailsController,
@@ -67,6 +68,10 @@ import { createKycClimits, getKycLimits, updateKycLimits } from '../../controlle
 import { getSmtpDetails, updateSmtp } from '../../controllers/admin/admin.settings';
 
 const operationsRouter = express.Router();
+
+// TEMP: no router-level admin gate — matches pre-lockdown behavior for legacy admin panel.
+// Per-route authenticateUser where it already existed is unchanged.
+// TODO: operationsRouter.use(authenticateUser, authenticateAdmin) when admin app ships JWT.
 
 /*
 
@@ -439,18 +444,28 @@ operationsRouter.post('/update-kycstatus/:userId', authenticateUser, updateKycSt
 operationsRouter.get('/get-rates', authenticateUser, getRates);
 operationsRouter.get('/get-notification-for-users/:userId', authenticateUser, getNotificationForUsers);
 //role management part
-operationsRouter.post('/create-role', createRoles);
-operationsRouter.get('/get-roles', getRoles);
-operationsRouter.get('/get-roles-list', getRolesList);
-operationsRouter.post('/create-permissions', addOrUpdateRolePermissions);
-operationsRouter.post('/change-status/:userId', changeUserStatus);
+operationsRouter.post('/create-role', authenticateUser, authenticateAdmin, createRoles);
+operationsRouter.get('/get-roles', authenticateUser, authenticateAdmin, getRoles);
+operationsRouter.get('/get-roles-list', authenticateUser, authenticateAdmin, getRolesList);
+operationsRouter.post(
+  '/create-permissions',
+  authenticateUser,
+  authenticateAdmin,
+  addOrUpdateRolePermissions
+);
+operationsRouter.post(
+  '/change-status/:userId',
+  authenticateUser,
+  authenticateAdmin,
+  changeUserStatus
+);
 
 operationsRouter.post('/create-kyc-limit', createKycClimits);
 operationsRouter.get('/get-kyc-limits', getKycLimits);
 operationsRouter.post('/update-kyc-limit/:kycId', updateKycLimits);
 //smtp route
-operationsRouter.post('/create-smtp', updateSmtp)
-operationsRouter.get('/get-smtp', getSmtpDetails)
+operationsRouter.post('/create-smtp', authenticateUser, authenticateAdmin, updateSmtp);
+operationsRouter.get('/get-smtp', authenticateUser, authenticateAdmin, getSmtpDetails);
 operationsRouter.post('/create-privacy-page', createOrUpdatePrivacyPageLinks);
 operationsRouter.get('/privacy-page-links', getPrivacyPageLinks);
 operationsRouter.get('/kyc-users', kycUser);

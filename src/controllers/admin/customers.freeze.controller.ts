@@ -3,6 +3,12 @@ import { prisma } from '../../utils/prisma';
 import ApiError from '../../utils/ApiError';
 import ApiResponse from '../../utils/ApiResponse';
 import { normalizeFeatureKey } from '../../utils/customer.restrictions';
+import { logAdminAction } from '../../services/admin/admin.audit.service';
+
+function adminId(req: Request): number | null {
+  const u = (req as any).user || req.body?._user;
+  return u?.id && Number.isFinite(Number(u.id)) ? Number(u.id) : null;
+}
 
 const freezeModel = (prisma as any).userFeatureFreeze;
 
@@ -31,6 +37,16 @@ export async function postFreezeController(req: Request, res: Response, next: Ne
       update: {},
     });
     const freezes = await freezeModel.findMany({ where: { userId: customerId } });
+    const aid = adminId(req);
+    if (aid) {
+      await logAdminAction({
+        adminUserId: aid,
+        action: 'customer.freeze',
+        path: req.originalUrl,
+        targetUserId: customerId,
+        meta: { feature },
+      });
+    }
     return new ApiResponse(200, { frozenFeatures: freezes.map((f: any) => f.feature) }, 'Feature frozen').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
@@ -49,6 +65,16 @@ export async function postUnfreezeController(req: Request, res: Response, next: 
       where: { userId: customerId, feature },
     });
     const freezes = await freezeModel.findMany({ where: { userId: customerId } });
+    const aid = adminId(req);
+    if (aid) {
+      await logAdminAction({
+        adminUserId: aid,
+        action: 'customer.unfreeze',
+        path: req.originalUrl,
+        targetUserId: customerId,
+        meta: { feature },
+      });
+    }
     return new ApiResponse(200, { frozenFeatures: freezes.map((f: any) => f.feature) }, 'Feature unfrozen').send(res);
   } catch (error) {
     if (error instanceof ApiError) return next(error);
@@ -73,6 +99,16 @@ export async function postBanController(req: Request, res: Response, next: NextF
           userId: customerId,
           description: `Account banned. Reason: ${reason}. Permanent: ${permanent ?? false}`,
         },
+      });
+    }
+    const aid = adminId(req);
+    if (aid) {
+      await logAdminAction({
+        adminUserId: aid,
+        action: 'customer.ban',
+        path: req.originalUrl,
+        targetUserId: customerId,
+        meta: { reason: reason || null, permanent: permanent ?? false },
       });
     }
     return new ApiResponse(200, { status: 'banned' }, 'Customer banned').send(res);

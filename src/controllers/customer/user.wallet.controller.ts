@@ -36,13 +36,9 @@ export const exportUserWalletController = async (
       return next(ApiError.badRequest('PIN is required'));
     }
 
-    // Verify PIN
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { pin: true },
-    });
-
-    if (!user || !user.pin || user.pin !== pin) {
+    const { verifyUserPin } = await import('../../utils/pin.utils');
+    const pinCheck = await verifyUserPin(userId, String(pin));
+    if (!pinCheck.pinSet || !pinCheck.ok) {
       return next(ApiError.badRequest('Invalid PIN'));
     }
 
@@ -92,13 +88,9 @@ export const exportPrivateKeyController = async (
       return next(ApiError.badRequest('PIN is required'));
     }
 
-    // Verify PIN
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { pin: true },
-    });
-
-    if (!user || !user.pin || user.pin !== pin) {
+    const { verifyUserPin } = await import('../../utils/pin.utils');
+    const pinCheck = await verifyUserPin(userId, String(pin));
+    if (!pinCheck.pinSet || !pinCheck.ok) {
       return next(ApiError.badRequest('Invalid PIN'));
     }
 

@@ -84,28 +84,39 @@ export async function creditPermanentVaDeposit(payload: any): Promise<boolean> {
   const orderId = String(
     payload?.orderId || payload?.outOrderNo || payload?.merchantOrderId || ''
   ).trim();
+  // Stable key only — never Date.now() (retries would mint new keys → double credit).
+  // Always store a non-null palmpayOrderNo so MySQL UNIQUE applies (NULLs are not unique).
+  const completeTime = String(
+    payload?.completeTime || payload?.completedTime || payload?.transTime || ''
+  ).trim();
   const idempotencyKey =
     orderNo ||
     (orderId ? `pva_${accountNumber}_${orderId}` : null) ||
-    `pva_${accountNumber}_${amountCents}_${payload?.completeTime || payload?.completedTime || Date.now()}`;
+    (completeTime
+      ? `pva_${accountNumber}_${amountCents}_${completeTime}`
+      : null);
 
-  if (orderNo) {
-    const existing = await prisma.fiatTransaction.findUnique({
-      where: { palmpayOrderNo: orderNo },
+  if (!idempotencyKey) {
+    palmpayLogger.warn('Permanent VA deposit rejected — no stable idempotency key', {
+      accountNumber,
+      amountCents,
+      orderNo,
+      orderId,
     });
-    if (existing) {
-      palmpayLogger.info('Permanent VA deposit already processed', { orderNo, status: existing.status });
-      return true;
-    }
-  } else {
-    const existingMeta = await prisma.fiatTransaction.findFirst({
-      where: {
-        userId: row.userId,
-        type: 'DEPOSIT',
-        palmpayOrderId: idempotencyKey,
-      },
+    return false;
+  }
+
+  const uniqueOrderKey = idempotencyKey.substring(0, 191);
+
+  const existing = await prisma.fiatTransaction.findUnique({
+    where: { palmpayOrderNo: uniqueOrderKey },
+  });
+  if (existing) {
+    palmpayLogger.info('Permanent VA deposit already processed', {
+      orderNo: uniqueOrderKey,
+      status: existing.status,
     });
-    if (existingMeta) return true;
+    return true;
   }
 
   const orderStatus = Number(payload?.orderStatus);
@@ -147,29 +158,42 @@ export async function creditPermanentVaDeposit(payload: any): Promise<boolean> {
   };
 
   if (!nameOk) {
-    const transaction = await prisma.fiatTransaction.create({
-      data: {
-        id: txId,
-        userId: row.userId,
-        walletId: wallet.id,
-        type: 'DEPOSIT',
-        status: VA_DEPOSIT_HELD,
-        currency,
-        amount: amountNgn,
-        fees: 0,
-        totalAmount: amountNgn,
-        description: `Wallet top-up via permanent account ${accountNumber} (held — name review)`,
-        palmpayOrderId: idempotencyKey.substring(0, 255),
-        palmpayOrderNo: orderNo,
-        palmpayStatus: String(payload?.orderStatus ?? payload?.status ?? '2'),
-        errorMessage: 'Held for admin review: payer name does not match app profile',
-        metadata: JSON.stringify({
-          ...baseMeta,
-          holdReason: 'payer_name_mismatch',
-          reviewStatus: 'pending',
-        }),
-      },
-    });
+    let transaction;
+    try {
+      transaction = await prisma.fiatTransaction.create({
+        data: {
+          id: txId,
+          userId: row.userId,
+          walletId: wallet.id,
+          type: 'DEPOSIT',
+          status: VA_DEPOSIT_HELD,
+          currency,
+          amount: amountNgn,
+          fees: 0,
+          totalAmount: amountNgn,
+          description: `Wallet top-up via permanent account ${accountNumber} (held — name review)`,
+          palmpayOrderId: uniqueOrderKey,
+          palmpayOrderNo: uniqueOrderKey,
+          palmpayStatus: String(payload?.orderStatus ?? payload?.status ?? '2'),
+          errorMessage: 'Held for admin review: payer name does not match app profile',
+          metadata: JSON.stringify({
+            ...baseMeta,
+            holdReason: 'payer_name_mismatch',
+            reviewStatus: 'pending',
+            palmPayOrderNoRaw: orderNo,
+          }),
+        },
+      });
+    } catch (err: any) {
+      // Unique palmpayOrderNo — concurrent webhook already inserted
+      if (err?.code === 'P2002') {
+        palmpayLogger.info('Permanent VA held deposit race — already inserted', {
+          orderNo: uniqueOrderKey,
+        });
+        return true;
+      }
+      throw err;
+    }
 
     const title = 'Deposit under review';
     const body = `NGN ${amountNgn.toLocaleString('en-NG', {
@@ -216,27 +240,39 @@ export async function creditPermanentVaDeposit(payload: any): Promise<boolean> {
     return true;
   }
 
-  const transaction = await prisma.fiatTransaction.create({
-    data: {
-      id: txId,
-      userId: row.userId,
-      walletId: wallet.id,
-      type: 'DEPOSIT',
-      status: 'pending',
-      currency,
-      amount: amountNgn,
-      fees: 0,
-      totalAmount: amountNgn,
-      description: `Wallet top-up via permanent account ${accountNumber}`,
-      palmpayOrderId: idempotencyKey.substring(0, 255),
-      palmpayOrderNo: orderNo,
-      palmpayStatus: String(payload?.orderStatus ?? payload?.status ?? '2'),
-      metadata: JSON.stringify({
-        ...baseMeta,
-        nameMatch: true,
-      }),
-    },
-  });
+  let transaction;
+  try {
+    transaction = await prisma.fiatTransaction.create({
+      data: {
+        id: txId,
+        userId: row.userId,
+        walletId: wallet.id,
+        type: 'DEPOSIT',
+        status: 'pending',
+        currency,
+        amount: amountNgn,
+        fees: 0,
+        totalAmount: amountNgn,
+        description: `Wallet top-up via permanent account ${accountNumber}`,
+        palmpayOrderId: uniqueOrderKey,
+        palmpayOrderNo: uniqueOrderKey,
+        palmpayStatus: String(payload?.orderStatus ?? payload?.status ?? '2'),
+        metadata: JSON.stringify({
+          ...baseMeta,
+          nameMatch: true,
+          palmPayOrderNoRaw: orderNo,
+        }),
+      },
+    });
+  } catch (err: any) {
+    if (err?.code === 'P2002') {
+      palmpayLogger.info('Permanent VA deposit race — already inserted', {
+        orderNo: uniqueOrderKey,
+      });
+      return true;
+    }
+    throw err;
+  }
 
   await fiatWalletService.creditWallet(
     wallet.id,

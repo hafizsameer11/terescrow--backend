@@ -5,6 +5,10 @@ import { recordLedgerOnlyRecon } from './obiex.reconcile.service';
 
 const tradeModel = () => (prisma as any).obiexTradeLog;
 
+/**
+ * COLLECTION (fiat buy VA mode). Same reference may get PENDING/HELD then COMPLETED.
+ * Credit crypto only once on COMPLETED via claim awaiting→crediting.
+ */
 export async function handleObiexCollectionWebhook(event: any) {
   if (String(event?.type || '').toUpperCase() !== 'COLLECTION') {
     return { handled: false, reason: 'not_collection' };
@@ -23,7 +27,30 @@ export async function handleObiexCollectionWebhook(event: any) {
     if (trade.status === 'completed') {
       return { handled: true, reason: 'already_completed', tradeId: trade.id };
     }
-    const targetCurrency = String(event?.targetCurrency || trade.targetCurrency || 'USDT').toUpperCase();
+
+    const claimed = await tradeModel().updateMany({
+      where: {
+        id: trade.id,
+        status: { in: ['awaiting_payment', 'pending', 'processing', 'held'] },
+      },
+      data: { status: 'crediting', obiexStatus: status },
+    });
+    if (!claimed.count) {
+      const again = await tradeModel().findUnique({ where: { id: trade.id } });
+      if (again?.status === 'completed') {
+        return { handled: true, reason: 'already_completed', tradeId: trade.id };
+      }
+      // crediting = another worker in progress or crashed mid-credit — never credit twice
+      console.warn('[Obiex collection] claim lost / in progress', {
+        tradeId: trade.id,
+        status: again?.status,
+      });
+      return { handled: true, reason: 'claim_lost', tradeId: trade.id };
+    }
+
+    const targetCurrency = String(
+      event?.targetCurrency || trade.targetCurrency || 'USDT'
+    ).toUpperCase();
     const targetAmount = Number(event?.targetAmount);
     if (trade.userId && Number.isFinite(targetAmount) && targetAmount > 0) {
       const before = await getObiexAvailable(trade.userId, targetCurrency);
@@ -43,6 +70,7 @@ export async function handleObiexCollectionWebhook(event: any) {
         console.warn('[Obiex collection] recon failed', e?.message || e);
       }
     }
+
     await tradeModel().update({
       where: { id: trade.id },
       data: {
@@ -63,10 +91,18 @@ export async function handleObiexCollectionWebhook(event: any) {
   }
 
   if (status === 'HELD' || status === 'FAILED' || status === 'PENDING') {
-    await tradeModel().update({
-      where: { id: trade.id },
+    await tradeModel().updateMany({
+      where: {
+        id: trade.id,
+        status: { notIn: ['completed', 'crediting', 'failed'] },
+      },
       data: {
-        status: status === 'FAILED' ? 'failed' : status === 'HELD' ? 'held' : 'awaiting_payment',
+        status:
+          status === 'FAILED'
+            ? 'failed'
+            : status === 'HELD'
+              ? 'held'
+              : 'awaiting_payment',
         obiexStatus: status,
         providerResponse: {
           ...((trade.providerResponse as object) || {}),
@@ -74,7 +110,7 @@ export async function handleObiexCollectionWebhook(event: any) {
         },
       },
     });
-    return { handled: true, tradeId: trade.id };
+    return { handled: true, tradeId: trade.id, reason: 'status_ack' };
   }
 
   return { handled: false, reason: 'unhandled_status' };

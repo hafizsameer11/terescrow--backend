@@ -200,8 +200,8 @@ class PalmPayAuthService {
       const publicKey = config.publicKey;
 
       if (!publicKey) {
-        console.warn('PALMPAY_PUBLIC_KEY not set - skipping signature verification');
-        return true; // Allow if public key not configured (for development)
+        console.error('PALMPAY_PUBLIC_KEY not set - rejecting webhook signature');
+        return false; // Fail closed: never skip verification in production
       }
 
       // Convert public key to PEM format if needed

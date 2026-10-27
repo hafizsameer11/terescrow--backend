@@ -19,6 +19,7 @@ import { palmpayKoboToNgn } from '../../services/palmpay/palmpay.merchant.servic
 import { redisConfig } from '../../config/redis.config';
 import { sendSystemEmail } from '../../utils/systemEmail';
 import { assertMoneyOpRateLimit } from '../../utils/money.rate.limit';
+import { refundFailedPayoutTransaction } from '../../services/palmpay/palmpay.payout.webhook.service';
 
 const OPS_ALERT_EMAIL = process.env.OPS_ALERT_EMAIL || 'hmstech11@gmail.com';
 
@@ -593,7 +594,31 @@ export const initiatePayoutController = async (
       const errMsg =
         payoutError instanceof Error ? payoutError.message : 'Payout initiation failed';
 
-      if (transactionId) {
+      // Claim+refund via same locked path as fail webhook (payoutRefundedAt) — no double credit
+      if (transactionId && debitedFromFiat > 0) {
+        try {
+          await refundFailedPayoutTransaction(transactionId, {
+            orderStatus: 3,
+            errorMsg: errMsg,
+            amountOverride: debitedFromFiat,
+          });
+          debitedFromFiat = 0;
+        } catch (refundErr) {
+          console.error(
+            `CRITICAL: could not claim/refund fiat hold for tx ${transactionId} user ${user.id}:`,
+            refundErr
+          );
+          await prisma.fiatTransaction
+            .update({
+              where: { id: transactionId },
+              data: {
+                status: 'failed',
+                errorMessage: errMsg.slice(0, 500),
+              },
+            })
+            .catch((e) => console.error('Failed to mark payout tx failed:', e));
+        }
+      } else if (transactionId) {
         await prisma.fiatTransaction
           .update({
             where: { id: transactionId },
@@ -603,19 +628,6 @@ export const initiatePayoutController = async (
             },
           })
           .catch((e) => console.error('Failed to mark payout tx failed:', e));
-      }
-
-      // Refund fiat debit hold first, then reverse referral transfer
-      if (debitedFromFiat > 0) {
-        try {
-          await fiatWalletService.creditWalletAtomic(wallet.id, debitedFromFiat);
-          debitedFromFiat = 0;
-        } catch (refundErr) {
-          console.error(
-            `CRITICAL: could not refund fiat hold ₦${debitedFromFiat} for user ${user.id}:`,
-            refundErr
-          );
-        }
       }
 
       if (referralMovedAmount != null) {

@@ -413,6 +413,7 @@ export async function executeAppObiexSwap(
   });
 
   let debited = false;
+  let targetCredited = false;
   try {
     await debitObiexAsset(userId, leg.from, leg.userAmount);
     debited = true;
@@ -433,6 +434,7 @@ export async function executeAppObiexSwap(
     }
 
     await creditObiexAsset(userId, leg.to, received);
+    targetCredited = true;
 
     await finalizeTradeRecon({
       tradeLogId: trade.id,
@@ -477,14 +479,15 @@ export async function executeAppObiexSwap(
       source: 'obiex' as const,
     };
   } catch (error: any) {
-    if (debited) {
+    // Refund source only if target was never credited (else user would hold both)
+    if (debited && !targetCredited) {
       await creditObiexAsset(userId, leg.from, leg.userAmount).catch(() => undefined);
     }
     await tradeModel()
       .update({
         where: { id: trade.id },
         data: {
-          status: 'failed',
+          status: targetCredited ? 'needs_recon' : 'failed',
           errorMessage: error?.message || 'Swap failed',
         },
       })

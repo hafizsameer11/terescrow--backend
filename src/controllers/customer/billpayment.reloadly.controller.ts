@@ -10,7 +10,6 @@ import ApiResponse from '../../utils/ApiResponse';
 import { prisma } from '../../utils/prisma';
 import { reloadlyAirtimeService } from '../../services/reloadly/reloadly.airtime.service';
 import { fiatWalletService } from '../../services/fiat/fiat.wallet.service';
-import { Decimal } from '@prisma/client/runtime/library';
 
 /**
  * Query Reloadly Billers (Operators) for airtime
@@ -195,13 +194,15 @@ export const createReloadlyBillOrderController = async (
       return next(ApiError.badRequest('Invalid PIN. Must be 4 digits'));
     }
 
-    // Verify PIN
     const userRecord = await prisma.user.findUnique({
       where: { id: user.id },
       select: { pin: true },
     });
-
-    if (!userRecord?.pin || userRecord.pin !== pin) {
+    const { verifyAndMaybeUpgradePin } = await import('../../utils/pin.utils');
+    if (
+      !userRecord?.pin ||
+      !(await verifyAndMaybeUpgradePin(user.id, userRecord.pin, pin))
+    ) {
       return next(ApiError.unauthorized('Invalid PIN'));
     }
 
@@ -350,19 +351,17 @@ export const createReloadlyBillOrderController = async (
         });
       }
     } catch (error: any) {
-      // If Reloadly order creation fails, REFUND the wallet
+      // If Reloadly order creation fails, REFUND the wallet (row-locked credit)
       try {
-        const currentWallet = await prisma.fiatWallet.findUnique({
-          where: { id: wallet.id },
+        const claimed = await prisma.fiatTransaction.updateMany({
+          where: { id: transaction.id, status: 'pending' },
+          data: {
+            status: 'failed',
+            errorMessage: error.message || 'Failed to create Reloadly order',
+          },
         });
-
-        if (currentWallet) {
-          const refundAmount = new Decimal(currentWallet.balance).plus(amountNum);
-          await prisma.fiatWallet.update({
-            where: { id: wallet.id },
-            data: { balance: refundAmount },
-          });
-
+        if (claimed.count) {
+          await fiatWalletService.creditWalletAtomic(wallet.id, amountNum);
           await prisma.fiatTransaction.create({
             data: {
               id: uuidv4(),
@@ -386,15 +385,6 @@ export const createReloadlyBillOrderController = async (
       } catch (refundError) {
         console.error('Failed to refund wallet after Reloadly error:', refundError);
       }
-
-      // Update transaction status to failed
-      await prisma.fiatTransaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: 'failed',
-          errorMessage: error.message || 'Failed to create Reloadly order',
-        },
-      });
 
       await prisma.billPayment.update({
         where: { id: billPayment.id },

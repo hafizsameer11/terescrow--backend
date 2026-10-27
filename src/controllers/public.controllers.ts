@@ -9,7 +9,7 @@ import {
 import { Request, Response, NextFunction } from 'express';
 import ApiError from '../utils/ApiError';
 import ApiResponse from '../utils/ApiResponse';
-import { comparePassword, generateToken, generateOTP, sendVerificationEmail } from '../utils/authUtils';
+import { comparePassword, issueSessionToken, generateOTP, sendVerificationEmail } from '../utils/authUtils';
 import { v1Compat } from '../config/v1.compat.config';
 import { BANNED_CUSTOMER_MESSAGE, isUserBanned } from '../utils/customer.restrictions';
 import { triggerV2UserSetupIfNeeded } from '../services/user/ensure.v2.user.setup.service';
@@ -18,6 +18,16 @@ import { profile } from 'console';
 import axios from 'axios';
 import { sendToUserById } from '../utils/notificationController';
 import { sendPushNotification } from '../utils/pushService';
+import {
+  assertLoginRateLimit,
+  clearLoginRateLimit,
+} from '../utils/auth.rate.limit';
+import {
+  assertNotLoginLocked,
+  clearLoginLockout,
+  recordFailedLogin,
+  LOGIN_LOCK_MAX,
+} from '../utils/login.lockout';
 // import { sendPushNotification } from '../utils/firebaseNotificationService';
 
 const prisma = new PrismaClient();
@@ -40,6 +50,10 @@ export const loginController = async (
     if (!email || !password) {
       return next(ApiError.badRequest('Please enter valid credentials'));
     }
+
+    // Brute-force protection (per email + per IP)
+    await assertLoginRateLimit({ identifier: email, req });
+
     // Do NOT include KycStateTwo with orderBy here: prembly_payload JSON averages ~1MB+/row
     // and MySQL filesort hits "Out of sort memory" (errno 1038) → login 500.
     const isUser = await prisma.user.findUnique({
@@ -48,6 +62,10 @@ export const loginController = async (
     if (!isUser) {
       return next(ApiError.badRequest('This email is not registerd'));
     }
+
+    // Durable lock (DB) — survives Redis reset
+    assertNotLoginLocked(isUser);
+
     const latestKyc = await prisma.kycStateTwo.findFirst({
       where: { userId: isUser.id },
       orderBy: { createdAt: 'desc' },
@@ -92,8 +110,19 @@ export const loginController = async (
     
     const isMatch = await comparePassword(password, isUser.password);
     if (!isMatch) {
+      const fail = await recordFailedLogin(isUser.id);
+      if (fail.locked) {
+        return next(
+          ApiError.tooManyRequests(
+            `Account temporarily locked after ${LOGIN_LOCK_MAX} failed login attempts. Try again later or reset your password.`
+          )
+        );
+      }
       return next(ApiError.badRequest('Your password is not correct'));
     }
+
+    await clearLoginRateLimit(email);
+    await clearLoginLockout(isUser.id);
 
     // Abandoned signup: allow login, issue a fresh OTP, and let the app open the OTP screen.
     // (Do not hard-block unverified users — they need to complete OTP, not a verification link.)
@@ -127,7 +156,7 @@ export const loginController = async (
       triggerV2UserSetupIfNeeded(isUser.id);
     }
 
-    const token = generateToken(isUser.id, isUser.username, isUser.role);
+    const token = await issueSessionToken(isUser);
     res.cookie('token', token, {
       httpOnly: true,
       secure: true,

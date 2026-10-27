@@ -871,16 +871,44 @@ async function reverseBuyDebit(
   amountNgn: number,
   reason: string
 ) {
+  // Original debit txn is already "completed" — creditWallet would no-op.
+  // Claim fail once, then credit via atomic helper + separate refund txn.
   try {
+    const claimed = await prisma.fiatTransaction.updateMany({
+      where: {
+        id: fiatTxnId,
+        status: { in: ['pending', 'completed', 'successful'] },
+      },
+      data: {
+        status: 'failed',
+        description: reason.slice(0, 500),
+        errorMessage: reason.slice(0, 500),
+      },
+    });
+    if (!claimed.count) {
+      return; // already reversed / failed
+    }
     const wallet = await fiatWalletService.getOrCreateWallet(userId, 'NGN');
-    await fiatWalletService.creditWallet(wallet.id, amountNgn, fiatTxnId);
+    await fiatWalletService.creditWalletAtomic(wallet.id, amountNgn);
+    await prisma.fiatTransaction.create({
+      data: {
+        id: uuidv4(),
+        userId,
+        walletId: wallet.id,
+        type: 'CRYPTO_BUY_REFUND',
+        status: 'completed',
+        currency: 'NGN',
+        amount: amountNgn,
+        fees: 0,
+        totalAmount: amountNgn,
+        description: `Refund Obiex buy ${fiatTxnId.slice(0, 8)}`,
+        metadata: JSON.stringify({ refundFor: fiatTxnId, reason: reason.slice(0, 300) }),
+        completedAt: new Date(),
+      },
+    });
   } catch (e: any) {
     console.error('[Obiex buy] reverse debit failed', e?.message || e);
   }
-  await prisma.fiatTransaction.update({
-    where: { id: fiatTxnId },
-    data: { status: 'failed', description: reason },
-  });
 }
 
 export async function executeAppObiexBuy(
@@ -1036,6 +1064,7 @@ export async function executeAppObiexBuy(
     },
   });
 
+  let cryptoCredited = false;
   try {
     await beginTradeRecon({
       tradeLogId: trade.id,
@@ -1111,6 +1140,7 @@ export async function executeAppObiexBuy(
     }
 
     await creditObiexAsset(userId, ledgerCurrency, received);
+    cryptoCredited = true;
     await prisma.fiatTransaction.update({
       where: { id: fiatTxn.id },
       data: { status: 'completed' },
@@ -1175,19 +1205,36 @@ export async function executeAppObiexBuy(
     // User-facing payload stays a normal completed buy (no funding / VA details).
     return { trade: updated };
   } catch (error: any) {
-    await tradeModel().update({
-      where: { id: trade.id },
-      data: {
-        status: 'failed',
-        errorMessage: error?.message || 'Obiex buy failed',
-      },
-    }).catch(() => undefined);
-    try {
-      await finalizeTradeRecon({ tradeLogId: trade.id, includeNgnx: true });
-    } catch {
-      /* best-effort after snapshot */
+    // If user already got crypto, do NOT reverse NGN (would double-pay). Flag for recon.
+    if (!cryptoCredited) {
+      await tradeModel().update({
+        where: { id: trade.id },
+        data: {
+          status: 'failed',
+          errorMessage: error?.message || 'Obiex buy failed',
+        },
+      }).catch(() => undefined);
+      try {
+        await finalizeTradeRecon({ tradeLogId: trade.id, includeNgnx: true });
+      } catch {
+        /* best-effort after snapshot */
+      }
+      await reverseBuyDebit(userId, fiatTxn.id, userNgn, error?.message || 'Obiex buy failed');
+    } else {
+      console.error(
+        `[Obiex buy] post-credit failure for trade ${trade.id} user ${userId}; NGN not reversed (crypto already credited):`,
+        error?.message || error
+      );
+      await tradeModel()
+        .update({
+          where: { id: trade.id },
+          data: {
+            status: 'completed',
+            errorMessage: `Post-credit issue (manual recon): ${String(error?.message || error).slice(0, 400)}`,
+          },
+        })
+        .catch(() => undefined);
     }
-    await reverseBuyDebit(userId, fiatTxn.id, userNgn, error?.message || 'Obiex buy failed');
     if (error instanceof ApiError) throw error;
     if (error instanceof ObiexApiError) {
       throw ApiError.badRequest(error.message);
@@ -1302,6 +1349,7 @@ export async function executeAppObiexSell(
 
   await debitObiexAsset(userId, source, amount);
 
+  let ngnCredited = false;
   try {
     const swap = await obiexClient.instantSwap({
       sourceId: source,
@@ -1334,7 +1382,7 @@ export async function executeAppObiexSell(
         userId,
         walletId: fiatWallet.id,
         type: 'CRYPTO_SELL',
-        status: 'completed',
+        status: 'pending',
         currency: 'NGN',
         amount: userNgn,
         /** User-facing flat+% fee only — Obiex withdraw fee is admin-only in metadata. */
@@ -1344,6 +1392,7 @@ export async function executeAppObiexSell(
       },
     });
     await fiatWalletService.creditWallet(fiatWallet.id, userNgn, fiatTxn.id);
+    ngnCredited = true;
 
     // Move Obiex NGNX proceeds to PalmPay business account (admin settlement).
     // User already credited — settlement failure is logged, sell stays completed.
@@ -1353,7 +1402,6 @@ export async function executeAppObiexSell(
       userId,
       sourceCurrency: source,
     });
-
     const feesForAdmin = buildObiexFeesForAdmin({
       side: 'sell',
       markupPercent: resolved.percent,
@@ -1422,14 +1470,37 @@ export async function executeAppObiexSell(
 
     return { trade: updated };
   } catch (error: any) {
-    await creditObiexAsset(userId, source, amount);
-    await tradeModel().update({
-      where: { id: trade.id },
-      data: {
-        status: 'failed',
-        errorMessage: error?.message || 'Obiex sell failed',
-      },
-    }).catch(() => undefined);
+    // If user already got NGN, do NOT refund crypto (would double-pay). Flag for recon.
+    if (!ngnCredited) {
+      await creditObiexAsset(userId, source, amount).catch(() => undefined);
+      await tradeModel()
+        .update({
+          where: { id: trade.id },
+          data: {
+            status: 'failed',
+            errorMessage: error?.message || 'Obiex sell failed',
+          },
+        })
+        .catch(() => undefined);
+    } else {
+      console.error(
+        '[Obiex sell] failed after NGN credit — leaving crypto debited; needs recon',
+        trade.id,
+        error?.message || error
+      );
+      await tradeModel()
+        .update({
+          where: { id: trade.id },
+          data: {
+            status: 'needs_recon',
+            errorMessage: `Post-credit failure: ${error?.message || 'Obiex sell failed'}`.slice(
+              0,
+              500
+            ),
+          },
+        })
+        .catch(() => undefined);
+    }
     try {
       await finalizeTradeRecon({ tradeLogId: trade.id, includeNgnx: true });
     } catch {
@@ -1737,6 +1808,7 @@ export async function executeAppObiexSend(
 
   await debitObiexAsset(userId, currency, totalDebit);
 
+  let withdrawAccepted = false;
   try {
     const res = await obiexClient.withdrawCrypto({
       currency,
@@ -1744,6 +1816,7 @@ export async function executeAppObiexSend(
       destination: { address, network },
     });
     const data = unwrapData(res);
+    withdrawAccepted = true;
 
     await finalizeTradeRecon({
       tradeLogId: trade.id,
@@ -1767,14 +1840,30 @@ export async function executeAppObiexSend(
     });
     return { trade: updated };
   } catch (error: any) {
-    await creditObiexAsset(userId, currency, totalDebit);
-    await tradeModel().update({
-      where: { id: trade.id },
-      data: {
-        status: 'failed',
-        errorMessage: error?.message || 'Obiex withdraw failed',
-      },
-    });
+    // Only refund ledger if Obiex never accepted the withdraw (otherwise double-pay on chain)
+    if (!withdrawAccepted) {
+      await creditObiexAsset(userId, currency, totalDebit).catch(() => undefined);
+      await tradeModel().update({
+        where: { id: trade.id },
+        data: {
+          status: 'failed',
+          errorMessage: error?.message || 'Obiex withdraw failed',
+        },
+      });
+    } else {
+      console.error(
+        '[Obiex send] provider accepted withdraw but local finalize failed — needs recon',
+        trade.id,
+        error?.message || error
+      );
+      await tradeModel().update({
+        where: { id: trade.id },
+        data: {
+          status: 'needs_recon',
+          errorMessage: `Post-withdraw failure: ${error?.message || 'unknown'}`.slice(0, 500),
+        },
+      });
+    }
     try {
       await finalizeTradeRecon({ tradeLogId: trade.id, includeNgnx: false });
     } catch {
